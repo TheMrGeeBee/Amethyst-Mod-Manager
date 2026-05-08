@@ -121,6 +121,29 @@ class ModListNexusActionsMixin:
     def _abstain_nexus_mod(self, mod_name: str, domain: str, meta) -> None:
         self._vote_nexus_mod(mod_name, domain, meta, endorse=False)
 
+    def _vote_selected_mods(self, targets: list[tuple], endorse: bool) -> None:
+        """Endorse or abstain a list of (mod_name, domain, meta) tuples.
+
+        Each target reuses _vote_nexus_mod, which spins its own background
+        thread — so this just fans them out and lets the API/Nexus rate-limit
+        itself."""
+        if not targets:
+            return
+        app = self.winfo_toplevel()
+        if getattr(app, "_nexus_api", None) is None:
+            self._warn_nexus_login_required()
+            return
+        verb = "Endorsing" if endorse else "Abstaining from"
+        self._log(f"Nexus: {verb} {len(targets)} mod(s)…")
+        for mod_name, domain, meta in targets:
+            self._vote_nexus_mod(mod_name, domain, meta, endorse=endorse)
+
+    def _endorse_selected_mods(self, targets: list[tuple]) -> None:
+        self._vote_selected_mods(targets, endorse=True)
+
+    def _abstain_selected_mods(self, targets: list[tuple]) -> None:
+        self._vote_selected_mods(targets, endorse=False)
+
     def _update_nexus_mod(self, mod_name: str) -> None:
         """Show the mod files overlay so the user can pick which file to install."""
         app = self.winfo_toplevel()

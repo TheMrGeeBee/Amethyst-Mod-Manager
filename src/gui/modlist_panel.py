@@ -4196,8 +4196,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 except Exception:
                     ctx_meta = None
 
-        # Multi-select Nexus URLs.
+        # Multi-select Nexus URLs + endorse/abstain targets (same scan).
         nexus_urls: list[str] = []
+        endorse_multi: list[tuple[str, str, object]] = []
+        abstain_multi: list[tuple[str, str, object]] = []
         if toggleable and self._staging_root is not None:
             for ti in toggleable:
                 tname = entries[ti].name
@@ -4211,8 +4213,28 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         nexus_urls.append(
                             f"https://www.nexusmods.com/{tdomain}/mods/{tmeta.mod_id}"
                         )
+                        if tmeta.endorsed:
+                            abstain_multi.append((tname, tdomain, tmeta))
+                        else:
+                            endorse_multi.append((tname, tdomain, tmeta))
                 except Exception:
                     pass
+
+        # Multi-select Root Folder + Note targets.
+        root_folder_enable_multi: list[str] = []
+        root_folder_disable_multi: list[str] = []
+        note_multi_names: list[str] = []
+        note_multi_remove_names: list[str] = []
+        if is_multi:
+            for ti in non_synthetic_real:
+                tname = entries[ti].name
+                if tname in self._root_folder_mods:
+                    root_folder_disable_multi.append(tname)
+                else:
+                    root_folder_enable_multi.append(tname)
+                note_multi_names.append(tname)
+                if tname in self._mod_notes_map:
+                    note_multi_remove_names.append(tname)
 
         return SimpleNamespace(
             idx=idx, mod_name=mod_name,
@@ -4229,6 +4251,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             conflict_status=conflict_status, bsa_conflict_status=bsa_conflict_status,
             ctx_meta=ctx_meta, nexus_url=nexus_url, domain=domain,
             archive_path=archive_path, nexus_urls=nexus_urls,
+            endorse_multi=endorse_multi, abstain_multi=abstain_multi,
+            root_folder_enable_multi=root_folder_enable_multi,
+            root_folder_disable_multi=root_folder_disable_multi,
+            note_multi_names=note_multi_names,
+            note_multi_remove_names=note_multi_remove_names,
         )
 
     def _resolve_nexus_domain(self, meta) -> str:
@@ -4273,17 +4300,29 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         mod_name = c.mod_name
         ctx_meta = c.ctx_meta
 
-        # Abstain from Endorsement
+        # Abstain from Endorsement (single)
         if (c.is_real_mod and not c.is_multi
                 and ctx_meta is not None and ctx_meta.mod_id > 0 and ctx_meta.endorsed):
             menu.add_command("Abstain from Endorsement",
                 lambda: self._abstain_nexus_mod(mod_name, c.domain, ctx_meta))
 
-        # Add note / Edit note  (single-select real mods only)
+        # Abstain selected (multi)
+        if c.is_multi and c.abstain_multi:
+            targets = list(c.abstain_multi)
+            menu.add_command(f"Abstain selected ({len(targets)})",
+                lambda t=targets: self._abstain_selected_mods(t))
+
+        # Add note / Edit note  (single)
         if c.is_real_mod and not c.is_multi:
             note_label = "Edit note" if mod_name in self._mod_notes_map else "Add note"
             menu.add_command(note_label,
                 lambda mn=mod_name: self._open_note_editor_by_name(mn))
+
+        # Add / append note (multi)
+        if c.is_multi and c.note_multi_names:
+            names = list(c.note_multi_names)
+            menu.add_command(f"Add note ({len(names)})",
+                lambda mns=names: self._open_note_editor_for_multi(mns))
 
         # Add separator above / below
         if not c.is_multi:
@@ -4346,11 +4385,17 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             menu.add_command(f"Enable selected ({count})",
                 lambda inds=list(c.toggleable): self._enable_selected_mods(inds))
 
-        # Endorse Mod
+        # Endorse Mod (single)
         if (c.is_real_mod and not c.is_multi
                 and ctx_meta is not None and ctx_meta.mod_id > 0 and not ctx_meta.endorsed):
             menu.add_command("Endorse Mod",
                 lambda: self._endorse_nexus_mod(mod_name, c.domain, ctx_meta))
+
+        # Endorse selected (multi)
+        if c.is_multi and c.endorse_multi:
+            targets = list(c.endorse_multi)
+            menu.add_command(f"Endorse selected ({len(targets)})",
+                lambda t=targets: self._endorse_selected_mods(t))
 
         # INI files
         if not c.is_separator and not c.is_locked and c.ini_files and not c.is_multi:
@@ -4420,6 +4465,12 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             else:
                 menu.add_command("Remove mod", lambda: self._remove_mod(idx))
 
+        # Remove note (multi)
+        if c.is_multi and c.note_multi_remove_names:
+            names = list(c.note_multi_remove_names)
+            menu.add_command(f"Remove note ({len(names)})",
+                lambda mns=names: self._remove_notes_multi(mns))
+
         # Remove separator(s)
         if c.is_separator and not c.is_synthetic:
             if len(c.remove_multi_sep) >= 2:
@@ -4437,12 +4488,22 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         if c.is_separator and not c.is_synthetic and not c.is_bundle_sep:
             menu.add_command("Rename separator", lambda: self._rename_separator(idx))
 
-        # Root Folder install toggle
+        # Root Folder install toggle (single)
         if not c.is_separator and not c.is_locked and not c.is_multi:
             is_rf = mod_name in self._root_folder_mods
             rf_label = "Disable Root Folder install" if is_rf else "Enable Root Folder install"
             menu.add_command(rf_label,
                 lambda mn=mod_name: self._toggle_root_folder_flag(mn))
+
+        # Root Folder install toggle (multi)
+        if c.is_multi and c.root_folder_enable_multi:
+            names = list(c.root_folder_enable_multi)
+            menu.add_command(f"Enable Root Folder install ({len(names)})",
+                lambda mns=names: self._set_root_folder_flag_multi(mns, True))
+        if c.is_multi and c.root_folder_disable_multi:
+            names = list(c.root_folder_disable_multi)
+            menu.add_command(f"Disable Root Folder install ({len(names)})",
+                lambda mns=names: self._set_root_folder_flag_multi(mns, False))
 
         # Separator settings…
         if c.is_separator and not c.is_synthetic and not c.is_bundle_sep:
@@ -4479,7 +4540,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta = read_meta(meta_path) if meta_path.is_file() else None
         if meta is None:
-            from Nexus.nexus_meta import ModMeta as _ModMeta
+            from Nexus.nexus_meta import NexusModMeta as _ModMeta
             meta = _ModMeta()
         new_val = not meta.root_folder
         meta.root_folder = new_val
@@ -4493,6 +4554,39 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._log(f"{mod_name}: Root Folder install DISABLED — files will deploy to Data/ as normal.")
         self._vis_dirty = True
         self._redraw()
+
+    def _set_root_folder_flag_multi(self, mod_names: list[str], enable: bool) -> None:
+        """Apply rootFolder=enable to every mod in mod_names. Skips mods already
+        in the desired state so we don't churn meta.ini for no reason."""
+        if not mod_names:
+            return
+        from Nexus.nexus_meta import NexusModMeta as _ModMeta
+        changed: list[str] = []
+        for mod_name in mod_names:
+            already = mod_name in self._root_folder_mods
+            if enable == already:
+                continue
+            meta_path = self._staging_root / mod_name / "meta.ini"
+            try:
+                meta_path.parent.mkdir(parents=True, exist_ok=True)
+                meta = read_meta(meta_path) if meta_path.is_file() else _ModMeta()
+                meta.root_folder = enable
+                write_meta(meta_path, meta)
+            except Exception as exc:
+                self._log(f"{mod_name}: Could not update root folder flag — {exc}")
+                continue
+            if enable:
+                self._root_folder_mods.add(mod_name)
+            else:
+                self._root_folder_mods.discard(mod_name)
+            changed.append(mod_name)
+        if changed:
+            verb = "ENABLED" if enable else "DISABLED"
+            tail = ("files will deploy to game root."
+                    if enable else "files will deploy to Data/ as normal.")
+            self._log(f"Root Folder install {verb} on {len(changed)} mod(s) — {tail}")
+            self._vis_dirty = True
+            self._redraw()
         # Rebuild filemap so filemap_root.txt reflects the updated root-folder assignment.
         self._rebuild_filemap()
 
@@ -5911,6 +6005,73 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._log("Cannot open note editor: plugin panel unavailable.")
             return
         pp.show_notes_editor(mod_name, initial, _save, _remove)
+
+    def _open_note_editor_for_multi(self, mod_names: list[str]) -> None:
+        """Open the mod-note editor with an empty initial buffer; on save the
+        text is applied to every mod in *mod_names*. If a mod already has a
+        note, the new text is appended on a new line (preserving the prior
+        note); otherwise the new text becomes the note."""
+        if self._modlist_path is None or not mod_names:
+            return
+        profile_dir = self._modlist_path.parent
+        names = list(mod_names)
+        title = f"{len(names)} mods"
+
+        def _save(text: str):
+            text = text.strip()
+            if not text:
+                return
+            for mn in names:
+                existing = self._mod_notes_map.get(mn, "").rstrip()
+                if existing:
+                    self._mod_notes_map[mn] = f"{existing}\n{text}"
+                else:
+                    self._mod_notes_map[mn] = text
+            try:
+                write_mod_notes(profile_dir, self._mod_notes_map)
+            except Exception as e:
+                self._log(f"Failed to save notes for {len(names)} mods: {e}")
+            self._log(f"Note applied to {len(names)} mod(s).")
+            self._redraw()
+
+        def _remove():
+            removed = 0
+            for mn in names:
+                if self._mod_notes_map.pop(mn, None) is not None:
+                    removed += 1
+            try:
+                write_mod_notes(profile_dir, self._mod_notes_map)
+            except Exception as e:
+                self._log(f"Failed to remove notes: {e}")
+            if removed:
+                self._log(f"Removed note from {removed} mod(s).")
+            self._redraw()
+
+        app = self.winfo_toplevel()
+        pp = getattr(app, "_plugin_panel", None)
+        if pp is None or not hasattr(pp, "show_notes_editor"):
+            self._log("Cannot open note editor: plugin panel unavailable.")
+            return
+        pp.show_notes_editor(title, "", _save, _remove)
+
+    def _remove_notes_multi(self, mod_names: list[str]) -> None:
+        """Remove the note from every mod in *mod_names* without opening the editor."""
+        if self._modlist_path is None or not mod_names:
+            return
+        profile_dir = self._modlist_path.parent
+        removed = 0
+        for mn in mod_names:
+            if self._mod_notes_map.pop(mn, None) is not None:
+                removed += 1
+        if not removed:
+            return
+        try:
+            write_mod_notes(profile_dir, self._mod_notes_map)
+        except Exception as e:
+            self._log(f"Failed to remove notes: {e}")
+            return
+        self._log(f"Removed note from {removed} mod(s).")
+        self._redraw()
 
     def _show_missing_reqs(self, mod_name: str, dep_names: list[str]) -> None:
         """Show missing requirements as an inline overlay over the plugin panel."""
