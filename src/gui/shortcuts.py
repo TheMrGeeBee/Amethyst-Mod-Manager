@@ -9,7 +9,8 @@ Bindings:
     Home            Scroll active list panel to the top
     End             Scroll active list panel to the bottom
     Ctrl+F          Focus the search bar of the active list panel
-    Ctrl+A          Select all mods within the active separator (modlist panel)
+    Ctrl+A          Select all mods in the active separator (modlist panel)
+                    or all plugins in the plugin panel
     Ctrl+D          Deploy
     Ctrl+R          Restore
     Alt+Up          Move selected mods/plugins/separators up
@@ -239,6 +240,23 @@ def _focus_search(app):
         pass
 
 
+def _select_all_plugins(panel):
+    entries = getattr(panel, "_plugin_entries", None)
+    if not entries:
+        return
+    filtered = getattr(panel, "_plugin_filtered_indices", None)
+    if filtered is not None:
+        new_sel = set(filtered)
+    else:
+        new_sel = set(range(len(entries)))
+    if not new_sel:
+        return
+    panel._psel_set = new_sel
+    panel._sel_idx = min(new_sel)
+    if hasattr(panel, "_predraw"):
+        panel._predraw()
+
+
 def _select_all_in_separator(app):
     """Select all mods under the active separator.
 
@@ -246,8 +264,13 @@ def _select_all_in_separator(app):
     - If a separator is selected, select every mod in that separator.
     - If there are no separators (other than the synthetic Overwrite /
       Root_Folder rows), select every normal mod.
+    - If the plugin panel was last interacted with, select every plugin
+      (or every plugin matching the active filter).
     """
     kind, panel = _active_list_panel(app)
+    if kind == "plugin" and panel is not None:
+        _select_all_plugins(panel)
+        return
     if kind != "mod" or panel is None:
         return
     entries = getattr(panel, "_entries", None)
