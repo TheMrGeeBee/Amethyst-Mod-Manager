@@ -12,7 +12,7 @@
 - Downgraded flatpaks tk version to match the appimage and fix some scaling issues in tk9
 - Mods in locked separators now cannot be dragged out of them, Holding alt while dragging them will bypass this behaviour
 - Changing staging folder will now move files to the new staging folder.
-
+- Fixed keybinds not working after selecting context menu options
 
 - v1.3.1
 - Added some missing dependencies to appimage build

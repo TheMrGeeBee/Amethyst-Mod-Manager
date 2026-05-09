@@ -1082,6 +1082,12 @@ class CTkPopupMenu(ctk.CTkToplevel):
             self.withdraw()
         self.hidden = True
 
+        if self.master_window is not None:
+            try:
+                self.master_window.winfo_toplevel().focus_force()
+            except Exception:
+                pass
+
     def _pointer_in_menu(self, px: int, py: int) -> bool:
         """True if (px, py) is inside this popup or its active submenu."""
         try:
