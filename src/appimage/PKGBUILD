@@ -131,7 +131,7 @@ EOF
     install -Dm644 "$_src/appimage/mod-manager.desktop" \
         "$pkgdir/usr/share/applications/mod-manager.desktop"
     install -Dm644 "$_src/appimage/mod-manager.png" \
-        "$pkgdir/usr/share/icons/hicolor/512x512/apps/mod-manager.png"
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/mod-manager.png"
 
     # Bundled binaries — these get bundled into the AppImage as if they were
     # any other system binary (quick-sharun's /usr → "$APPDIR" rewrite).

@@ -53,9 +53,7 @@ fi
 # ── Clean ────────────────────────────────────────────────────────────
 echo "=== Cleaning previous build ==="
 rm -rf "$WORK_DIR" "$FINAL_OUTPATH"
-mkdir -p "$APPDIR/bin" \
-         "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/512x512/apps" \
-         "$OUTPATH" "$FINAL_OUTPATH"
+mkdir -p "$APPDIR/bin" "$OUTPATH" "$FINAL_OUTPATH"
 
 # ── Aux staging (bsdtar + Cantarell font) ────────────────────────────
 # 7zzs and zenity-rs are bundled by the PKGBUILD itself (PKGBUILD mode) or
@@ -336,6 +334,15 @@ EOF
     # See PKGBUILD-mode comment above for why this manual rewrite is needed.
     sed -i -e 's|/usr/share|"$APPDIR"/share|g' "$APPDIR/bin/mod-manager"
 fi
+
+# ── Hicolor icon for AppImageLauncher / appimaged integration ────────
+# libappimage resolves Icon=mod-manager via the FreeDesktop spec, i.e.
+# usr/share/icons/hicolor/<size>/apps/<name>.png. Without it AppImageLauncher
+# logs "no icon to set" and refuses to write a host .desktop file.
+# quick-sharun deploys binaries + libs but doesn't propagate icon themes,
+# so we install the icon into the AppDir explicitly here for both modes.
+install -Dm644 "${ASSETS_DIR}/mod-manager.png" \
+    "$APPDIR/usr/share/icons/hicolor/256x256/apps/mod-manager.png"
 
 # ── Build the AppImage ───────────────────────────────────────────────
 echo "=== Building AppImage ==="
