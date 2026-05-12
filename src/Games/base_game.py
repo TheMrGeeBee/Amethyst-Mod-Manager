@@ -630,6 +630,11 @@ class BaseGame(ABC):
         return []
 
     @property
+    def vanilla_dlc_plugins(self) -> list[str]:
+        """Official DLC plugin filenames (mirrors MO2's DLCPlugins())."""
+        return []
+
+    @property
     def vanilla_ccc_filename(self) -> str | None:
         """Filename of the CC manifest in <game_path>, or None."""
         return None

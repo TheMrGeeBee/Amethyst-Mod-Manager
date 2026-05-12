@@ -154,7 +154,7 @@ class ModListHeaderColumnsMixin:
             btn = self._col_menu_btn
             x = btn.winfo_rootx()
             y = btn.winfo_rooty() + btn.winfo_height()
-            menu.popup(x - 170, y)
+            menu.popup(x - scaled(170), y)
         except Exception:
             menu.popup()
 

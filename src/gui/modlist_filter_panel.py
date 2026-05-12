@@ -131,6 +131,17 @@ class ModListFilterPanelMixin:
         self._fsp_category_frame.pack(anchor="w", pady=(2, 0))
         self._fsp_category_vars: dict[str, tk.BooleanVar] = {}
 
+        ctk.CTkLabel(
+            scroll_frame, text="", height=8, fg_color="transparent",
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            scroll_frame, text="Show only mods with filetype:",
+            font=_theme.FONT_SMALL, text_color=TEXT_DIM, anchor="w",
+        ).pack(anchor="w")
+        self._fsp_filetype_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        self._fsp_filetype_frame.pack(anchor="w", fill="x", pady=(2, 0))
+        self._fsp_filetype_vars: dict[str, tk.BooleanVar] = {}
+
         self._filter_scroll_frame = scroll_frame
         self._bind_filter_panel_scroll()
 
@@ -140,16 +151,53 @@ class ModListFilterPanelMixin:
         if not scroll_frame or not hasattr(scroll_frame, "_parent_canvas"):
             return
 
+        # Slower than the app-wide 3 units/notch — the filter panel is short
+        # enough that 3 flies past entries.
+        step = 2
+
         def _on_wheel(evt):
             num = getattr(evt, "num", None)
             delta = getattr(evt, "delta", 0) or 0
             if num == 4 or delta > 0:
-                scroll_frame._parent_canvas.yview_scroll(-3, "units")
+                scroll_frame._parent_canvas.yview_scroll(-step, "units")
             elif num == 5 or delta < 0:
-                scroll_frame._parent_canvas.yview_scroll(3, "units")
+                scroll_frame._parent_canvas.yview_scroll(step, "units")
+            # Stop Tk from propagating the wheel event to ancestor widgets that
+            # also have _on_wheel bound — without this, a notch on a deeply
+            # nested checkbox scrolls once per ancestor (looks like acceleration
+            # as the list nests deeper near the bottom).
+            return "break"
 
-        # On Tk >= 8.7 CTkScrollableFrame handles <MouseWheel> via its own bind_all;
-        # supplement Button-4/5 only on Tk 8.6.
+        # On Tk >= 8.7 CTkScrollableFrame's own <MouseWheel> handler scrolls
+        # at the app-wide 3-unit step. Override it on this instance so the
+        # filter panel uses our slower step.
+        if LEGACY_WHEEL_REDUNDANT:
+            import sys as _sys
+
+            def _slow_mouse_wheel_all(self_sf, event, _step=step):
+                if not self_sf.check_if_master_is_canvas(event.widget):
+                    return
+                delta = getattr(event, "delta", 0) or 0
+                if delta == 0:
+                    return
+                if _sys.platform.startswith("win"):
+                    units = -int(delta / 8)
+                elif _sys.platform == "darwin":
+                    units = -delta
+                else:
+                    units = -_step if delta > 0 else _step
+                if self_sf._shift_pressed:
+                    if self_sf._parent_canvas.xview() != (0.0, 1.0):
+                        self_sf._parent_canvas.xview("scroll", units, "units")
+                else:
+                    if self_sf._parent_canvas.yview() != (0.0, 1.0):
+                        self_sf._parent_canvas.yview("scroll", units, "units")
+
+            import types as _types
+            scroll_frame._mouse_wheel_all = _types.MethodType(
+                _slow_mouse_wheel_all, scroll_frame,
+            )
+
         _legacy = None if LEGACY_WHEEL_REDUNDANT else _on_wheel
 
         def _bind_recursive(w):
@@ -189,17 +237,62 @@ class ModListFilterPanelMixin:
 
         self._bind_filter_panel_scroll()
 
+    def _refresh_filter_filetype_list(self) -> None:
+        """Populate filetype checkboxes from the persisted mod index.
+
+        Called when opening the filter panel so the list always reflects
+        what's currently installed. Sorted by file count (desc), then ext (asc).
+        """
+        for w in self._fsp_filetype_frame.winfo_children():
+            w.destroy()
+        self._fsp_filetype_vars.clear()
+        counts = self._get_filetype_counts()
+        if not counts:
+            ctk.CTkLabel(
+                self._fsp_filetype_frame,
+                text="(no mods indexed)",
+                font=_theme.FONT_SMALL, text_color=TEXT_DIM, anchor="w",
+            ).pack(anchor="w", pady=2)
+            self._bind_filter_panel_scroll()
+            return
+        ordered = sorted(counts.items(), key=lambda kv: kv[0])
+        for ext, count in ordered:
+            var = tk.BooleanVar(value=ext in self._filter_filetypes)
+            self._fsp_filetype_vars[ext] = var
+            ctk.CTkCheckBox(
+                self._fsp_filetype_frame,
+                text=f"{ext}  ({count:,})",
+                variable=var,
+                font=_theme.FONT_SMALL,
+                text_color=TEXT_MAIN,
+                fg_color=ACCENT,
+                hover_color=ACCENT_HOV,
+                border_color=BORDER,
+                checkmark_color="white",
+                command=self._on_filter_panel_change,
+            ).pack(anchor="w", pady=2)
+
+        self._bind_filter_panel_scroll()
+
     def _clear_all_filters(self):
         for v in self._fsp_vars.values():
             v.set(False)
         for v in self._fsp_category_vars.values():
             v.set(False)
-        self._apply_modlist_filters({"filter_categories": frozenset()})
+        for v in self._fsp_filetype_vars.values():
+            v.set(False)
+        self._apply_modlist_filters({
+            "filter_categories": frozenset(),
+            "filter_filetypes": frozenset(),
+        })
 
     def _on_filter_panel_change(self):
         state = {k: v.get() for k, v in self._fsp_vars.items()}
         state["filter_categories"] = frozenset(
             c for c, v in self._fsp_category_vars.items() if v.get()
+        )
+        state["filter_filetypes"] = frozenset(
+            ext for ext, v in self._fsp_filetype_vars.items() if v.get()
         )
         self._apply_modlist_filters(state)
 
@@ -210,10 +303,12 @@ class ModListFilterPanelMixin:
             self._open_filter_side_panel()
 
     def _open_filter_side_panel(self):
-        # Close plugin filter if open (they share the same column).
+        # Close plugin/data filter if open (they share the same column).
         plugin_panel = getattr(self.winfo_toplevel(), "_plugin_panel", None)
         if plugin_panel is not None and getattr(plugin_panel, "_plugin_filter_panel_open", False):
             plugin_panel._close_plugin_filter_panel()
+        if plugin_panel is not None and getattr(plugin_panel, "_data_filter_panel_open", False):
+            plugin_panel._close_data_filter_panel()
         self._filter_panel_open = True
         # Use scaled minsize so the panel isn't squeezed at higher UI scale.
         self.grid_columnconfigure(0, minsize=scaled(380))
@@ -222,6 +317,7 @@ class ModListFilterPanelMixin:
             self._fsp_vars[key].set(getattr(self, attr))
         self._refresh_archive_filter_label()
         self._refresh_filter_category_list()
+        self._refresh_filter_filetype_list()
         self._update_filter_btn_color()
 
     def _refresh_archive_filter_label(self) -> None:
@@ -253,6 +349,7 @@ class ModListFilterPanelMixin:
         for key, _label, attr in _FILTER_CHECKBOXES:
             setattr(self, attr, state.get(key, False))
         self._filter_categories = state.get("filter_categories") or frozenset()
+        self._filter_filetypes = state.get("filter_filetypes") or frozenset()
         self._update_filter_btn_color()
         self._invalidate_derived_caches()
         self._redraw()
@@ -260,7 +357,7 @@ class ModListFilterPanelMixin:
     def _any_modlist_filters_active(self) -> bool:
         if any(getattr(self, attr) for _key, _label, attr in _FILTER_CHECKBOXES):
             return True
-        return bool(self._filter_categories)
+        return bool(self._filter_categories) or bool(self._filter_filetypes)
 
     def _update_filter_btn_color(self) -> None:
         btn = getattr(self, "_filter_btn", None)

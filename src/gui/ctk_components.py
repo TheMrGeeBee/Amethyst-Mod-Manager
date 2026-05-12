@@ -1145,7 +1145,17 @@ class CTkPopupMenu(ctk.CTkToplevel):
             self._watchdog_id = None
 
     def popup(self, x=None, y=None):
-        """Show the menu at screen coordinates (x, y). Uses cursor position if not provided."""
+        """Show the menu at screen coordinates (x, y). Uses cursor position if not provided.
+
+        x, y are real screen pixels and CTkToplevel.geometry() leaves the
+        position part of the geometry string unscaled (see
+        scaling_base_class._apply_geometry_scaling), so we pass them through.
+        Width/height however ARE scaled by CTk, so self.width/self.height stay
+        in design units.  At higher ui_scale the widget-scaling factor makes
+        each button taller than the design row height, so we resize the window
+        once after layout (using winfo_reqheight, which is in real pixels) to
+        avoid clipping the bottom items.
+        """
         import time as _time
         self._popup_time = _time.monotonic()
         self._popup_gen += 1
@@ -1153,6 +1163,10 @@ class CTkPopupMenu(ctk.CTkToplevel):
             print(f"[PopupMenu] popup() called at ({x}, {y}), alive={self._alive[0]}, hidden={self.hidden}, gen={self._popup_gen}")
         self._alive[0] = True
         self._close_active_sub()
+        try:
+            scale = self._get_window_scaling() or 1.0
+        except Exception:
+            scale = 1.0
         if self._has_items:
             self.height = max(50, self._content_height)
             self.width = max(_MENU_MIN_W, self.width)
@@ -1166,21 +1180,34 @@ class CTkPopupMenu(ctk.CTkToplevel):
                 y = y if y is not None else 0
         self.x = x
         self.y = y
-        self.geometry('{}x{}+{}+{}'.format(self.width, self.height, self.x, self.y))
+        self.geometry('{}x{}+{}+{}'.format(self.width, self.height, x, y))
         self.update_idletasks()
-        # Reposition if off-screen (use app window bounds like modlist)
-        if self.master_window is not None:
-            try:
-                app_tl = self.master_window.winfo_toplevel()
-                app_right = app_tl.winfo_rootx() + app_tl.winfo_width()
-                app_bottom = app_tl.winfo_rooty() + app_tl.winfo_height()
-                pw, ph = self.winfo_reqwidth(), self.winfo_reqheight()
-                nx = x if x + pw <= app_right else max(0, x - pw)
-                ny = y if y + ph <= app_bottom else max(0, y - ph)
+        # Resize the window to the real content height if widget-scaling made
+        # the buttons taller than self.height (design units) implies.
+        try:
+            req_h_real = self.winfo_reqheight()
+            need_h = int(req_h_real / scale) + 2
+            if need_h > self.height:
+                self.height = need_h
+                self.geometry('{}x{}+{}+{}'.format(self.width, self.height, x, y))
+                self.update_idletasks()
+        except Exception:
+            pass
+        # Reposition if off-screen.  Clamp to the actual screen (not the app
+        # window) so context menus near the bottom/right edge flip upward or
+        # leftward instead of being clipped.
+        try:
+            pw = self.winfo_reqwidth()
+            ph = self.winfo_reqheight()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            nx = x if x + pw <= sw else max(0, sw - pw)
+            ny = y if y + ph <= sh else max(0, y - ph)
+            if nx != x or ny != y:
                 self.geometry('{}x{}+{}+{}'.format(self.width, self.height, nx, ny))
                 self.x, self.y = nx, ny
-            except Exception:
-                pass
+        except Exception:
+            pass
         self.deiconify()
         self.focus()
         self.hidden = False

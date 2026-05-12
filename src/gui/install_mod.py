@@ -933,6 +933,14 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
     suggestions = _suggest_mod_names(raw_stem)
     mod_name = preferred_name.strip() if preferred_name.strip() else (suggestions[0] if suggestions else raw_stem)
 
+    # Collection installers tag SKSE-style mods (install_type="dinput") as
+    # root_folder=True. Those mods are a mix of game-root files (skse_loader.exe)
+    # and Data/-tree files (Scripts/, src/), so the standard "strip Data/" pass
+    # would dump the Data subtree at game root. Preserve the archive layout
+    # verbatim — deploy_root_folder will then place everything at the right
+    # depth (Data/Scripts/* lands under <game>/Data/, loose .exe at <game>/).
+    _is_root_install = bool(getattr(prebuilt_meta, "root_folder", False)) if prebuilt_meta is not None else False
+
     # ------------------------------------------------------------------
     # Disable-extract mode: move the archive as-is into the mod folder.
     # ------------------------------------------------------------------
@@ -1649,9 +1657,9 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                 v_file_list = _resolve_direct_files(v_path)
 
                 # Apply the same strip / prefix / required-folder logic as normal install
-                if strip_prefixes:
+                if strip_prefixes and not _is_root_install:
                     v_file_list = _apply_strip_prefixes_to_file_list(v_file_list, strip_prefixes)
-                if install_prefix:
+                if install_prefix and not _is_root_install:
                     _pfx = install_prefix.strip().strip("/").replace("\\", "/")
                     _pfx_parts = _pfx.lower().split("/")
                     new_vfl = []
@@ -1674,7 +1682,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                         v_file_list, _ = _try_auto_strip_top_level(v_file_list, required)
                     if not v_file_list and install_as_is:
                         v_file_list = _resolve_direct_files(v_path)
-                if post_strip:
+                if post_strip and not _is_root_install:
                     v_file_list = _apply_strip_prefixes_to_file_list(v_file_list, post_strip)
 
                 v_dest = game.get_effective_mod_staging_path() / v_mod_name
@@ -1691,7 +1699,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                 # Update mod index for this variant
                 if not skip_index_update:
                     try:
-                        _strip_fs = frozenset(s.lower() for s in (strip_prefixes or []))
+                        _strip_fs = frozenset() if _is_root_install else frozenset(s.lower() for s in (strip_prefixes or []))
                         _exts_fs  = frozenset(e.lower() for e in (getattr(game, "install_extensions", None) or []))
                         _root_fs  = frozenset(s.lower() for s in (getattr(game, "root_deploy_folders", None) or []))
                         _, _nf, _rf = _scan_dir(v_mod_name, str(v_dest), _strip_fs, _exts_fs, _root_fs)
@@ -1765,9 +1773,9 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
             installed_names: list[str] = []
             for m_name, m_path in multi_mods:
                 m_file_list = _resolve_direct_files(m_path)
-                if strip_prefixes:
+                if strip_prefixes and not _is_root_install:
                     m_file_list = _apply_strip_prefixes_to_file_list(m_file_list, strip_prefixes)
-                if install_prefix:
+                if install_prefix and not _is_root_install:
                     _pfx = install_prefix.strip().strip("/").replace("\\", "/")
                     _pfx_parts = _pfx.lower().split("/")
                     new_mfl = []
@@ -1790,7 +1798,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                         m_file_list, _ = _try_auto_strip_top_level(m_file_list, required)
                     if not m_file_list and install_as_is:
                         m_file_list = _resolve_direct_files(m_path)
-                if post_strip:
+                if post_strip and not _is_root_install:
                     m_file_list = _apply_strip_prefixes_to_file_list(m_file_list, post_strip)
 
                 m_dest = game.get_effective_mod_staging_path() / m_name
@@ -1806,7 +1814,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
 
                 if not skip_index_update:
                     try:
-                        _strip_fs = frozenset(s.lower() for s in (strip_prefixes or []))
+                        _strip_fs = frozenset() if _is_root_install else frozenset(s.lower() for s in (strip_prefixes or []))
                         _exts_fs  = frozenset(e.lower() for e in (getattr(game, "install_extensions", None) or []))
                         _root_fs  = frozenset(s.lower() for s in (getattr(game, "root_deploy_folders", None) or []))
                         _, _nf, _rf = _scan_dir(m_name, str(m_dest), _strip_fs, _exts_fs, _root_fs)
@@ -1890,14 +1898,14 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
             log_fn(f"Replace selected: {len(file_list)} file(s) chosen.")
 
         strip_prefixes = getattr(game, "mod_folder_strip_prefixes", set())
-        if strip_prefixes:
+        if strip_prefixes and not _is_root_install:
             file_list = _apply_strip_prefixes_to_file_list(file_list, strip_prefixes)
 
         required = getattr(game, "mod_required_top_level_folders", set())
         required_lower = {r.lower() for r in required}
 
         install_prefix = getattr(game, "mod_install_prefix", "")
-        if install_prefix:
+        if install_prefix and not _is_root_install:
             install_prefix = install_prefix.strip().strip("/").replace("\\", "/")
             prefix_parts = install_prefix.lower().split("/")
             new_file_list = []
@@ -2004,7 +2012,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                         log_fn(f"Remapped mod files under '{prefix}/'.")
 
         post_strip_prefixes = getattr(game, "mod_folder_strip_prefixes_post", set())
-        if post_strip_prefixes:
+        if post_strip_prefixes and not _is_root_install:
             file_list = _apply_strip_prefixes_to_file_list(file_list, post_strip_prefixes)
 
         dest_root = game.get_effective_mod_staging_path() / mod_name

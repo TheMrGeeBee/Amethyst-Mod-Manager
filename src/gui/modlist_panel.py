@@ -518,6 +518,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._filter_fomod_only: bool = False
         self._filter_has_bsa: bool = False
         self._filter_categories: frozenset[str] = frozenset()  # when non-empty, show only these categories
+        self._filter_filetypes: frozenset[str] = frozenset()   # when non-empty, show only mods containing these extensions
         self._filter_has_notes: bool = False
         self._disabled_plugins_map: dict[str, list[str]] = {}  # mod_name → [plugin, ...]
         self._excluded_mod_files_map: dict[str, list[str]] = {}  # mod_name → [rel_key, ...]
@@ -526,6 +527,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._vis_dirty: bool = True           # True when _visible_indices needs recomputing
         self._priorities: dict[int, int] = {}  # entry index → priority number (cached)
         self._sep_block_cache: dict[int, range] = {}  # sep_idx → range (cached)
+        self._mod_to_sep_idx: dict[str, int] | None = None  # mod_name → owning sep idx; None = stale
 
         # Column sorting (visual only — never touches modlist.txt)
         # _sort_column: None or one of "name", "installed", "flags", "conflicts", "priority"
@@ -1360,6 +1362,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._mod_versions.clear()
             self._fomod_mods.clear()
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
             return
         if not self._call_threadsafe:
             self._scan_meta_flags()  # Fallback: sync if no thread-safe callback
@@ -1397,6 +1400,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         if self._filter_panel_open:
             self._refresh_filter_category_list()
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._redraw()
         self._update_info()
 
@@ -1442,6 +1446,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         state changes so that _redraw() recomputes priorities and visible indices.
         """
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._priorities = {}
         self._sep_block_cache: dict[int, range] = {}
         self._compute_bundle_groups()
@@ -2733,6 +2738,18 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 lambda i: self._sep_block_has_category(i, allowed_cats),
             )
 
+        # Step 4g: filetype filter — frozenset of extensions (lowercase, with dot).
+        if self._filter_filetypes:
+            mods_set = self._get_mods_with_filetypes(self._filter_filetypes)
+            if not mods_set:
+                base = []
+            else:
+                base = self._apply_filter(
+                    base,
+                    lambda e: e.name in mods_set,
+                    lambda i: self._sep_block_has_filetypes(i, mods_set),
+                )
+
         # Step 5: apply column sort (visual only)
         if self._sort_column is not None:
             base = self._apply_column_sort(base)
@@ -3422,6 +3439,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self._update_header(self._canvas_w)
                 self._invalidate_derived_caches()
                 self._vis_dirty = True
+                self._mod_to_sep_idx = None
         else:
             self._drag_entries_snapshot = None
             self._drag_vars_snapshot = None
@@ -3522,6 +3540,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._sort_ascending = True
             self._invalidate_derived_caches()
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
 
             # Save a second snapshot of the reordered state.  _on_mouse_drag
             # restores from this on each event so mutations don't cascade.
@@ -3738,6 +3757,61 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             lambda e: (cats.get(e.name, "") or "") in allowed_categories,
         )
 
+    def _read_mod_index_safe(self):
+        """Load the persisted mod index ({mod: (normal, root)}) or {} if unavailable."""
+        if self._filemap_path is None:
+            return {}
+        index_path = self._filemap_path.parent / "modindex.bin"
+        if not index_path.is_file():
+            return {}
+        try:
+            from Utils.filemap import read_mod_index
+            return read_mod_index(index_path) or {}
+        except Exception:
+            return {}
+
+    def _get_filetype_counts(self) -> dict[str, int]:
+        """Map extension (lowercase, with dot) → file count across all mods."""
+        from os.path import splitext
+        counts: dict[str, int] = {}
+        for _mod, (normal, root) in self._read_mod_index_safe().items():
+            for rel_key in normal:
+                ext = splitext(rel_key)[1]
+                if ext:
+                    counts[ext] = counts.get(ext, 0) + 1
+            for rel_key in root:
+                ext = splitext(rel_key)[1]
+                if ext:
+                    counts[ext] = counts.get(ext, 0) + 1
+        return counts
+
+    def _get_mods_with_filetypes(self, exts: frozenset[str]) -> set[str]:
+        """Set of mod names that contain at least one file with any of `exts`.
+
+        `exts` must be lowercase extensions with leading dot (e.g. {".esp"}).
+        """
+        from os.path import splitext
+        result: set[str] = set()
+        for mod, (normal, root) in self._read_mod_index_safe().items():
+            hit = False
+            for rel_key in normal:
+                if splitext(rel_key)[1] in exts:
+                    hit = True
+                    break
+            if not hit:
+                for rel_key in root:
+                    if splitext(rel_key)[1] in exts:
+                        hit = True
+                        break
+            if hit:
+                result.add(mod)
+        return result
+
+    def _sep_block_has_filetypes(self, sep_idx: int, mods_with_filetypes: set[str]) -> bool:
+        return self._sep_block_has_any(
+            sep_idx, lambda e: e.name in mods_with_filetypes,
+        )
+
     def _on_mouse_drag(self, event):
         if self._drag_idx < 0 or not self._entries:
             return
@@ -3771,6 +3845,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 )
             self._invalidate_derived_caches()
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
 
         if self._vis_dirty:
             self._visible_indices = self._compute_visible_indices()
@@ -3881,6 +3956,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._drag_moved = True
         self._invalidate_derived_caches()
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._redraw()
 
     def _on_mouse_release(self, event):
@@ -3929,6 +4005,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self._sort_ascending = _saved_asc
             self._invalidate_derived_caches()
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
             self._rebuild_filemap()
         elif self._drag_idx >= 0 and not self._drag_moved:
             # No movement — restore original _entries if we reordered for inverted drag
@@ -3941,6 +4018,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self._sort_ascending = _saved_asc
             self._invalidate_derived_caches()
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
             if had_multi:
                 # Click (no drag) inside a multi-selection — collapse to the clicked item.
                 # Recompute visible indices first so _canvas_y_to_index is accurate.
@@ -4658,6 +4736,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._root_folder_mods.discard(mod_name)
             self._log(f"{mod_name}: Root Folder install DISABLED — files will deploy to Data/ as normal.")
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._redraw()
 
     def _set_root_folder_flag_multi(self, mod_names: list[str], enable: bool) -> None:
@@ -4691,6 +4770,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                     if enable else "files will deploy to Data/ as normal.")
             self._log(f"Root Folder install {verb} on {len(changed)} mod(s) — {tail}")
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
             self._redraw()
         # Rebuild filemap so filemap_root.txt reflects the updated root-folder assignment.
         self._rebuild_filemap()
@@ -4786,6 +4866,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self._check_vars[i].set(new_state)
             self._sync_plugins_for_toggle(self._entries[i].name, new_state)
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._save_modlist()
         self._rebuild_filemap()
         self._scan_missing_reqs_flags()
@@ -5095,6 +5176,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 if i < len(self._check_vars) and self._check_vars[i] is not None:
                     self._check_vars[i].set(True)
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._save_modlist()
         self._rebuild_filemap()
         self._scan_missing_reqs_flags()
@@ -5109,6 +5191,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 if i < len(self._check_vars) and self._check_vars[i] is not None:
                     self._check_vars[i].set(False)
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._save_modlist()
         self._rebuild_filemap()
         self._scan_missing_reqs_flags()
@@ -5217,6 +5300,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         entry.name = new_name
         self._migrate_mod_name_state(old_name, new_name)
         self._vis_dirty = True  # name change affects text filter
+        self._mod_to_sep_idx = None
         self._save_modlist()
         self._rebuild_filemap()
         self._redraw()
@@ -5324,6 +5408,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         entry.name = new_name
         self._migrate_mod_name_state(old_name, new_name)
         self._vis_dirty = True
+        self._mod_to_sep_idx = None
         self._save_modlist()
         self._rebuild_filemap()
         self._redraw()
@@ -5510,7 +5595,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
         ROW_H    = scaled(30)
         MAX_ROWS = 20
-        FONT     = (_theme.FONT_FAMILY, 11)
+        FONT     = (_theme.FONT_FAMILY, _theme.FS11)
         PAD_X    = scaled(24)
 
         fnt = tkfont.Font(font=FONT)
@@ -5565,7 +5650,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 inner, text=display, anchor="w",
                 bg=BG_PANEL, fg=TEXT_MAIN,
                 font=FONT,
-                padx=12, pady=5, cursor="hand2",
+                padx=scaled(12), pady=scaled(5), cursor="hand2",
                 width=0,
             )
             btn.pack(fill="x")
@@ -6716,6 +6801,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._sync_plugins_for_toggle(entry.name, now_enabled)
 
             self._vis_dirty = True  # enabled state affects show-disabled/enabled filters
+            self._mod_to_sep_idx = None
             self._save_modlist()
             self._rebuild_filemap()
             self._scan_missing_reqs_flags()
@@ -7174,6 +7260,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         normalize_folder_case=normalize_folder_case,
                         exclude_dirs=exclude_dirs,
                         log_fn=_log_thread_safe,
+                        root_folder_mods=root_folder_mods_snap,
                     )
                 count, conflict_map, overrides, overridden_by = build_filemap(
                     modlist_path, staging, output,
@@ -7269,6 +7356,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self._apply_loose_bsa_fold(loose_over_bsa, bsa_over_loose)
                 self._log(f"Filemap updated: {count} file(s).")
             self._vis_dirty = True  # conflict filters depend on conflict_map
+            self._mod_to_sep_idx = None
             self._redraw()
             # Defer _on_filemap_rebuilt to the next event-loop iteration so
             # the current _redraw geometry is fully settled before the plugin
@@ -7357,6 +7445,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._bsa_overridden_by = bsa_overridden_by
             self._apply_loose_bsa_fold(loose_over_bsa, bsa_over_loose)
             self._vis_dirty = True
+            self._mod_to_sep_idx = None
             self._redraw()
             # Invalidate plugin panel's BSA cache so its Archive/Data tabs
             # reflect the new winners.
@@ -7593,11 +7682,20 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._redraw()
 
     def _sep_idx_for_mod(self, mod_name: str) -> int:
-        """Return the index of the separator immediately above mod_name in _entries, or -1."""
-        result = -1
-        for i, e in enumerate(self._entries):
-            if e.is_separator:
-                result = i
-            elif e.name == mod_name:
-                return result
-        return -1
+        """Return the index of the separator immediately above mod_name in _entries, or -1.
+
+        Backed by a dict cache rebuilt lazily — invalidated alongside _vis_dirty
+        because the same structural changes (insert/remove/reorder) move mods
+        between separator blocks.
+        """
+        cache = self._mod_to_sep_idx
+        if cache is None:
+            cache = {}
+            cur_sep = -1
+            for i, e in enumerate(self._entries):
+                if e.is_separator:
+                    cur_sep = i
+                else:
+                    cache[e.name] = cur_sep
+            self._mod_to_sep_idx = cache
+        return cache.get(mod_name, -1)

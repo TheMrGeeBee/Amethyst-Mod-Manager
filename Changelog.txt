@@ -1,3 +1,11 @@
+- v1.3.3
+- Fixed plugins being disabled on manual collection installs
+- Added a filter by filetype to the modlist filters
+- Fix for collection installed script extenders not installing correctly due to the Data folder being stripped and the contents within it landing in the root folder
+- Fixed Bethesda dlc plugins not being detected correctly after previous update.
+- Added a filter menu to the data tab
+- Fixed deployed plugins showing up on other profiles
+
 - v1.3.2
 - Reworked the download Tab
 - Removed the option to symlink plugins, This was just a debugging feature I forgot to remove

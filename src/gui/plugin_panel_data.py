@@ -41,6 +41,7 @@ from gui.theme import (
     BORDER,
     TEXT_DIM,
     TEXT_MAIN,
+    TEXT_ON_ACCENT,
     TAG_FOLDER,
     scaled,
 )
@@ -64,6 +65,16 @@ class PluginPanelDataMixin:
             font=_theme.FONT_HEADER, corner_radius=4,
             command=self._refresh_data_tab,
         ).pack(side="left", padx=(8, 2), pady=2)
+
+        # Filters button — styled to match the Downloads tab (blue accent).
+        self._data_filter_btn = ctk.CTkButton(
+            toolbar, text="Filters", width=72, height=26,
+            fg_color=ACCENT, hover_color=ACCENT_HOV, text_color=TEXT_ON_ACCENT,
+            font=_theme.FONT_HEADER, corner_radius=4,
+            command=self._toggle_data_filter_panel,
+        )
+        self._data_filter_btn.pack(side="left", padx=(0, 8), pady=2)
+        self._build_data_filter_side_panel()
 
         self._data_tree_expanded: bool = False
         self._data_expand_btn = ctk.CTkButton(
@@ -219,6 +230,194 @@ class PluginPanelDataMixin:
                 lambda e: self._data_tree.yview_scroll(3, "units"))
         self._data_tree.bind("<<TreeviewSelect>>", self._on_data_file_selected)
         self._data_tree.bind("<Button-3>", self._on_data_right_click)
+
+    # ------------------------------------------------------------------
+    # Data filter side panel — build / open / close
+    # ------------------------------------------------------------------
+
+    def _build_data_filter_side_panel(self) -> None:
+        """Build the Data tab filter side panel as a child of ModListPanel at column 0.
+
+        Shares the same column as the modlist and plugin filter panels;
+        mutual exclusion is handled in _open_data_filter_panel.
+        """
+        mod_panel = getattr(self.winfo_toplevel(), "_mod_panel", None)
+        parent = mod_panel if mod_panel is not None else self
+        panel = ctk.CTkFrame(parent, fg_color=BG_PANEL, corner_radius=0, width=380)
+        panel.grid(row=0, column=0, rowspan=5, sticky="nsew")
+        panel.grid_propagate(False)
+        panel.grid_remove()
+        self._data_filter_side_panel = panel
+
+        header = tk.Frame(panel, bg=BG_HEADER, height=scaled(36))
+        header.pack(fill="x", side="top")
+        header.pack_propagate(False)
+
+        tk.Label(
+            header, text="Data Filters", bg=BG_HEADER, fg=TEXT_MAIN,
+            font=_theme.FONT_BOLD, anchor="w",
+        ).pack(side="left", padx=10, pady=6)
+
+        close_btn = tk.Label(
+            header, text="×", bg=BG_HEADER, fg=TEXT_DIM,
+            font=(_theme.FONT_FAMILY, 16, "bold"), cursor="hand2",
+        )
+        close_btn.pack(side="right", padx=8)
+        close_btn.bind("<Button-1>", lambda _e: self._close_data_filter_panel())
+        close_btn.bind("<Enter>",    lambda _e: close_btn.configure(fg=TEXT_MAIN))
+        close_btn.bind("<Leave>",    lambda _e: close_btn.configure(fg=TEXT_DIM))
+
+        clear_btn = tk.Label(
+            header, text="Clear all", bg=BG_HEADER, fg=TEXT_DIM,
+            font=_theme.FONT_SMALL, cursor="hand2",
+        )
+        clear_btn.pack(side="right", padx=(0, 4))
+        clear_btn.bind("<Button-1>", lambda _e: self._clear_all_data_filters())
+        clear_btn.bind("<Enter>",    lambda _e: clear_btn.configure(fg=TEXT_MAIN))
+        clear_btn.bind("<Leave>",    lambda _e: clear_btn.configure(fg=TEXT_DIM))
+
+        tk.Frame(panel, bg=BORDER, height=1).pack(fill="x")
+
+        scroll_frame = ctk.CTkScrollableFrame(
+            panel, fg_color="transparent", corner_radius=0,
+        )
+        scroll_frame.pack(fill="both", expand=True, padx=8, pady=6)
+
+        ctk.CTkLabel(
+            scroll_frame, text="Show only filetypes:",
+            font=_theme.FONT_SMALL, text_color=TEXT_DIM, anchor="w",
+        ).pack(anchor="w")
+        self._dfsp_filetype_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        self._dfsp_filetype_frame.pack(anchor="w", fill="x", pady=(2, 0))
+        self._dfsp_filetype_vars: dict[str, tk.BooleanVar] = {}
+
+        self._data_filter_scroll_frame = scroll_frame
+        self._bind_data_filter_panel_scroll()
+
+    def _bind_data_filter_panel_scroll(self) -> None:
+        scroll_frame = getattr(self, "_data_filter_scroll_frame", None)
+        if not scroll_frame or not hasattr(scroll_frame, "_parent_canvas"):
+            return
+        step = 2
+
+        def _on_wheel(evt):
+            num = getattr(evt, "num", None)
+            delta = getattr(evt, "delta", 0) or 0
+            if num == 4 or delta > 0:
+                scroll_frame._parent_canvas.yview_scroll(-step, "units")
+            elif num == 5 or delta < 0:
+                scroll_frame._parent_canvas.yview_scroll(step, "units")
+            return "break"
+
+        _legacy = None if LEGACY_WHEEL_REDUNDANT else _on_wheel
+
+        def _bind_recursive(w):
+            if _legacy is not None:
+                w.bind("<Button-4>", _legacy)
+                w.bind("<Button-5>", _legacy)
+            for child in w.winfo_children():
+                _bind_recursive(child)
+
+        _bind_recursive(scroll_frame)
+
+    def _refresh_data_filter_filetype_list(self) -> None:
+        """Populate the filetype checkboxes from the current Data tab entries.
+
+        Counts are taken from the resolved + deploy-filtered entry list
+        (``_data_filemap_entries``) so they match what the tree shows.
+        """
+        for w in self._dfsp_filetype_frame.winfo_children():
+            w.destroy()
+        self._dfsp_filetype_vars.clear()
+        counts = self._get_data_filetype_counts()
+        if not counts:
+            ctk.CTkLabel(
+                self._dfsp_filetype_frame,
+                text="(no files in Data tab)",
+                font=_theme.FONT_SMALL, text_color=TEXT_DIM, anchor="w",
+            ).pack(anchor="w", pady=2)
+            self._bind_data_filter_panel_scroll()
+            return
+        ordered = sorted(counts.items(), key=lambda kv: kv[0])
+        for ext, count in ordered:
+            var = tk.BooleanVar(value=ext in self._data_filter_filetypes)
+            self._dfsp_filetype_vars[ext] = var
+            ctk.CTkCheckBox(
+                self._dfsp_filetype_frame,
+                text=f"{ext}  ({count:,})",
+                variable=var,
+                font=_theme.FONT_SMALL,
+                text_color=TEXT_MAIN,
+                fg_color=ACCENT,
+                hover_color=ACCENT_HOV,
+                border_color=BORDER,
+                checkmark_color="white",
+                command=self._on_data_filter_panel_change,
+            ).pack(anchor="w", pady=2)
+
+        self._bind_data_filter_panel_scroll()
+
+    def _get_data_filetype_counts(self) -> "dict[str, int]":
+        """Extension (lowercase, with dot) → file count across the Data tab entries."""
+        from os.path import splitext
+        counts: dict[str, int] = {}
+        for rel_path, _mod in self._data_filemap_entries:
+            ext = splitext(rel_path)[1].lower()
+            if ext:
+                counts[ext] = counts.get(ext, 0) + 1
+        return counts
+
+    def _toggle_data_filter_panel(self) -> None:
+        if getattr(self, "_data_filter_panel_open", False):
+            self._close_data_filter_panel()
+        else:
+            self._open_data_filter_panel()
+
+    def _open_data_filter_panel(self) -> None:
+        mod_panel = getattr(self.winfo_toplevel(), "_mod_panel", None)
+        if mod_panel is None:
+            return
+        # Mutual exclusion with the other two filter panels — they share column 0.
+        if getattr(mod_panel, "_filter_panel_open", False):
+            mod_panel._close_filter_side_panel()
+        if getattr(self, "_plugin_filter_panel_open", False):
+            self._close_plugin_filter_panel()
+        self._data_filter_panel_open = True
+        mod_panel.grid_columnconfigure(0, minsize=scaled(380))
+        self._data_filter_side_panel.grid()
+        self._refresh_data_filter_filetype_list()
+        self._update_data_filter_btn_color()
+
+    def _close_data_filter_panel(self) -> None:
+        mod_panel = getattr(self.winfo_toplevel(), "_mod_panel", None)
+        self._data_filter_panel_open = False
+        if mod_panel is not None:
+            mod_panel.grid_columnconfigure(0, minsize=0)
+        self._data_filter_side_panel.grid_remove()
+        self._update_data_filter_btn_color()
+
+    def _update_data_filter_btn_color(self) -> None:
+        btn = getattr(self, "_data_filter_btn", None)
+        if btn is None:
+            return
+        # Match Downloads tab: ACCENT (idle) → ACCENT_HOV (filters active).
+        if self._data_filter_filetypes:
+            btn.configure(fg_color=ACCENT_HOV, hover_color=ACCENT_HOV)
+        else:
+            btn.configure(fg_color=ACCENT, hover_color=ACCENT_HOV)
+
+    def _clear_all_data_filters(self) -> None:
+        for v in self._dfsp_filetype_vars.values():
+            v.set(False)
+        self._on_data_filter_panel_change()
+
+    def _on_data_filter_panel_change(self) -> None:
+        self._data_filter_filetypes = frozenset(
+            ext for ext, v in self._dfsp_filetype_vars.items() if v.get()
+        )
+        self._update_data_filter_btn_color()
+        # Re-run search/filter pipeline so the tree reflects the new filtertype set.
+        self._apply_data_search()
 
     def _refresh_data_tab(self):
         """Reload the Data tab tree from filemap.txt.
@@ -571,6 +770,7 @@ class PluginPanelDataMixin:
         only_conflicts = bool(
             self._data_only_conflicts_var and self._data_only_conflicts_var.get()
         )
+        filetype_filter = getattr(self, "_data_filter_filetypes", frozenset())
 
         tree_dict: dict = {}
         for rel_path, mod_name in entries:
@@ -578,6 +778,13 @@ class PluginPanelDataMixin:
             rel_key_lower = rel_norm.lower()
             if only_conflicts and rel_key_lower not in contested_keys:
                 continue
+            if filetype_filter:
+                _dot = rel_key_lower.rfind(".")
+                _slash = rel_key_lower.rfind("/")
+                if _dot <= _slash:
+                    continue
+                if rel_key_lower[_dot:] not in filetype_filter:
+                    continue
             parts = rel_norm.split("/")
             node = tree_dict
             for part in parts[:-1]:

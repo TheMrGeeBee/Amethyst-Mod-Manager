@@ -21,12 +21,73 @@ from Utils.profile_state import (
 _GAMES: dict[str, BaseGame] = {}
 
 
+def foreign_deployed_plugin_basenames(game) -> set[str]:
+    """Return lowercase plugin filenames currently deployed by a *different*
+    profile than the one the UI has active.
+
+    When profile A is deployed and the user switches to profile B, the live
+    Data/ folder still contains A's mod plugin files. Callers that scan Data/
+    (vanilla detection, orphan detection) use this to exclude those files so
+    they don't bleed across profiles. Returns an empty set when the active
+    profile is the deployed one, or when no deploy is active.
+    """
+    try:
+        if not getattr(game, "get_deploy_active", lambda: False)():
+            return set()
+        deployed_name = game.get_last_deployed_profile()
+        active_dir = getattr(game, "_active_profile_dir", None)
+        if active_dir is not None and active_dir.name == deployed_name:
+            return set()
+        deployed_dir = game.get_profile_root() / "profiles" / deployed_name
+        names: set[str] = set()
+        for fname in ("plugins.txt", "loadorder.txt"):
+            p = deployed_dir / fname
+            if not p.is_file():
+                continue
+            try:
+                for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    n = line.strip()
+                    if not n or n.startswith("#"):
+                        continue
+                    if n.startswith("*"):
+                        n = n[1:]
+                    if n:
+                        names.add(n.lower())
+            except OSError:
+                continue
+        return names
+    except (OSError, AttributeError):
+        return set()
+
+
 def _vanilla_plugins_for_game(game) -> dict[str, str]:
     """Return {lowercase_name: original_name} for vanilla plugins."""
     result: dict[str, str] = {}
     for name in getattr(game, "vanilla_plugins", []) or []:
         result[name.lower()] = name
+
+    dlc_plugins = getattr(game, "vanilla_dlc_plugins", []) or []
     ccc_name = getattr(game, "vanilla_ccc_filename", None)
+    if not dlc_plugins and not ccc_name:
+        return result
+
+    # DLC and CC entries are only treated as vanilla if their file is present
+    # in the Data folder — users may not own every DLC. We scan the live folder
+    # without subtracting another profile's deployment: DLC names are a fixed
+    # list and CC names come from the .ccc manifest, so cross-profile mod
+    # plugins can't accidentally match here.
+    data_dir = game.get_vanilla_plugins_path() if hasattr(game, "get_vanilla_plugins_path") else None
+    present: set[str] = set()
+    if data_dir and data_dir.is_dir():
+        try:
+            present = {entry.name.lower() for entry in data_dir.iterdir() if entry.is_file()}
+        except OSError:
+            pass
+
+    for name in dlc_plugins:
+        if name.lower() in present:
+            result.setdefault(name.lower(), name)
+
     if not ccc_name:
         return result
     game_path = game.get_game_path()
@@ -35,15 +96,6 @@ def _vanilla_plugins_for_game(game) -> dict[str, str]:
     ccc = game_path / ccc_name
     if not ccc.is_file():
         return result
-    # .ccc lists every Bethesda CC plugin that exists; only treat entries
-    # as vanilla if the file is actually present in the Data folder.
-    data_dir = game.get_vanilla_plugins_path() if hasattr(game, "get_vanilla_plugins_path") else None
-    present: set[str] = set()
-    if data_dir and data_dir.is_dir():
-        try:
-            present = {entry.name.lower() for entry in data_dir.iterdir() if entry.is_file()}
-        except OSError:
-            pass
     try:
         for line in ccc.read_text(encoding="utf-8", errors="ignore").splitlines():
             n = line.strip()

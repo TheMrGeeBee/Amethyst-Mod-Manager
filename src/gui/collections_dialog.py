@@ -5583,7 +5583,7 @@ class CollectionDetailDialog(tk.Frame):
                     ]
                     final_entries = vanilla_prefix + author_entries
 
-                star_prefix = getattr(self._game, "plugins_star_prefix", False)
+                star_prefix = getattr(self._game, "plugins_use_star_prefix", True)
                 write_plugins(
                     profile_dir / "plugins.txt",
                     [e for e in final_entries if e.name.lower() not in vanilla_lower],
