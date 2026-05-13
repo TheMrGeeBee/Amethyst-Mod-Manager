@@ -720,8 +720,12 @@ class PluginAuditWizard(ctk.CTkFrame):
                 entry.dependents = master_to_deps.get(pname.lower(), [])
 
             # Transitive safe-set resolution
+            # has_new_records plugins cannot be disabled, so they must NOT enter
+            # safe_set — otherwise plugins they depend on are wrongly
+            # marked safe and their orphaned INIs are missed on the
+            # first cleanup pass.
             def _is_patched(e: AuditEntry) -> bool:
-                return e.is_patched
+                return e.is_patched and not e.has_new_records
 
             safe_set: Set[str] = set()
             changed = True
