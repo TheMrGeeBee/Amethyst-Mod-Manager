@@ -91,6 +91,10 @@ class Subnautica(BaseGame):
             CustomRule(dest="", filenames=["run_bepinex.sh"], flatten=True),
             CustomRule(dest="", filenames=["libdoorstop.dylib"], flatten=True),
             CustomRule(dest="", filenames=["doorstop_config.ini"], flatten=True),
+            CustomRule(dest="BepInEx", folders=["config"], flatten=True),
+            CustomRule(dest="BepInEx", folders=["core"], flatten=True),
+            CustomRule(dest="BepInEx", folders=["patchers"], flatten=True),
+            CustomRule(dest="BepInEx/plugins", folders=["Tobey"], flatten=True),
         ]
     
     @property
