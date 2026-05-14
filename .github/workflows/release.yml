@@ -66,7 +66,6 @@ jobs:
   # package manager and the Arch container ships Python 3.14.
   libloot-gnome:
     name: libloot (GNOME 50 / cp313)
-    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -178,13 +177,12 @@ jobs:
           if-no-files-found: error
 
   # ────────────────────────────────────────────────────────────────────
-  # Flatpak bundle — only built for stable releases (no hyphen in tag).
+  # Flatpak bundle — built for every tag (stable and prerelease).
   # Pulls the cp313 libloot from libloot-gnome, drops it into src/LOOT/
   # so the manifest's `cp -a src/LOOT` step picks it up.
   # ────────────────────────────────────────────────────────────────────
   flatpak:
     name: Flatpak
-    if: ${{ !contains(github.ref_name, '-') }}
     needs: libloot-gnome
     runs-on: ubuntu-latest
     container:
@@ -214,9 +212,10 @@ jobs:
           if-no-files-found: error
 
   # ────────────────────────────────────────────────────────────────────
-  # Publish a GitHub Release with the AppImage (always) and Flatpak
-  # bundle (stable only). Runs only on tag pushes — workflow_dispatch
-  # runs still upload artifacts to the run page but skip this job.
+  # Publish a GitHub Release with the AppImage and Flatpak bundle
+  # (both built for every tag). Runs only on tag pushes —
+  # workflow_dispatch runs still upload artifacts to the run page
+  # but skip this job.
   # ────────────────────────────────────────────────────────────────────
   release:
     name: Publish Release
@@ -224,7 +223,7 @@ jobs:
       always()
       && startsWith(github.ref, 'refs/tags/v')
       && needs.appimage.result == 'success'
-      && (needs.flatpak.result == 'success' || needs.flatpak.result == 'skipped')
+      && needs.flatpak.result == 'success'
     needs: [appimage, flatpak]
     runs-on: ubuntu-latest
     steps:
@@ -235,8 +234,7 @@ jobs:
         with:
           name: AmethystModManager-AppImage
           path: artifacts/
-      - name: Download Flatpak (stable only)
-        if: ${{ !contains(github.ref_name, '-') }}
+      - name: Download Flatpak
         uses: actions/download-artifact@v4
         with:
           name: AmethystModManager-flatpak
