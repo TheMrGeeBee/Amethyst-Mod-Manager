@@ -94,6 +94,7 @@ def deploy_filemap(
     strip_prefixes: set[str] | None = None,
     per_mod_strip_prefixes: dict[str, list[str]] | None = None,
     per_mod_deploy_dirs: dict[str, Path] | None = None,
+    per_mod_link_modes: dict[str, LinkMode] | None = None,
     log_fn=None,
     progress_fn=None,
     symlink_exts: set[str] | None = None,
@@ -125,6 +126,20 @@ def deploy_filemap(
     _strip = {p.lower() for p in strip_prefixes} if strip_prefixes else set()
     _per_mod = per_mod_strip_prefixes or {}
     _per_deploy = per_mod_deploy_dirs or {}
+    _per_mode = per_mod_link_modes
+    if _per_mode is None:
+        try:
+            from Utils.deploy_shared import (
+                load_separator_deploy_paths as _lsdp,
+                expand_separator_link_modes as _eslm,
+            )
+            from Utils.modlist import read_modlist as _rml
+            _sd = _lsdp(filemap_path.parent)
+            _se = _rml(filemap_path.parent / "modlist.txt")
+            _per_mode = _eslm(_sd, _se)
+        except Exception:
+            _per_mode = {}
+    _per_mode = _per_mode or {}
     overwrite_dir = staging_root.parent / "overwrite"
 
     already_seen: set[str] = set()
@@ -164,6 +179,9 @@ def deploy_filemap(
     _core_base_str = str(core_dir) if core_dir is not None else None
     _dir_listing_cache: dict[str, dict[str, str]] = {}
     _resolved_dir_cache: dict[str, str] = {}
+    # {custom_deploy_dir_str: {top_level_folder_name, ...}} — populated as we
+    # build tasks, consumed by the folder-replace pass below.
+    _custom_top_roots: dict[str, set[str]] = {}
     for line in _tab_lines:
         rel_str, mod_name = line.split("\t", 1)
         # Guard against path traversal in filemap entries.
@@ -210,7 +228,16 @@ def deploy_filemap(
                                          core_base_str=_core_s,
                                          resolved_dir_cache=_resolved_dir_cache)
         use_symlink = symlink_exts is not None and os.path.splitext(src_str)[1].lower() in symlink_exts
-        tasks.append((src_str, dst_str, rel_lower, effective_dir is not deploy_dir, use_symlink))
+        override_mode = _per_mode.get(mod_name)
+        is_custom_task = effective_dir is not deploy_dir
+        tasks.append((src_str, dst_str, rel_lower, is_custom_task, use_symlink, override_mode))
+        # Track top-level folder roots that custom-deploy mods are writing into,
+        # so we can wholesale-replace any same-named folder at the destination
+        # (with backup) before the per-file deploy runs. Files that the mod
+        # ships at the root (no folder component in rel_str) are excluded —
+        # those still get the existing file-by-file backup-and-replace path.
+        if is_custom_task and "/" in rel_str:
+            _custom_top_roots.setdefault(_eff_s, set()).add(rel_str.split("/", 1)[0])
 
         if progress_fn is not None and line_idx % 500 == 0:
             progress_fn(line_idx, total_lines)
@@ -230,10 +257,55 @@ def deploy_filemap(
     if _custom_backup_dir.exists():
         shutil.rmtree(_custom_backup_dir)
 
+    import stat as _stat_module
+
+    # Wholesale-replace pass: for every top-level folder that custom-deploy
+    # mods are writing into, move the existing folder at the destination
+    # (if any) into custom_deploy_backup/, mirroring the absolute path so
+    # restore can put it back. This is the "Saves/ should replace, not
+    # merge" rule for custom-deploy separators. Symlinks at that path are
+    # unlinked instead of moved (they're our own from a previous deploy).
+    _folders_replaced = 0
+    for _eff_dir_s, _top_names in _custom_top_roots.items():
+        for _top in _top_names:
+            # Resolve the destination folder using the same case-insensitive
+            # path walker the per-file logic uses, so e.g. mod "Saves" lands
+            # on disk-side "saves" if that's what already exists there.
+            _existing_dir_str = _resolve_root_path_str(
+                _eff_dir_s, _top, _dir_listing_cache,
+                resolved_dir_cache=_resolved_dir_cache,
+            )
+            try:
+                _est = os.lstat(_existing_dir_str)
+            except OSError:
+                continue
+            if _stat_module.S_ISLNK(_est.st_mode):
+                # Stale symlink from a previous deploy — drop it.
+                try:
+                    os.unlink(_existing_dir_str)
+                except OSError as exc:
+                    _log(f"  WARN: could not remove stale symlink {_existing_dir_str}: {exc}")
+                continue
+            if not _stat_module.S_ISDIR(_est.st_mode):
+                continue
+            _existing_p = Path(_existing_dir_str)
+            _bak_dir = _custom_backup_dir / _existing_p.relative_to(_existing_p.anchor)
+            try:
+                _bak_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(_existing_dir_str, str(_bak_dir))
+                _folders_replaced += 1
+                _log(f"  Backed up existing folder {_existing_p.name}/ → custom_deploy_backup/")
+            except OSError as exc:
+                _log(f"  WARN: could not back up folder {_existing_dir_str}: {exc}")
+            # Invalidate the resolved-dir cache so subsequent path resolution
+            # against this destination doesn't reuse the now-moved entry.
+            _resolved_dir_cache.pop(_existing_dir_str.lower(), None)
+            _dir_listing_cache.pop(os.path.dirname(_existing_dir_str), None)
+
     # Pre-create all destination directories up front (single-threaded) to
     # avoid mkdir races inside the thread pool.
     with _timer("deploy_filemap — mkdir"):
-        needed_dirs: set[str] = {os.path.dirname(dst) for _, dst, _, _is_custom, _ in tasks}
+        needed_dirs: set[str] = {os.path.dirname(dst) for _, dst, _, _is_custom, _, _ in tasks}
         _mkdir_leaves(needed_dirs)
 
     # Back up any pre-existing files at custom deploy locations so restore can
@@ -241,18 +313,19 @@ def deploy_filemap(
     # path inside _custom_backup_dir (strip leading slash) so structure is
     # preserved and files with the same name in different dirs never collide.
     # One lstat per task instead of islink+isfile (two stat-equivalent calls).
-    import stat as _stat
+    # Files whose top-level folder was already wholesale-replaced above will
+    # no longer exist here — the lstat just no-ops and the loop moves on.
     _custom_backup_str = str(_custom_backup_dir)
-    for _src_s, dst_s, _rel_lower, is_custom, _use_sym in tasks:
+    for _src_s, dst_s, _rel_lower, is_custom, _use_sym, _ov in tasks:
         if not is_custom:
             continue
         try:
             _st = os.lstat(dst_s)
         except OSError:
             continue
-        if _stat.S_ISLNK(_st.st_mode):
+        if _stat_module.S_ISLNK(_st.st_mode):
             os.unlink(dst_s)
-        elif _stat.S_ISREG(_st.st_mode):
+        elif _stat_module.S_ISREG(_st.st_mode):
             dst_p = Path(dst_s)
             bak = _custom_backup_dir / dst_p.relative_to(dst_p.anchor)
             bak.parent.mkdir(parents=True, exist_ok=True)
@@ -262,9 +335,14 @@ def deploy_filemap(
     linked = 0
     done_count = 0
 
-    def _do_transfer(item: tuple[str, str, str, bool, bool]) -> tuple[str | None, tuple[str, OSError] | None]:
-        src, dst, rel_lower, _is_custom, use_symlink = item
-        effective_mode = LinkMode.SYMLINK if use_symlink else mode
+    def _do_transfer(item: tuple[str, str, str, bool, bool, "LinkMode | None"]) -> tuple[str | None, tuple[str, OSError] | None]:
+        src, dst, rel_lower, _is_custom, use_symlink, override_mode = item
+        if use_symlink:
+            effective_mode = LinkMode.SYMLINK
+        elif override_mode is not None:
+            effective_mode = override_mode
+        else:
+            effective_mode = mode
         err = _do_link(src, dst, effective_mode)
         if err is None:
             return rel_lower, None
@@ -288,7 +366,7 @@ def deploy_filemap(
     # remove.  Each line is the absolute path of a deployed file.
     custom_deployed = [
         dst
-        for _src, dst, rel_lower, is_custom, _use_sym in tasks
+        for _src, dst, rel_lower, is_custom, _use_sym, _ov in tasks
         if is_custom and rel_lower in placed_lower
     ]
     try:

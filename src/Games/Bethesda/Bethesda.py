@@ -712,7 +712,10 @@ class Fallout_3(BaseGame):
 
         _profile_dir = self._active_profile_dir
         _entries = read_modlist(_profile_dir / "modlist.txt") if _profile_dir else []
-        cleanup_custom_deploy_dirs(_profile_dir, _entries, log_fn=_log)
+        cleanup_custom_deploy_dirs(
+            _profile_dir, _entries, log_fn=_log,
+            filemap_path=self.get_effective_filemap_path(),
+        )
 
         custom_rules = self.custom_routing_rules
         if custom_rules and self._game_path:

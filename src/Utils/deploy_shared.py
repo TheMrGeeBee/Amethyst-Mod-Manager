@@ -128,6 +128,80 @@ def expand_separator_raw_deploy(
     return result
 
 
+def _default_filemap_for(profile_dir: "Path") -> "Path | None":
+    """Locate filemap.txt for a profile without help from the game handler.
+
+    Mirrors ``BaseGame.get_effective_filemap_path()``: profile-specific-mods
+    profiles keep their filemap next to the profile (``<profile_dir>/filemap.txt``),
+    shared-staging profiles use the one at the profile root
+    (``<profile_dir>/../../filemap.txt``).  Returns the first one that exists,
+    or None if neither does.
+    """
+    for candidate in (profile_dir / "filemap.txt",
+                      profile_dir.parent.parent / "filemap.txt"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _reconstruct_custom_deploy_list(
+    profile_dir: "Path",
+    entries,
+    filemap_path: "Path | None",
+    log_fn,
+) -> list[tuple[str, str | None]]:
+    """Recompute the list of deployed custom-location paths from the filemap.
+
+    Used by cleanup when ``custom_deploy_log.txt`` is missing (older deploys,
+    profile dir moved, manual deletion, etc.).  Walks the active filemap and
+    expands every entry whose mod sits under a separator with a custom deploy
+    path, producing ``(dst, src)`` pairs.  ``src`` is the staging-side source
+    path (used to verify the destination genuinely came from us via inode
+    comparison) or ``None`` if it can't be located.
+    """
+    fm = filemap_path if filemap_path is not None else _default_filemap_for(profile_dir)
+    if fm is None or not fm.is_file():
+        return []
+    sep_paths = load_separator_deploy_paths(profile_dir)
+    if not sep_paths:
+        return []
+    per_mod_deploy = expand_separator_deploy_paths(sep_paths, entries)
+    if not per_mod_deploy:
+        return []
+    # Profile dir layout: profile_dir/mods/<mod_name>/...
+    staging_root = profile_dir / "mods"
+    result: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    _dir_listing_cache: dict[str, dict[str, str]] = {}
+    _resolved_dir_cache: dict[str, str] = {}
+    try:
+        with fm.open(encoding="utf-8") as f:
+            for line in f:
+                if "\t" not in line:
+                    continue
+                rel_str, mod_name = line.rstrip("\n").split("\t", 1)
+                if _has_traversal(rel_str) or _has_traversal(mod_name):
+                    continue
+                eff_dir = per_mod_deploy.get(mod_name)
+                if eff_dir is None:
+                    continue
+                dst = _resolve_root_path_str(
+                    str(eff_dir), rel_str, _dir_listing_cache,
+                    resolved_dir_cache=_resolved_dir_cache,
+                )
+                src_candidate = str(staging_root / mod_name / rel_str)
+                src: str | None = src_candidate if os.path.isfile(src_candidate) else None
+                if dst not in seen:
+                    seen.add(dst)
+                    result.append((dst, src))
+    except OSError as exc:
+        log_fn(f"  WARN: could not read filemap for cleanup fallback: {exc}")
+        return []
+    if result:
+        log_fn(f"  custom_deploy_log.txt missing — reconstructed {len(result)} entry/entries from filemap.")
+    return result
+
+
 def cleanup_custom_deploy_dirs(
     profile_dir: "Path | None",
     entries,
@@ -146,6 +220,11 @@ def cleanup_custom_deploy_dirs(
     if profile_dir is None:
         return 0
 
+    # Auto-discover the filemap when the caller didn't supply one, so handlers
+    # that haven't been updated still get a working fallback path.
+    if filemap_path is None:
+        filemap_path = _default_filemap_for(profile_dir)
+
     # Locate log: search profile_dir and two levels up (profile root)
     log_path: Path | None = None
     for candidate_dir in (profile_dir, profile_dir.parent.parent):
@@ -154,29 +233,79 @@ def cleanup_custom_deploy_dirs(
             log_path = c
             break
 
-    if log_path is None:
-        return 0
-
-    file_list = [p for p in log_path.read_text(encoding="utf-8").splitlines() if p]
-    backup_dir = log_path.parent / "custom_deploy_backup"
+    # Each entry: (absolute_dst, optional_staging_src). The src is only
+    # populated by the filemap-fallback path and used to confirm a regular
+    # file genuinely came from our staging (same inode) before deleting it.
+    file_list: list[tuple[str, str | None]]
+    fallback_mode: bool
+    if log_path is not None:
+        fallback_mode = False
+        file_list = [(p, None) for p in log_path.read_text(encoding="utf-8").splitlines() if p]
+        backup_dir = log_path.parent / "custom_deploy_backup"
+    else:
+        # No log on disk (e.g. deploy happened with an older build, log got
+        # cleared mid-restore, or the profile dir moved). Fall back to
+        # reconstructing the deployed file list from the current filemap +
+        # separator deploy paths.
+        fallback_mode = True
+        file_list = _reconstruct_custom_deploy_list(
+            profile_dir, entries, filemap_path, _log
+        )
+        backup_dir = profile_dir / "custom_deploy_backup"
+        if not file_list and not backup_dir.is_dir():
+            return 0
 
     removed = 0
+    skipped_unknown = 0
     dirs_to_prune: set[Path] = set()
     stop_dirs: set[Path] = set()
 
-    for abs_str in file_list:
-        if _has_traversal(abs_str):
+    for abs_str, src_str in file_list:
+        # Entries are absolute filesystem paths by design — only reject ``..``
+        # segments, not the leading ``/``.
+        _norm = abs_str.replace("\\", "/")
+        if ".." in _norm.split("/"):
             _log(f"  WARN: skipping suspicious path in custom_deploy_log: {abs_str!r}")
             continue
         target = Path(abs_str)
-        if target.is_file() or target.is_symlink():
-            try:
-                target.unlink()
-                removed += 1
-                dirs_to_prune.add(target.parent)
-                stop_dirs.add(target.parent)
-            except OSError as exc:
-                _log(f"  WARN: could not remove custom-deployed {target}: {exc}")
+        try:
+            tgt_stat = os.lstat(abs_str)
+        except OSError:
+            continue
+        import stat as _stat
+        is_symlink = _stat.S_ISLNK(tgt_stat.st_mode)
+        is_regular = _stat.S_ISREG(tgt_stat.st_mode)
+        if not (is_symlink or is_regular):
+            continue
+
+        if fallback_mode and is_regular:
+            # In fallback mode we have no proof this regular file came from
+            # our deploy. Only delete if it shares an inode with the staging
+            # source (i.e. it's a hardlink we created). Otherwise leave it
+            # alone — it may be a pre-existing vanilla file that the original
+            # deploy failed to back up.
+            same_inode = False
+            if src_str:
+                try:
+                    src_stat = os.stat(src_str)
+                    same_inode = (
+                        src_stat.st_dev == tgt_stat.st_dev
+                        and src_stat.st_ino == tgt_stat.st_ino
+                    )
+                except OSError:
+                    pass
+            if not same_inode:
+                skipped_unknown += 1
+                _log(f"  Skipped (no backup, not a known link) — {target}")
+                continue
+
+        try:
+            target.unlink()
+            removed += 1
+            dirs_to_prune.add(target.parent)
+            stop_dirs.add(target.parent)
+        except OSError as exc:
+            _log(f"  WARN: could not remove custom-deployed {target}: {exc}")
 
     # Restore any originals that were backed up before deployment.  Backups
     # under custom_deploy_backup/ mirror absolute filesystem paths, so we
@@ -188,15 +317,21 @@ def cleanup_custom_deploy_dirs(
 
     _prune_empty_dirs(dirs_to_prune, stop_dirs)
 
-    try:
-        log_path.unlink()
-    except OSError:
-        pass
+    if log_path is not None:
+        try:
+            log_path.unlink()
+        except OSError:
+            pass
 
     if removed:
         _log(f"  Removed {removed} file(s) from custom deployment location(s).")
     if restored:
         _log(f"  Restored {restored} original file(s) to custom deployment location(s).")
+    if skipped_unknown:
+        _log(
+            f"  Skipped {skipped_unknown} pre-existing file(s) at custom deploy "
+            f"location(s) — no backup found, left untouched to avoid data loss."
+        )
     return removed
 
 
@@ -362,6 +497,33 @@ class LinkMode(Enum):
     HARDLINK = auto()
     SYMLINK  = auto()
     COPY     = auto()
+
+
+def expand_separator_link_modes(
+    sep_paths: dict[str, dict],
+    entries,
+) -> dict[str, LinkMode]:
+    """Return {mod_name: LinkMode} for mods whose separator overrides the link mode.
+
+    Mods whose separator has no `mode` key (or "default") are omitted, signalling
+    "inherit the global deploy mode". Recognised values: "hardlink", "symlink", "copy".
+    """
+    result: dict[str, LinkMode] = {}
+    current_mode: LinkMode | None = None
+    for entry in entries:
+        if entry.is_separator:
+            raw = sep_paths.get(entry.name, {}).get("mode", "")
+            raw_l = (raw or "").strip().lower()
+            if raw_l == "hardlink":
+                current_mode = LinkMode.HARDLINK
+            elif raw_l == "symlink":
+                current_mode = LinkMode.SYMLINK
+            else:
+                current_mode = None
+        else:
+            if current_mode is not None:
+                result[entry.name] = current_mode
+    return result
 
 
 @dataclass
@@ -1187,6 +1349,7 @@ __all__ = [
     "load_separator_deploy_paths",
     "expand_separator_deploy_paths",
     "expand_separator_raw_deploy",
+    "expand_separator_link_modes",
     "cleanup_custom_deploy_dirs",
     "restore_custom_deploy_backup_for_path",
     # Private helpers (re-exported via façade for back-compat)
