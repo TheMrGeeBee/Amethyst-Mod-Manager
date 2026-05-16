@@ -1,3 +1,7 @@
+- v1.3.5
+- Tweaked the separator settings menu/custom deploy locations
+- Tweaked ue5 conflict detection to stop showing false conflicts
+
 - v1.3.4
 - Added a Skygen and plugin audit wizard
 - Fixed BepInEx folders not being routed to the correct location
