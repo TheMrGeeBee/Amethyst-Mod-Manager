@@ -42,8 +42,8 @@
     },
     {
       "dest": "drive_c/users/steamuser/AppData/LocalVoyage/Saved/Config/Windows",
-      "extensions": [
-        "Scalability"
+      "filenames": [
+        "Scalability.ini"
       ],
       "flatten": true,
       "to_prefix": true
@@ -117,6 +117,6 @@
   "custom_frameworks": {
     "ue4ss": "Binaries/Win64/ue4ss/UE4SS.dll"
   },
-  "version": 1,
+  "version": 2,
   "editable": false
 }
