@@ -847,31 +847,16 @@ class SettingsPanel(ctk.CTkFrame):
         cache_row.pack(anchor="w")
 
         self._clear_cache_btn = ctk.CTkButton(
-            cache_row, text="Clear All Caches (—)",
+            cache_row, text="Manage Caches… (—)",
             height=scaled(28), font=FONT_NORMAL,
             fg_color="#5a3a00", hover_color="#7a5200", text_color="#ffffff",
-            command=self._on_clear_cache,
+            command=self._on_manage_caches,
         )
         self._clear_cache_btn.pack(side="left")
 
         self._cache_status_lbl = ctk.CTkLabel(
             cache_row, text="", font=FONT_SMALL, text_color=TEXT_DIM, anchor="w")
         self._cache_status_lbl.pack(side="left", padx=(10, 0))
-
-        # Per-game clear button — only meaningful when a game is selected.
-        _active_game = self._active_game_name()
-        active_cache_row = ctk.CTkFrame(dl_sec, fg_color="transparent")
-        active_cache_row.pack(anchor="w", pady=(4, 0))
-        self._clear_active_cache_btn = ctk.CTkButton(
-            active_cache_row,
-            text=(f"Clear {_active_game} Cache (—)" if _active_game
-                  else "Clear Active Game Cache"),
-            height=scaled(28), font=FONT_NORMAL,
-            fg_color="#3a4a5a", hover_color="#4a6a7a", text_color="#ffffff",
-            command=self._on_clear_active_game_cache,
-            state=("normal" if _active_game else "disabled"),
-        )
-        self._clear_active_cache_btn.pack(side="left")
 
         self.after(100, self._refresh_cache_size)
 
@@ -1364,10 +1349,6 @@ class SettingsPanel(ctk.CTkFrame):
     def _update_slider_state(self):
         self._slider.configure(state="disabled" if self._auto_var.get() else "normal")
 
-    # Entries at the cache root that "Clear All Caches" must preserve.
-    # md5_cache.json is a global hash sidecar, not a per-game archive.
-    _CLEAR_ALL_PRESERVE = {"md5_cache.json"}
-
     def _active_game_name(self) -> str:
         """Return the currently selected game name, or '' if none."""
         try:
@@ -1381,177 +1362,37 @@ class SettingsPanel(ctk.CTkFrame):
 
     def _refresh_cache_size(self):
         cache_dir = get_download_cache_dir()
-        active_name = self._active_game_name()
-        active_dir = cache_dir / active_name if active_name else None
 
         def _worker():
             orphans = _get_orphaned_tmp_dirs()
             size = _get_dir_size(cache_dir) + sum(_get_dir_size(d) for d in orphans)
-            active_size = _get_dir_size(active_dir) if active_dir else 0
             try:
-                self.after(0, lambda: self._update_clear_cache_btn(size, active_size))
+                self.after(0, lambda: self._update_clear_cache_btn(size))
             except Exception:
                 pass
 
         import threading
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _update_clear_cache_btn(self, size_bytes: int, active_size_bytes: int = 0):
+    def _update_clear_cache_btn(self, size_bytes: int):
         try:
             if hasattr(self, "_clear_cache_btn") and self._clear_cache_btn.winfo_exists():
-                self._clear_cache_btn.configure(text=f"Clear All Caches ({_fmt_size(size_bytes)})")
-        except Exception:
-            pass
-        try:
-            if hasattr(self, "_clear_active_cache_btn") and self._clear_active_cache_btn.winfo_exists():
-                active_name = self._active_game_name()
-                if active_name:
-                    self._clear_active_cache_btn.configure(
-                        text=f"Clear {active_name} Cache ({_fmt_size(active_size_bytes)})",
-                        state="normal",
-                    )
-                else:
-                    self._clear_active_cache_btn.configure(
-                        text="Clear Active Game Cache", state="disabled")
+                self._clear_cache_btn.configure(
+                    text=f"Manage Caches… ({_fmt_size(size_bytes)})")
         except Exception:
             pass
 
-    def _on_clear_cache(self):
-        import shutil, threading
-        cache_dir = get_download_cache_dir()
-        self._cache_status_lbl.configure(text="Calculating…", text_color=TEXT_DIM)
-
-        def _size_worker():
-            orphans = _get_orphaned_tmp_dirs()
-            size = _get_dir_size(cache_dir) + sum(_get_dir_size(d) for d in orphans)
-            self.after(0, lambda: _show_confirm(size, orphans))
-
-        def _show_confirm(size, orphans):
+    def _on_manage_caches(self):
+        """Open the cache manager overlay over the plugin panel."""
+        root = self.winfo_toplevel()
+        # Close Settings so the overlay sits on the panel container by itself.
+        if hasattr(root, "hide_settings_panel"):
             try:
-                if not self._cache_status_lbl.winfo_exists():
-                    return
+                root.hide_settings_panel()
             except Exception:
-                return
-            self._cache_status_lbl.configure(text="", text_color=TEXT_DIM)
-            if size <= 0 and not orphans:
-                self._cache_status_lbl.configure(text="Cache is empty.", text_color=TEXT_DIM)
-                return
-
-            alert = CTkAlert(
-                state="warning",
-                title="Clear All Download Caches",
-                body_text=(
-                    f"Clear {_fmt_size(size)} of cached downloads across every game?\n\n"
-                    f"Location: {cache_dir}\n\n"
-                    "The md5 cache is preserved. "
-                    "Archives will be re-downloaded as needed."
-                ),
-                btn1="Clear",
-                btn2="Cancel",
-                parent=self.winfo_toplevel(),
-                height=280,
-            )
-            if alert.get() != "Clear":
-                return
-
-            def _clear_worker():
-                cleared = 0
-                try:
-                    for p in cache_dir.iterdir():
-                        if p.name in self._CLEAR_ALL_PRESERVE:
-                            continue
-                        try:
-                            if p.is_file():
-                                p.unlink(missing_ok=True)
-                                cleared += 1
-                            elif p.is_dir():
-                                shutil.rmtree(p, ignore_errors=True)
-                                cleared += 1
-                        except OSError:
-                            pass
-                    # Remove orphaned modmgr_* temp dirs left in profile directories
-                    for tmp_dir in orphans:
-                        try:
-                            shutil.rmtree(tmp_dir, ignore_errors=True)
-                            cleared += 1
-                        except OSError:
-                            pass
-                    self.after(0, lambda: _done(cleared))
-                except Exception as exc:
-                    self.after(0, lambda e=exc: self._cache_status_lbl.configure(
-                        text=f"Failed: {e}", text_color=TEXT_ERR))
-
-            def _done(n):
-                self._cache_status_lbl.configure(
-                    text=f"Cleared ({n} items).", text_color=TEXT_OK)
-                self._refresh_cache_size()
-
-            self._cache_status_lbl.configure(text="Clearing…", text_color=TEXT_DIM)
-            threading.Thread(target=_clear_worker, daemon=True).start()
-
-        threading.Thread(target=_size_worker, daemon=True).start()
-
-    def _on_clear_active_game_cache(self):
-        """Wipe just the per-game subfolder for the currently selected game."""
-        import shutil, threading
-        active_name = self._active_game_name()
-        if not active_name:
-            self._cache_status_lbl.configure(
-                text="No active game.", text_color=TEXT_DIM)
-            return
-        game_dir = get_download_cache_dir() / active_name
-        self._cache_status_lbl.configure(text="Calculating…", text_color=TEXT_DIM)
-
-        def _size_worker():
-            size = _get_dir_size(game_dir)
-            self.after(0, lambda: _show_confirm(size))
-
-        def _show_confirm(size):
-            try:
-                if not self._cache_status_lbl.winfo_exists():
-                    return
-            except Exception:
-                return
-            self._cache_status_lbl.configure(text="", text_color=TEXT_DIM)
-            if size <= 0:
-                self._cache_status_lbl.configure(
-                    text=f"{active_name} cache is empty.", text_color=TEXT_DIM)
-                return
-
-            alert = CTkAlert(
-                state="warning",
-                title=f"Clear {active_name} Download Cache",
-                body_text=(
-                    f"Clear {_fmt_size(size)} of cached downloads for {active_name}?\n\n"
-                    f"Location: {game_dir}\n\n"
-                    "Other games' caches are unaffected."
-                ),
-                btn1="Clear",
-                btn2="Cancel",
-                parent=self.winfo_toplevel(),
-                height=260,
-            )
-            if alert.get() != "Clear":
-                return
-
-            def _clear_worker():
-                try:
-                    if game_dir.is_dir():
-                        shutil.rmtree(game_dir, ignore_errors=True)
-                    self.after(0, _done)
-                except Exception as exc:
-                    self.after(0, lambda e=exc: self._cache_status_lbl.configure(
-                        text=f"Failed: {e}", text_color=TEXT_ERR))
-
-            def _done():
-                self._cache_status_lbl.configure(
-                    text=f"Cleared {active_name} cache.", text_color=TEXT_OK)
-                self._refresh_cache_size()
-
-            self._cache_status_lbl.configure(text="Clearing…", text_color=TEXT_DIM)
-            threading.Thread(target=_clear_worker, daemon=True).start()
-
-        threading.Thread(target=_size_worker, daemon=True).start()
+                pass
+        if hasattr(root, "show_cache_manager_panel"):
+            root.show_cache_manager_panel()
 
     def _browse_download_cache(self):
         from Utils.portal_filechooser import pick_folder

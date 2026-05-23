@@ -1,6 +1,7 @@
 - v1.3.6
 - Tweaked Bethesda game routing rules to stop some dll files incorrectly being sent to the root folder
 - Fixed a bug where setting a mod to root folder install while a modlist is deployed would send it to the wrong location on next deploy
+- Reworked the clear cache setting, It now opens a menu to break down cache by game
 
 - v1.3.5
 - Tweaked the separator settings menu/custom deploy locations
