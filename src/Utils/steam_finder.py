@@ -53,7 +53,7 @@ def list_installed_proton() -> list[Path]:
     """
     seen: set[Path] = set()
     candidates: list[Path] = []
-    for steam_root in _STEAM_CANDIDATES:
+    for steam_root in _all_proton_search_roots():
         for search_dir in (
             steam_root / "compatibilitytools.d",
             steam_root / "steamapps" / "common",
@@ -92,7 +92,8 @@ def find_any_installed_proton(preferred_name: str = "") -> Path | None:
     preferred_norm = _normalize_tool_name(preferred_name) if preferred_name else ""
 
     candidates: list[Path] = []
-    for steam_root in _STEAM_CANDIDATES:
+    seen: set[Path] = set()
+    for steam_root in _all_proton_search_roots():
         for search_dir in (
             steam_root / "compatibilitytools.d",
             steam_root / "steamapps" / "common",
@@ -104,8 +105,13 @@ def find_any_installed_proton(preferred_name: str = "") -> Path | None:
                     if not entry.is_dir():
                         continue
                     proton_script = entry / "proton"
-                    if proton_script.is_file():
-                        candidates.append(proton_script)
+                    if not proton_script.is_file():
+                        continue
+                    resolved = proton_script.resolve()
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    candidates.append(proton_script)
             except OSError:
                 continue
 
@@ -130,14 +136,21 @@ def find_any_installed_proton(preferred_name: str = "") -> Path | None:
 
 def find_steam_root_for_proton_script(proton_script: Path) -> Path | None:
     """
-    Resolve the Steam root directory that owns a given Proton script path.
+    Resolve the Steam client root to use as STEAM_COMPAT_CLIENT_INSTALL_PATH
+    for a given Proton script.
 
     Supports Proton installs from both:
       - <steam_root>/steamapps/common/<Tool>/proton
       - <steam_root>/compatibilitytools.d/<Tool>/proton
+
+    When the Proton tool lives in a *secondary* library (SD card, second
+    drive), that library is not a real Steam client install — Proton needs the
+    runtime that lives under the main Steam root. In that case we fall back to
+    the first real Steam client candidate so the runtime is still found.
     """
     script = proton_script.resolve()
 
+    # Prefer a genuine Steam client root that owns this script directly.
     for steam_root in _STEAM_CANDIDATES:
         try:
             rel = script.relative_to(steam_root.resolve())
@@ -152,6 +165,13 @@ def find_steam_root_for_proton_script(proton_script: Path) -> Path | None:
         if rel.parts[0] == "compatibilitytools.d" and len(rel.parts) >= 3:
             return steam_root
 
+    # The script lives outside every known client root (e.g. a secondary
+    # library). Use the first real Steam client install for the runtime.
+    for steam_root in _STEAM_CANDIDATES:
+        if (steam_root / "steamapps").is_dir():
+            return steam_root
+
+    # Last resort: derive a root from the path itself.
     parts = script.parts
     try:
         idx = parts.index("compatibilitytools.d")
@@ -275,6 +295,40 @@ def parse_vdf_libraries(vdf_path: Path) -> list[Path]:
             libraries.append(common)
 
     return libraries
+
+
+def _all_proton_search_roots() -> list[Path]:
+    """Every directory that may hold a Proton install: the known Steam roots
+    plus the steamapps/common of each extra library listed in libraryfolders.vdf.
+
+    Proton tools live alongside games, so a tool selected via CompatToolMapping
+    can sit in a secondary library (SD card, second drive) even though the
+    config.vdf that names it only exists in the main Steam root.
+    """
+    roots: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(p: Path) -> None:
+        try:
+            resolved = p.resolve()
+        except Exception:
+            resolved = p
+        if resolved not in seen:
+            seen.add(resolved)
+            roots.append(p)
+
+    for steam_root in _STEAM_CANDIDATES:
+        _add(steam_root)
+
+    for steam_root in _STEAM_CANDIDATES:
+        vdf_path = steam_root / "steamapps" / _VDF_FILENAME
+        if not vdf_path.is_file():
+            continue
+        for common in parse_vdf_libraries(vdf_path):
+            # common is .../steamapps/common; the Steam-root-equivalent is its grandparent
+            _add(common.parent.parent)
+
+    return roots
 
 
 def find_prefix(steam_id: str) -> Path | None:
@@ -402,10 +456,13 @@ def find_proton_for_game(steam_id: str) -> Path | None:
         dir_name = _COMPAT_TOOL_NAMES.get(tool_name, tool_name)
 
         # Search steamapps/common/ and compatibilitytools.d/ (GE-Proton, etc.)
-        search_dirs = [
-            steam_root / "steamapps" / "common",
-            steam_root / "compatibilitytools.d",
-        ]
+        # across every Steam root AND secondary library — Proton tools live
+        # alongside games, so the mapped tool may sit on an SD card / second
+        # drive even though config.vdf only exists in the main Steam root.
+        search_dirs: list[Path] = []
+        for root in _all_proton_search_roots():
+            search_dirs.append(root / "steamapps" / "common")
+            search_dirs.append(root / "compatibilitytools.d")
 
         for search_dir in search_dirs:
             # Exact match first
@@ -428,7 +485,7 @@ def find_proton_for_game(steam_id: str) -> Path | None:
     # stores a config_info file whose lines include the Proton path used
     # to create the prefix (e.g. ".../common/Proton 10.0/files/...").
     # We extract the Proton directory name from that path.
-    for steam_root in _STEAM_CANDIDATES:
+    for steam_root in _all_proton_search_roots():
         config_info = (steam_root / "steamapps" / "compatdata"
                        / steam_id / "config_info")
         if not config_info.is_file():
