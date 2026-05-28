@@ -177,8 +177,17 @@ if [ "$MM_USE_PKGBUILD" = "1" ]; then
     #   libssl/libcrypto -> _ssl.so      (HTTPS — Nexus, GitHub, updates)
     #   libuuid          -> _uuid.so     (uuid.uuid4 used by Nexus SSO)
     #   libmpdec         -> _decimal.so  (transitive deps may import decimal)
+    # Resolve quick-sharun to a script path so we can trace it.
+    _qs_path="$(command -v quick-sharun)"
+    echo "=== quick-sharun resolves to: $_qs_path ==="
+    file "$_qs_path" || true
+    echo "=== quick-sharun head ==="
+    head -5 "$_qs_path" || true
+    echo "=== quick-sharun DEPLOY_/HOOK_ env knobs ==="
+    grep -nE '\$\{?(DEPLOY_|HOOK_|SKIP_|NO_)[A-Z_]+' "$_qs_path" | head -40 || true
+    echo "=== ============================== ==="
     set +e
-    quick-sharun \
+    bash -x "$_qs_path" \
         /usr/bin/mod-manager               \
         /usr/share/amethyst-mod-manager    \
         /usr/bin/7zzs                      \
