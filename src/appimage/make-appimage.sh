@@ -183,8 +183,10 @@ if [ "$MM_USE_PKGBUILD" = "1" ]; then
     file "$_qs_path" || true
     echo "=== quick-sharun head ==="
     head -5 "$_qs_path" || true
-    echo "=== quick-sharun DEPLOY_/HOOK_ env knobs ==="
-    grep -nE '\$\{?(DEPLOY_|HOOK_|SKIP_|NO_)[A-Z_]+' "$_qs_path" | head -40 || true
+    echo "=== quick-sharun env knobs ==="
+    grep -nE '\$\{?(DEPLOY_|HOOK_|SKIP_|NO_|ADD_)[A-Z_]+' "$_qs_path" | head -60 || true
+    echo "=== quick-sharun girepository section ==="
+    grep -n -B2 -A15 'girepository' "$_qs_path" || true
     echo "=== ============================== ==="
     set +e
     bash -x "$_qs_path" \
