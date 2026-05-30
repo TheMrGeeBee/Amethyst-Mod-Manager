@@ -172,11 +172,13 @@ from gui.dialogs import (
     queue_rename_after_install,
 )
 from gui.fomod_dialog import FomodDialog
+from gui.bain_dialog import BainDialog
 from gui.mod_name_utils import _strip_title_metadata, _suggest_mod_names
 from Utils.fomod_parser import detect_fomod, parse_module_config, parse_mod_info
 from Utils.fomod_installer import resolve_files, check_module_dependencies
+from Utils.bain_installer import detect_bain, resolve_bain_files
 from Utils.ui_config import load_dev_mode, load_rename_mod_after_install
-from Utils.config_paths import get_fomod_selections_path
+from Utils.config_paths import get_fomod_selections_path, get_bain_selections_path
 from Utils.plugins import read_plugins, append_plugin, read_loadorder, write_loadorder, PluginEntry
 from Utils.modlist import prepend_mod, ensure_mod_preserving_position, read_modlist, write_modlist, ModEntry
 from Utils.profile_state import read_separator_locks, write_separator_locks
@@ -277,6 +279,36 @@ def _show_fomod_dialog_on_main(parent_window, config, mod_root,
                             saved_selections=saved_selections,
                             selections_path=selections_path,
                             on_done=on_done)
+        try:
+            if panel.winfo_exists():
+                panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+                panel.lift()
+                panel.focus_set()
+        except Exception:
+            _tb.print_exc()
+    except Exception:
+        _tb.print_exc()
+        result_holder[0] = None
+        done_event.set()
+
+
+def _show_bain_dialog_on_main(parent_window, subpackages, mod_root,
+                              readme_text, saved_selections, selections_path,
+                              result_holder: list, done_event: threading.Event) -> None:
+    """Run on main thread. Creates a BainDialog overlay on the mod-panel container."""
+    import traceback as _tb
+    try:
+        container = getattr(parent_window, '_mod_panel_container', None) or parent_window
+
+        def on_done(result):
+            result_holder[0] = result
+            done_event.set()
+
+        panel = BainDialog(container, subpackages, mod_root,
+                           readme_text=readme_text,
+                           saved_selections=saved_selections,
+                           selections_path=selections_path,
+                           on_done=on_done)
         try:
             if panel.winfo_exists():
                 panel.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -427,11 +459,12 @@ def _try_auto_strip_for_file_types(
 
 
 def _stamp_meta_install_date(meta_ini_path: Path, installation_file: str = "",
-                              is_fomod: bool = False) -> None:
+                              is_fomod: bool = False, is_bain: bool = False) -> None:
     """Write the current datetime as the ``installed`` key in meta.ini if not
     already present.  Also write ``installationFile`` if *installation_file* is
     given and the key is not yet set (MO2-compatible).  If *is_fomod* is True,
-    also set ``FOMOD=True`` so the modlist panel can identify FOMOD installs."""
+    also set ``FOMOD=True``; if *is_bain* is True, set ``BAIN=True`` so the
+    modlist panel can identify how the mod was installed."""
     import configparser as _cp
     parser = _cp.ConfigParser()
     if meta_ini_path.is_file():
@@ -448,6 +481,9 @@ def _stamp_meta_install_date(meta_ini_path: Path, installation_file: str = "",
         changed = True
     if is_fomod and parser.get("General", "FOMOD", fallback="").lower() != "true":
         parser.set("General", "FOMOD", "True")
+        changed = True
+    if is_bain and parser.get("General", "BAIN", fallback="").lower() != "true":
+        parser.set("General", "BAIN", "True")
         changed = True
     if changed:
         meta_ini_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1401,6 +1437,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                 raise RuntimeError(f"Failed to extract inner .fomod archive: {os.path.basename(_fomod_archive)}")
 
         is_fomod_install = False
+        is_bain_install = False
         fomod_result = detect_fomod(extract_dir)
         if fomod_result:
             mod_root, config_path = fomod_result
@@ -1631,6 +1668,117 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                 for src, dst, is_folder in file_list:
                     kind = "[dir]" if is_folder else "[file]"
                     log_fn(f"[FOMOD DEV]   {kind} {src!r} → {dst!r}")
+        elif (bain_subpkgs := detect_bain(_unwrap_single_folder(extract_dir))):
+            # --- BAIN (Wrye Bash bundled archive) install ---
+            extract_dir = _unwrap_single_folder(extract_dir)
+            mod_root = extract_dir
+            log_fn(f"BAIN package detected — {len(bain_subpkgs)} sub-package(s).")
+
+            # Optional package readme shown in the picker for context. Match
+            # case-insensitively — BAIN packages are authored on Windows so the
+            # file may be Package.txt, PACKAGE.TXT, etc. Note: wizard.txt is a
+            # Wrye Bash installer *script* (non human-readable), not a readme, so
+            # it is deliberately excluded here.
+            readme_text = None
+            _readme_names = ("package.txt", "readme.txt")
+            try:
+                _root_files = {e.name.lower(): e.path
+                               for e in os.scandir(extract_dir) if e.is_file()}
+            except OSError:
+                _root_files = {}
+            for _rn in _readme_names:
+                _rp = _root_files.get(_rn)
+                if _rp:
+                    try:
+                        readme_text = Path(_rp).read_text(encoding="utf-8",
+                                                          errors="replace")
+                    except OSError:
+                        readme_text = None
+                    break
+
+            game_name = getattr(game, "name", "")
+            sel_path = None
+            saved_selections = None
+            if game_name:
+                sel_path = get_bain_selections_path(game_name, mod_name)
+                if sel_path.is_file():
+                    try:
+                        with open(sel_path, "r", encoding="utf-8") as f:
+                            saved_selections = json.load(f)
+                        log_fn("Restored previous BAIN selections.")
+                    except (OSError, ValueError):
+                        saved_selections = None
+
+            all_names = [p.name for p in bain_subpkgs]
+            if headless:
+                # Collection / non-interactive install: keep prior choices if we
+                # have them, otherwise install every sub-package (BAIN default).
+                selected = (saved_selections or {}).get("selected") or all_names
+                log_fn("BAIN: non-interactive install — using "
+                       + ("saved" if saved_selections else "all-packages")
+                       + " selection.")
+            else:
+                if clear_progress_fn is not None:
+                    clear_progress_fn()
+                fomod_dialog_active.set()
+                try:
+                    if threading.current_thread() is threading.main_thread():
+                        import tkinter as tk
+                        container = getattr(parent_window, '_mod_panel_container', None) or parent_window
+                        _done_var = tk.BooleanVar(value=False)
+                        _result_holder: list = [None]
+
+                        def _on_done(result):
+                            _result_holder[0] = result
+                            _done_var.set(True)
+
+                        panel = BainDialog(container, bain_subpkgs, mod_root,
+                                           readme_text=readme_text,
+                                           saved_selections=saved_selections,
+                                           selections_path=sel_path,
+                                           on_done=_on_done)
+                        try:
+                            if panel.winfo_exists():
+                                panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+                                panel.lift()
+                                panel.focus_set()
+                                parent_window.wait_variable(_done_var)
+                        except Exception:
+                            import traceback as _tb; _tb.print_exc()
+                        dialog_result = _result_holder[0]
+                    else:
+                        with _interactive_dialog_lock:
+                            result_holder = [None]
+                            done_event = threading.Event()
+                            parent_window.after(
+                                0,
+                                lambda: _show_bain_dialog_on_main(
+                                    parent_window, bain_subpkgs, mod_root,
+                                    readme_text, saved_selections, sel_path,
+                                    result_holder, done_event,
+                                ),
+                            )
+                            done_event.wait()
+                            dialog_result = result_holder[0]
+                finally:
+                    fomod_dialog_active.clear()
+
+                if dialog_result is None:
+                    log_fn("BAIN install cancelled.")
+                    return
+
+                selected = dialog_result.get("selected", [])
+                if game_name and sel_path is not None:
+                    try:
+                        with open(sel_path, "w", encoding="utf-8") as f:
+                            json.dump(dialog_result, f, indent=2)
+                    except OSError:
+                        pass
+
+            file_list = resolve_bain_files(bain_subpkgs, set(selected))
+            is_bain_install = True
+            log_fn(f"BAIN complete — {len(selected)} sub-package(s), "
+                   f"{len(file_list)} file(s) to install.")
         elif getattr(game, "mod_supports_bundles", False) and detect_bundle(_unwrap_single_folder(extract_dir)):
             # --- Bundle install ---
             extract_dir = _unwrap_single_folder(extract_dir)
@@ -2059,7 +2207,8 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
 
         _stamp_meta_install_date(dest_root / "meta.ini",
                                   installation_file=os.path.basename(archive_path),
-                                  is_fomod=is_fomod_install)
+                                  is_fomod=is_fomod_install,
+                                  is_bain=is_bain_install)
 
         for fn in getattr(game, "additional_install_logic", []):
             try:

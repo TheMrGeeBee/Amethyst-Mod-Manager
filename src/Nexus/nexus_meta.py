@@ -61,6 +61,7 @@ class NexusModMeta:
     ignored_version: str = ""          # latest_version at the time ignore was set
     missing_requirements: str = ""     # semicolon-separated "modId:name" pairs
     is_fomod: bool = False             # True if installed via FOMOD installer
+    is_bain: bool = False              # True if installed via BAIN sub-package installer
     root_folder: bool = False          # True if files should deploy to game root
     from_collection: str = ""          # slug of the collection that installed this mod
     from_collection_bundled: bool = False  # True for mods extracted from collection bundled/ folder
@@ -138,6 +139,7 @@ _KEY_MAP: dict[str, str] = {
     "ignoredVersion":    "ignored_version",
     "missingRequirements": "missing_requirements",
     "FOMOD":             "is_fomod",
+    "BAIN":              "is_bain",
     "rootFolder":        "root_folder",
     "fromCollection":    "from_collection",
     "fromCollectionBundled": "from_collection_bundled",
@@ -149,8 +151,8 @@ _INT_FIELDS = {"mod_id", "file_id", "category_id", "latest_file_id"}
 
 # Attributes that are bools
 _BOOL_FIELDS = {
-    "endorsed", "has_update", "ignore_update", "is_fomod", "root_folder",
-    "from_collection_bundled", "from_collection_patched",
+    "endorsed", "has_update", "ignore_update", "is_fomod", "is_bain",
+    "root_folder", "from_collection_bundled", "from_collection_patched",
 }
 
 
@@ -210,7 +212,8 @@ def write_meta(meta_ini_path: Path, meta: NexusModMeta) -> None:
             # come from a one-shot install step and should survive callers
             # that construct fresh ``NexusModMeta`` objects without them.
             if attr in (
-                "is_fomod", "from_collection_bundled", "from_collection_patched",
+                "is_fomod", "is_bain", "from_collection_bundled",
+                "from_collection_patched",
             ) and not value:
                 continue
             cp.set(_SECTION, ini_key, "true" if value else "false")

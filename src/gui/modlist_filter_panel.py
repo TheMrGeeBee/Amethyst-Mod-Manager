@@ -45,6 +45,7 @@ _FILTER_CHECKBOXES: tuple[tuple[str, str, str], ...] = (
     ("filter_has_updates",          "Mods with updates",              "_filter_has_updates"),
     ("filter_has_notes",            "Mods with notes",                "_filter_has_notes"),
     ("filter_fomod_only",           "FOMOD mods",                     "_filter_fomod_only"),
+    ("filter_bain_only",            "BAIN mods",                      "_filter_bain_only"),
     ("filter_has_bsa",              "Mods with BSA archives",         "_filter_has_bsa"),
 )
 

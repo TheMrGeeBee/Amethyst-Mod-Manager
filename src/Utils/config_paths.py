@@ -112,6 +112,16 @@ def get_fomod_selections_path(game_name: str, mod_name: str) -> Path:
     return path
 
 
+def get_bain_selections_path(game_name: str, mod_name: str) -> Path:
+    """Return the path to a saved BAIN selection file for a given game and mod.
+
+    Result: ~/.config/AmethystModManager/games/<game_name>/bain_selections/<mod_name>.json
+    """
+    path = get_config_dir() / "games" / game_name / "bain_selections" / f"{mod_name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def get_nexus_config_dir() -> Path:
     """Return the Nexus Mods config directory, creating it if needed.
 

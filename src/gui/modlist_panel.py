@@ -179,6 +179,7 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path) -> dict:
     category_names: dict[str, str] = {}
     mod_versions: dict[str, str] = {}
     fomod_mods: set[str] = set()
+    bain_mods: set[str] = set()
     root_folder_mods: set[str] = set()
     collection_bundled_mods: set[str] = set()
     collection_patched_mods: set[str] = set()
@@ -220,6 +221,8 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path) -> dict:
                 mod_versions[entry.name] = meta.version
             if meta.is_fomod:
                 fomod_mods.add(entry.name)
+            if meta.is_bain:
+                bain_mods.add(entry.name)
             if meta.root_folder:
                 root_folder_mods.add(entry.name)
             if meta.from_collection_bundled:
@@ -238,6 +241,7 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path) -> dict:
         "category_names": category_names,
         "mod_versions": mod_versions,
         "fomod_mods": fomod_mods,
+        "bain_mods": bain_mods,
         "root_folder_mods": root_folder_mods,
         "collection_bundled_mods": collection_bundled_mods,
         "collection_patched_mods": collection_patched_mods,
@@ -429,6 +433,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._category_names: dict[str, str] = {}
         self._mod_versions: dict[str, str] = {}
         self._fomod_mods: set[str] = set()
+        self._bain_mods: set[str] = set()
         # Set of mod names flagged for root-level (engine) deployment
         self._root_folder_mods: set[str] = set()
         # Set of mod names that own at least one file matched by a custom
@@ -529,6 +534,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._filter_has_disabled_files: int = 0
         self._filter_has_updates: int = 0
         self._filter_fomod_only: int = 0
+        self._filter_bain_only: int = 0
         self._filter_has_bsa: int = 0
         self._filter_categories: frozenset[str] = frozenset()         # include-only categories
         self._filter_categories_exclude: frozenset[str] = frozenset() # categories to hide
@@ -1376,6 +1382,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._category_names.clear()
             self._mod_versions.clear()
             self._fomod_mods.clear()
+            self._bain_mods.clear()
             self._vis_dirty = True
             self._mod_to_sep_idx = None
             return
@@ -1410,6 +1417,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._category_names = results.get("category_names", {})
         self._mod_versions = results.get("mod_versions", {})
         self._fomod_mods = results.get("fomod_mods", set())
+        self._bain_mods = results.get("bain_mods", set())
         self._root_folder_mods = results.get("root_folder_mods", set())
         self._root_rule_mods = self._compute_root_rule_mods()
         self._collection_bundled_mods = results.get("collection_bundled_mods", set())
@@ -2893,6 +2901,9 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         ("_filter_fomod_only", None,
          lambda s, _ms: (lambda e: e.name in s._fomod_mods),
          lambda s, _ms: s._sep_block_has_fomod),
+        ("_filter_bain_only", None,
+         lambda s, _ms: (lambda e: e.name in s._bain_mods),
+         lambda s, _ms: s._sep_block_has_bain),
         ("_filter_has_bsa", lambda s: s._get_mods_with_bsa(),
          lambda s, ms: (lambda e: e.name in ms),
          lambda s, ms: (lambda i: s._sep_block_has_bsa(i, ms))),
@@ -3826,6 +3837,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
     def _sep_block_has_fomod(self, sep_idx: int) -> bool:
         return self._sep_block_has_any(
             sep_idx, lambda e: e.name in self._fomod_mods,
+        )
+
+    def _sep_block_has_bain(self, sep_idx: int) -> bool:
+        return self._sep_block_has_any(
+            sep_idx, lambda e: e.name in self._bain_mods,
         )
 
     def _get_mods_with_bsa(self) -> set[str]:
@@ -5526,6 +5542,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         # rebuilt on reload, so just migrate the current snapshot).
         for s in (self._update_mods, self._missing_reqs, self._ignored_missing_reqs,
                   self._endorsed_mods, self._prertx_mods, self._fomod_mods,
+                  self._bain_mods,
                   self._collection_bundled_mods, self._collection_patched_mods):
             if old_name in s:
                 s.discard(old_name)
