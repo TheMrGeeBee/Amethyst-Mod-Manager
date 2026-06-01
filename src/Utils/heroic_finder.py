@@ -197,6 +197,57 @@ def _find_gog_game(heroic_root: Path, app_names: list[str]) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# Sideloaded apps (manually-added games)
+# ---------------------------------------------------------------------------
+
+def _load_sideload_installed(heroic_root: Path) -> list[dict]:
+    """
+    Parse sideload_apps/library.json from a Heroic config root.
+    The file has shape {"games": [ {app_name, title, install: {executable, ...},
+    folder_name, ...}, ... ]}.  Returns the list of game entries, or an empty
+    list on any error.
+    """
+    library_json = heroic_root / "sideload_apps" / "library.json"
+    if not library_json.is_file():
+        return []
+    try:
+        data = json.loads(library_json.read_text(encoding="utf-8", errors="replace"))
+        if isinstance(data, dict):
+            games = data.get("games", [])
+            if isinstance(games, list):
+                return games
+    except (OSError, json.JSONDecodeError):
+        pass
+    return []
+
+
+def _sideload_game_root(executable: str, exe_name: str) -> Path | None:
+    """
+    Derive a game's root directory from a sideloaded app's stored executable.
+
+    Sideload entries store the full path to the launch exe but no install_path.
+    The handler's ``exe_name`` may include subdirs (e.g.
+    'bin/x64/Cyberpunk2077.exe'); strip that relative path off the stored
+    executable so we return the true game root, not the exe's folder.  Falls
+    back to the exe's own directory if the suffix doesn't line up.
+    """
+    exe_path = Path(executable.replace("\\", "/"))
+    rel = exe_name.replace("\\", "/").strip("/")
+    rel_parts = [p for p in rel.split("/") if p]
+    # Strip the handler's relative exe path from the tail of the stored path.
+    if len(rel_parts) > 1 and len(exe_path.parts) >= len(rel_parts):
+        tail = [p.lower() for p in exe_path.parts[-len(rel_parts):]]
+        if tail == [p.lower() for p in rel_parts]:
+            root = Path(*exe_path.parts[:-len(rel_parts)])
+            if root.is_dir():
+                return root
+    # Single-segment exe name (or mismatch): root is the exe's directory.
+    if exe_path.parent.is_dir():
+        return exe_path.parent
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Wine prefix lookup
 # ---------------------------------------------------------------------------
 
@@ -289,12 +340,13 @@ def find_heroic_game(app_names: list[str]) -> Path | None:
 def find_heroic_launch_info(app_names: list[str]) -> "tuple[str, str] | None":
     """
     Search Heroic config for a game matching any of the given app_names.
-    Returns (store, matched_app_name) where store is 'legendary' (Epic) or 'gog',
-    or None if not found.
+    Returns (store, matched_app_name) where store is 'legendary' (Epic),
+    'gog', or 'sideload', or None if not found.
 
     The returned values can be used to build a heroic:// launch URL:
         heroic://launch/<store>/<app_name>
     """
+    app_names_lower = {n.lower() for n in app_names}
     for heroic_root in _find_heroic_config_roots():
         installed = _load_epic_installed(heroic_root)
         for app_name in app_names:
@@ -302,7 +354,6 @@ def find_heroic_launch_info(app_names: list[str]) -> "tuple[str, str] | None":
                 install_path = installed[app_name].get("install_path", "")
                 if install_path and Path(install_path).is_dir():
                     return ("legendary", app_name)
-        app_names_lower = {n.lower() for n in app_names}
         for entry in _load_gog_installed(heroic_root):
             if not isinstance(entry, dict):
                 continue
@@ -311,6 +362,14 @@ def find_heroic_launch_info(app_names: list[str]) -> "tuple[str, str] | None":
                 install_path = entry.get("install_path", "")
                 if install_path and Path(install_path).is_dir():
                     return ("gog", entry_id)
+        # Sideloaded apps are keyed by their generated app_name; the launch
+        # caller resolves that name via find_heroic_app_name_by_exe first.
+        for entry in _load_sideload_installed(heroic_root):
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("app_name") or entry.get("appName") or "")
+            if entry_id and entry_id.lower() in app_names_lower:
+                return ("sideload", entry_id)
     return None
 
 
@@ -404,6 +463,103 @@ def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
                 return (install_path, prefix_path, app_id)
             return (install_path, None, app_id)
 
+        # 4. Sideloaded apps: match the stored executable filename.
+        #    No install_path is stored, so derive the game root from the exe.
+        for entry in _load_sideload_installed(heroic_root):
+            if not isinstance(entry, dict):
+                continue
+            install = entry.get("install") or {}
+            stored_exe = install.get("executable", "") if isinstance(install, dict) else ""
+            if not stored_exe:
+                continue
+            stored_bare = stored_exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
+            if stored_bare != exe_lower:
+                continue
+            install_path = _sideload_game_root(stored_exe, exe_name)
+            if not install_path:
+                continue
+            app_id = str(entry.get("app_name") or entry.get("appName") or "")
+            prefix_path = _find_heroic_prefix_for_app(heroic_root, app_id) if app_id else None
+            if prefix_path:
+                return (install_path, prefix_path, app_id)
+            return (install_path, None, app_id)
+
+    return None
+
+
+def _proton_script_from_wine_version(wine_version: dict) -> Path | None:
+    """Resolve the Proton launcher script from a Heroic ``wineVersion`` block.
+
+    Heroic stores ``bin`` as the full path to the Proton executable, e.g.
+    ``.../compatibilitytools.d/GE-Proton10-34/proton``.  Returns that path when
+    it exists and the runner is Proton (not plain wine/crossover).
+    """
+    if not isinstance(wine_version, dict):
+        return None
+    if str(wine_version.get("type", "")).lower() != "proton":
+        return None
+    bin_path = wine_version.get("bin", "")
+    if not bin_path:
+        return None
+    p = Path(bin_path)
+    # ``bin`` may point at the proton script directly or at its containing dir.
+    if p.is_file() and p.name == "proton":
+        return p
+    if p.is_dir() and (p / "proton").is_file():
+        return p / "proton"
+    return None
+
+
+def find_heroic_proton_for_prefix(prefix_path: "str | Path") -> Path | None:
+    """Return the Proton launcher script Heroic uses for *prefix_path*.
+
+    Scans every Heroic root's GamesConfig/<app>.json for an entry whose
+    ``winePrefix`` matches *prefix_path* and reads the proton bin from its
+    ``wineVersion`` block.  Returns None if no match (or the runner isn't
+    Proton).  Heroic appends ``/pfx`` to the prefix at launch but stores the
+    parent in winePrefix, so both forms are accepted.
+    """
+    target = Path(prefix_path)
+    candidates = {target}
+    if target.name == "pfx":
+        candidates.add(target.parent)
+    cand_resolved = set()
+    for c in candidates:
+        try:
+            cand_resolved.add(c.resolve())
+        except OSError:
+            cand_resolved.add(c)
+
+    for heroic_root in _find_heroic_config_roots():
+        games_config = heroic_root / "GamesConfig"
+        if not games_config.is_dir():
+            continue
+        try:
+            cfg_files = list(games_config.glob("*.json"))
+        except OSError:
+            continue
+        for cfg_file in cfg_files:
+            try:
+                cfg = json.loads(cfg_file.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            app_name = cfg_file.stem
+            inner = cfg.get(app_name, cfg) if isinstance(cfg, dict) else {}
+            if not isinstance(inner, dict):
+                continue
+            wine_prefix = inner.get("winePrefix", "") or inner.get("wine_prefix", "")
+            if not wine_prefix:
+                continue
+            wp = Path(wine_prefix)
+            try:
+                wp_resolved = wp.resolve()
+            except OSError:
+                wp_resolved = wp
+            if wp_resolved not in cand_resolved and wp not in candidates:
+                continue
+            proton = _proton_script_from_wine_version(inner.get("wineVersion", {}))
+            if proton:
+                return proton
     return None
 
 
