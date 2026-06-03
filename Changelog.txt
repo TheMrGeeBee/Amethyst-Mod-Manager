@@ -1,3 +1,10 @@
+- v1.3.8
+- Tweak to steam finder to use libraryfolder.vdf if present
+- Potential fix for proton related tools crashing due to proton run not working for the configured prefix
+- Added some additional/more verbose logging when deploying
+- Tweaked bepinex handler to better handle runtime generated files generated outside of the plugins folder
+- Added a present but not enabled ribbon to framework detection
+
 - v1.3.7
 - Reworked Archive Invalidation for some bethesda games, Uses a dummy bsa file to make the gamebryo engine load loose files
 - Fixed a bug where removing the root folder install flag from a mod after deploying would send the mod to overwrite when restoring.
