@@ -1,6 +1,7 @@
 """
 bodyslide.py
-Wizards for running BodySlide x64.exe and OutfitStudio x64.exe.
+Wizards for running BodySlide.exe and OutfitStudio.exe (older versions used the
+"BodySlide x64.exe" / "OutfitStudio x64.exe" names, still supported).
 
 Both tools are installed as regular mods (not into Applications/).  The wizard
 only appears when the relevant exe is found under the mod staging folder.
@@ -36,25 +37,34 @@ from gui.theme import (
 )
 
 
-def find_mod_exe(game: "BaseGame", exe_name: str) -> Path | None:
+def _as_names(exe_name) -> tuple[str, ...]:
+    """Accept a single name or an iterable of candidate names."""
+    if isinstance(exe_name, str):
+        return (exe_name,)
+    return tuple(exe_name)
+
+
+def find_mod_exe(game: "BaseGame", exe_name) -> Path | None:
     """Search the mod staging directory for exe_name (used to decide whether to show the wizard)."""
     staging = game.get_effective_mod_staging_path()
     if not staging.is_dir():
         return None
-    for candidate in staging.rglob(exe_name):
-        if candidate.is_file():
-            return candidate
+    for name in _as_names(exe_name):
+        for candidate in staging.rglob(name):
+            if candidate.is_file():
+                return candidate
     return None
 
 
-def find_deployed_exe(game: "BaseGame", exe_name: str) -> Path | None:
+def find_deployed_exe(game: "BaseGame", exe_name) -> Path | None:
     """Search the deployed Data directory for exe_name (used at launch time after deploy)."""
     data_path = game.get_mod_data_path()
     if data_path is None or not data_path.is_dir():
         return None
-    for candidate in data_path.rglob(exe_name):
-        if candidate.is_file():
-            return candidate
+    for name in _as_names(exe_name):
+        for candidate in data_path.rglob(name):
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -368,7 +378,7 @@ class _BodySlideBaseWizard(ctk.CTkFrame):
             ctk.CTkLabel(
                 self._body,
                 text=(
-                    f"'{self._exe_name}' was not found in the deployed Data folder.\n\n"
+                    f"'{self._exe_name[0]}' was not found in the deployed Data folder.\n\n"
                     f"Deploy your modlist first, then reopen this wizard."
                 ),
                 font=FONT_NORMAL, text_color="#e06c6c", justify="center", wraplength=460,
@@ -447,7 +457,7 @@ class _BodySlideBaseWizard(ctk.CTkFrame):
             )
             self.after(0, lambda: self._done_btn.configure(state="normal"))
             proc.wait()
-            self._log(f"{self._wizard_title} Wizard: {self._exe_name} closed.")
+            self._log(f"{self._wizard_title} Wizard: {exe.name} closed.")
             self._set_label("_run_status", f"{self._wizard_title} finished.", color="#6bc76b")
             self.after(0, self._on_done)
         except Exception as exc:
@@ -461,11 +471,11 @@ class _BodySlideBaseWizard(ctk.CTkFrame):
 
 class BodySlideWizard(_BodySlideBaseWizard):
     _wizard_title    = "BodySlide"
-    _exe_name        = "BodySlide x64.exe"
+    _exe_name        = ("BodySlide.exe", "BodySlide x64.exe")
     _output_mod_name = "BodySlide_files"
 
 
 class OutfitStudioWizard(_BodySlideBaseWizard):
     _wizard_title    = "Outfit Studio"
-    _exe_name        = "OutfitStudio x64.exe"
+    _exe_name        = ("OutfitStudio.exe", "OutfitStudio x64.exe")
     _output_mod_name = "OutfitStudio_files"

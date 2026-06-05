@@ -178,18 +178,18 @@ class SkyrimSE(Fallout_3):
                 description="Deploy mods and run Pandora Behaviour Engine+.",
                 dialog_class_path="wizards.pandora.PandoraWizard",
             ))
-        if find_mod_exe(self, "BodySlide x64.exe") is not None:
+        if find_mod_exe(self, ("BodySlide.exe", "BodySlide x64.exe")) is not None:
             pandora_tools.append(WizardTool(
                 id="run_bodyslide_skyrimse",
                 label="Run BodySlide",
-                description="Deploy mods and run BodySlide x64.exe from the Data folder.",
+                description="Deploy mods and run BodySlide from the Data folder.",
                 dialog_class_path="wizards.bodyslide.BodySlideWizard",
             ))
-        if find_mod_exe(self, "OutfitStudio x64.exe") is not None:
+        if find_mod_exe(self, ("OutfitStudio.exe", "OutfitStudio x64.exe")) is not None:
             pandora_tools.append(WizardTool(
                 id="run_outfitstudio_skyrimse",
                 label="Run Outfit Studio",
-                description="Deploy mods and run OutfitStudio x64.exe from the Data folder.",
+                description="Deploy mods and run Outfit Studio from the Data folder.",
                 dialog_class_path="wizards.bodyslide.OutfitStudioWizard",
             ))
         return self._base_wizard_tools() + pandora_tools + [
