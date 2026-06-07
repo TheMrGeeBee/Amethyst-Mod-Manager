@@ -65,7 +65,46 @@ def _resolve_socket_path() -> Path:
     return Path(f"/tmp/amethyst-mod-manager-{uid}.sock")
 
 
+# Every socket path the app *might* use across launch contexts.
+#
+# The single-instance handoff fails when the browser-spawned `--nxm` process
+# resolves a different socket path than the long-running instance — which
+# happens whenever the two launches see different environments (e.g. a Flatpak
+# browser, or a browser launched without XDG_RUNTIME_DIR). To make handoff
+# robust, the sender tries *all* of these and the server listens on the
+# always-available /tmp fallback in addition to its primary path, so the two
+# processes meet on at least one common path regardless of env.
+def _candidate_socket_paths() -> list[Path]:
+    uid = os.getuid()
+    paths: list[Path] = []
+
+    flatpak_id = os.environ.get("FLATPAK_ID")
+    if flatpak_id:
+        app_run = Path(f"/run/user/{uid}/app/{flatpak_id}")
+        paths.append(app_run / "amethyst-mod-manager.sock")
+
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        paths.append(Path(xdg) / "amethyst-mod-manager.sock")
+
+    # Always-available, env-independent fallback. Both sender and server use
+    # this as a common meeting point when env-derived paths diverge.
+    paths.append(Path(f"/tmp/amethyst-mod-manager-{uid}.sock"))
+
+    # Deduplicate while preserving order.
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
+
+
 _SOCKET_PATH = _resolve_socket_path()
+# The env-independent /tmp fallback — always bound by the server in addition to
+# _SOCKET_PATH so that a sender which lost XDG_RUNTIME_DIR can still reach us.
+_FALLBACK_SOCKET_PATH = Path(f"/tmp/amethyst-mod-manager-{os.getuid()}.sock")
 
 # XDG .desktop file name used to register the handler
 _DESKTOP_FILE_NAME = "amethystmodmanager-nxm.desktop"
@@ -719,39 +758,47 @@ class NxmIPC:
         app.mainloop()
     """
 
-    _server_socket: Optional[socket.socket] = None
-    _thread: Optional[threading.Thread] = None
+    _server_sockets: list[socket.socket] = []
+    _threads: list[threading.Thread] = []
 
     @classmethod
     def send_to_running(cls, nxm_url: str) -> bool:
         """
         Try to send *nxm_url* to an already-running instance.
 
-        Returns True if delivered, False if no instance was listening.
+        Tries every candidate socket path (env-derived + the /tmp fallback)
+        so the handoff still works when the browser-spawned process resolves a
+        different path than the long-running instance. Returns True as soon as
+        one delivery succeeds, False if no instance was reachable on any path.
         """
-        if not _SOCKET_PATH.exists():
-            app_log(
-                f"NXM handoff: no socket at {_SOCKET_PATH} "
-                f"(FLATPAK_ID={os.environ.get('FLATPAK_ID', '')!r}, "
-                f"XDG_RUNTIME_DIR={os.environ.get('XDG_RUNTIME_DIR', '')!r}) "
-                f"— opening new window"
-            )
-            return False
+        candidates = _candidate_socket_paths()
+        payload = json.dumps({"nxm_url": nxm_url}).encode("utf-8")
+        tried: list[str] = []
 
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2)
-            sock.connect(str(_SOCKET_PATH))
-            payload = json.dumps({"nxm_url": nxm_url}).encode("utf-8")
-            sock.sendall(payload)
-            sock.close()
-            app_log(f"Sent NXM link to running instance via {_SOCKET_PATH}")
-            return True
-        except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
-            app_log(f"NXM handoff failed on {_SOCKET_PATH}: {exc}")
-            # Stale socket — clean up
-            _SOCKET_PATH.unlink(missing_ok=True)
-            return False
+        for path in candidates:
+            if not path.exists():
+                tried.append(f"{path} (absent)")
+                continue
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect(str(path))
+                sock.sendall(payload)
+                sock.close()
+                app_log(f"Sent NXM link to running instance via {path}")
+                return True
+            except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
+                tried.append(f"{path} ({exc})")
+                # Stale socket — clean up so future launches don't retry it.
+                path.unlink(missing_ok=True)
+
+        app_log(
+            "NXM handoff: no running instance reachable "
+            f"(FLATPAK_ID={os.environ.get('FLATPAK_ID', '')!r}, "
+            f"XDG_RUNTIME_DIR={os.environ.get('XDG_RUNTIME_DIR', '')!r}) "
+            f"— tried {tried} — opening new window"
+        )
+        return False
 
     @classmethod
     def start_server(cls, callback: Callable[[str], None]) -> None:
@@ -761,17 +808,12 @@ class NxmIPC:
         *callback* is called (from a background thread) with the nxm:// URL
         string whenever another instance sends one.  The callback should use
         ``app.after()`` to schedule work on the main thread.
+
+        Binds the primary env-derived path *and* the env-independent /tmp
+        fallback so a browser-spawned sender that lost XDG_RUNTIME_DIR (or runs
+        under a different sandbox) can still reach us on a common path.
         """
-        # Clean stale socket
-        _SOCKET_PATH.unlink(missing_ok=True)
-        _SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(str(_SOCKET_PATH))
-        srv.listen(4)
-        cls._server_socket = srv
-
-        def _accept_loop():
+        def _accept_loop(srv: socket.socket):
             while True:
                 try:
                     conn, _ = srv.accept()
@@ -790,22 +832,40 @@ class NxmIPC:
                 finally:
                     conn.close()
 
-        t = threading.Thread(target=_accept_loop, daemon=True, name="nxm-ipc")
-        t.start()
-        cls._thread = t
+        bound: list[str] = []
+        # Bind every distinct path so senders meet us on at least one of them.
+        for path in {_SOCKET_PATH, _FALLBACK_SOCKET_PATH}:
+            try:
+                path.unlink(missing_ok=True)  # clean stale socket
+                path.parent.mkdir(parents=True, exist_ok=True)
+                srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                srv.bind(str(path))
+                srv.listen(4)
+                cls._server_sockets.append(srv)
+                t = threading.Thread(
+                    target=_accept_loop, args=(srv,), daemon=True, name="nxm-ipc"
+                )
+                t.start()
+                cls._threads.append(t)
+                bound.append(str(path))
+            except OSError as exc:
+                app_log(f"NXM IPC: could not bind {path}: {exc}")
+
         app_log(
-            f"NXM IPC server listening on {_SOCKET_PATH} "
+            f"NXM IPC server listening on {bound} "
             f"(FLATPAK_ID={os.environ.get('FLATPAK_ID', '')!r}, "
             f"XDG_RUNTIME_DIR={os.environ.get('XDG_RUNTIME_DIR', '')!r})"
         )
 
     @classmethod
     def shutdown(cls) -> None:
-        """Close the IPC socket and clean up."""
-        if cls._server_socket:
+        """Close every IPC socket and clean up."""
+        for srv in cls._server_sockets:
             try:
-                cls._server_socket.close()
+                srv.close()
             except OSError:
                 pass
-            cls._server_socket = None
-        _SOCKET_PATH.unlink(missing_ok=True)
+        cls._server_sockets = []
+        cls._threads = []
+        for path in {_SOCKET_PATH, _FALLBACK_SOCKET_PATH}:
+            path.unlink(missing_ok=True)
