@@ -171,8 +171,8 @@ class StardewValley(BaseGame):
         per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
         _orphan_configs = self._orphaned_overwrite_configs(filemap)
         if _orphan_configs:
-            _log(f"  Skipping {len(_orphan_configs)} orphaned overwrite config.json "
-                 "file(s) (no matching manifest.json deployed).")
+            _log(f"  Skipping {len(_orphan_configs)} orphaned overwrite file(s) "
+                 "(no matching manifest.json deployed).")
         linked_mod, placed = deploy_filemap(filemap, plugins_dir, staging,
                                             mode=mode,
                                             strip_prefixes=self.mod_folder_strip_prefixes,
@@ -195,21 +195,23 @@ class StardewValley(BaseGame):
         )
 
     def _orphaned_overwrite_configs(self, filemap: Path) -> set[str]:
-        """Lowercased rel paths of overwrite config.json files to skip on deploy.
+        """Lowercased rel paths of [Overwrite] files to skip on deploy.
 
         SMAPI errors when a Mods/<Name>/ folder holds files but no manifest.json.
-        The [Overwrite] folder keeps each mod's config.json, which would otherwise
-        deploy even after the owning mod is disabled/removed — leaving a folder
-        with only config.json. Skip any overwrite config.json whose sibling
-        <Name>/manifest.json is not in the filemap (i.e. no enabled mod provides it).
+        The [Overwrite] folder keeps each mod's runtime files (config.json and
+        more), which would otherwise deploy even after the owning mod is
+        disabled/removed — leaving a <Name>/ folder with no manifest. Skip any
+        [Overwrite] file under a <Name>/ whose <Name>/manifest.json is not in the
+        filemap (i.e. no enabled mod provides it). Overwrite files at the root
+        (no <Name>/ subfolder) and the manifest.json itself are never skipped.
         """
         from Utils.filemap import OVERWRITE_NAME
 
         if not filemap.is_file():
             return set()
 
-        manifest_dirs: set[str] = set()       # dirs (lower) with a deployed manifest.json
-        overwrite_configs: list[str] = []      # rel paths (lower) of overwrite config.json
+        manifest_dirs: set[str] = set()              # top dirs (lower) with a manifest.json
+        overwrite_files: list[tuple[str, str]] = []  # (rel_lower, top_dir_lower)
         try:
             with filemap.open(encoding="utf-8") as f:
                 for line in f:
@@ -217,18 +219,19 @@ class StardewValley(BaseGame):
                         continue
                     rel_str, mod_name = line.rstrip("\n").split("\t", 1)
                     rel_lower = rel_str.lower()
+                    slash = rel_lower.find("/")
+                    top_dir = rel_lower[:slash] if slash != -1 else ""
                     base = rel_lower.rsplit("/", 1)[-1]
-                    dir_lower = rel_lower[: -len(base)]  # keeps trailing "/" or ""
-                    if base == "manifest.json":
-                        manifest_dirs.add(dir_lower)
-                    elif base == "config.json" and mod_name == OVERWRITE_NAME:
-                        overwrite_configs.append(rel_lower)
+                    if base == "manifest.json" and top_dir:
+                        manifest_dirs.add(top_dir)
+                    if mod_name == OVERWRITE_NAME and top_dir and base != "manifest.json":
+                        overwrite_files.append((rel_lower, top_dir))
         except OSError:
             return set()
 
         return {
-            rel for rel in overwrite_configs
-            if rel[: -len("config.json")] not in manifest_dirs
+            rel for rel, top_dir in overwrite_files
+            if top_dir not in manifest_dirs
         }
 
     def restore(self, log_fn=None, progress_fn=None) -> None:
