@@ -24,4 +24,6 @@ subnautica:1108
 subnautica:16
 subnautica:201
 subnauticabelowzero:344
+subnautica2:34
 baldursgate3:141
+dragonage:971

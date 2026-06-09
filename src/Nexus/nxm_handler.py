@@ -832,6 +832,11 @@ class NxmIPC:
                 finally:
                     conn.close()
 
+        # Tear down any previous server state so a re-start (without an
+        # intervening shutdown) doesn't leak the old sockets/threads or append
+        # to a stale list.
+        cls.shutdown()
+
         bound: list[str] = []
         # Bind every distinct path so senders meet us on at least one of them.
         for path in {_SOCKET_PATH, _FALLBACK_SOCKET_PATH}:

@@ -11,6 +11,7 @@
 - Tweaked the nxm handler to try and stop multiple instances opening
 - Added a filter by pbr textures to Skyrim's modlist filter menu
 - Fixed artifacts on transparent images in the add games menu.
+- Stardew Valley no longer places unused config.json files from overwrite when deploying.
 
 - v1.3.7
 - Reworked Archive Invalidation for some bethesda games, Uses a dummy bsa file to make the gamebryo engine load loose files
