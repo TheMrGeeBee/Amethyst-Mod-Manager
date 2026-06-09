@@ -480,6 +480,17 @@ class PluginPanelDataMixin:
                 custom_deploy_mods = set(expand_separator_deploy_paths(_sep_paths, _entries).keys())
         if custom_deploy_mods:
             raw_entries = [(p, m) for p, m in raw_entries if m not in custom_deploy_mods]
+        # Game-specific hidden entries (e.g. Stardew skips orphaned overwrite
+        # config.json files at deploy; hide them here too so the tree matches).
+        _hide_fn = getattr(self._game, "_orphaned_overwrite_configs", None)
+        if callable(_hide_fn):
+            try:
+                _hidden = _hide_fn(filemap_path)
+            except Exception:
+                _hidden = set()
+            if _hidden:
+                raw_entries = [(p, m) for p, m in raw_entries
+                               if p.lower() not in _hidden]
         try:
             fm_mtime = filemap_path.stat().st_mtime
         except OSError:

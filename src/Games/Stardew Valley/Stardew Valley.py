@@ -169,11 +169,16 @@ class StardewValley(BaseGame):
         _sep_deploy = load_separator_deploy_paths(profile_dir)
         _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
         per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
+        _orphan_configs = self._orphaned_overwrite_configs(filemap)
+        if _orphan_configs:
+            _log(f"  Skipping {len(_orphan_configs)} orphaned overwrite config.json "
+                 "file(s) (no matching manifest.json deployed).")
         linked_mod, placed = deploy_filemap(filemap, plugins_dir, staging,
                                             mode=mode,
                                             strip_prefixes=self.mod_folder_strip_prefixes,
                                             per_mod_strip_prefixes=per_mod_strip,
                                             per_mod_deploy_dirs=per_mod_deploy,
+                                            exclude=_orphan_configs or None,
                                             log_fn=_log,
                                             progress_fn=progress_fn,
                                             core_dir=plugins_dir.parent / (plugins_dir.name + "_Core"))
@@ -188,6 +193,43 @@ class StardewValley(BaseGame):
             f"{linked_mod} mod + {linked_core} vanilla "
             f"= {linked_mod + linked_core} total file(s) in {plugins_dir.name}/."
         )
+
+    def _orphaned_overwrite_configs(self, filemap: Path) -> set[str]:
+        """Lowercased rel paths of overwrite config.json files to skip on deploy.
+
+        SMAPI errors when a Mods/<Name>/ folder holds files but no manifest.json.
+        The [Overwrite] folder keeps each mod's config.json, which would otherwise
+        deploy even after the owning mod is disabled/removed — leaving a folder
+        with only config.json. Skip any overwrite config.json whose sibling
+        <Name>/manifest.json is not in the filemap (i.e. no enabled mod provides it).
+        """
+        from Utils.filemap import OVERWRITE_NAME
+
+        if not filemap.is_file():
+            return set()
+
+        manifest_dirs: set[str] = set()       # dirs (lower) with a deployed manifest.json
+        overwrite_configs: list[str] = []      # rel paths (lower) of overwrite config.json
+        try:
+            with filemap.open(encoding="utf-8") as f:
+                for line in f:
+                    if "\t" not in line:
+                        continue
+                    rel_str, mod_name = line.rstrip("\n").split("\t", 1)
+                    rel_lower = rel_str.lower()
+                    base = rel_lower.rsplit("/", 1)[-1]
+                    dir_lower = rel_lower[: -len(base)]  # keeps trailing "/" or ""
+                    if base == "manifest.json":
+                        manifest_dirs.add(dir_lower)
+                    elif base == "config.json" and mod_name == OVERWRITE_NAME:
+                        overwrite_configs.append(rel_lower)
+        except OSError:
+            return set()
+
+        return {
+            rel for rel in overwrite_configs
+            if rel[: -len("config.json")] not in manifest_dirs
+        }
 
     def restore(self, log_fn=None, progress_fn=None) -> None:
         """Restore Mods/ to its vanilla state."""
