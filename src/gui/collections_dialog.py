@@ -7034,8 +7034,9 @@ class CollectionsDialog(tk.Frame):
                 with _zipfile.ZipFile(src, "r") as zf:
                     if "manifest.json" not in zf.namelist():
                         raise RuntimeError("manifest.json not found in archive.")
-                    import tempfile
-                    tmp = Path(tempfile.mkdtemp(prefix="amethyst_manifest_"))
+                    from Utils.tmp_dirs import make_tracked_tmpdir, sweep_stale_tmpdirs
+                    sweep_stale_tmpdirs("amethyst_manifest_")
+                    tmp = make_tracked_tmpdir("amethyst_manifest_")
                     manifest_path = tmp / "manifest.json"
                     with zf.open("manifest.json") as srcf, open(manifest_path, "wb") as dstf:
                         _shutil.copyfileobj(srcf, dstf)

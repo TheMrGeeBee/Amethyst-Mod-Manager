@@ -59,7 +59,7 @@ def _flatten_subdirs(dest: Path, exe_name: str) -> None:
             break
 
 
-from wizards._proton_prefix import ProtonPrefixStepMixin
+from wizards._proton_prefix import ProtonPrefixStepMixin, shutdown_prefix_wineserver
 
 
 class WryeBashWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
@@ -307,6 +307,10 @@ class WryeBashWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             )
             self.after(0, lambda: self._done_btn.configure(state="normal"))
             proc.wait()
+            shutdown_prefix_wineserver(
+                proton_script, compat_data,
+                log_fn=lambda m: self._log(f"Wrye Bash Wizard: {m}"),
+            )
             self._log("Wrye Bash Wizard: Wrye Bash closed.")
             self._set_label("_run_status", "Wrye Bash finished.", color="#6bc76b")
             self.after(0, self._on_done)

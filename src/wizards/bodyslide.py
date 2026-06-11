@@ -76,7 +76,7 @@ def find_deployed_exe(game: "BaseGame", exe_name) -> Path | None:
 # Base wizard
 # ---------------------------------------------------------------------------
 
-from wizards._proton_prefix import ProtonPrefixStepMixin
+from wizards._proton_prefix import ProtonPrefixStepMixin, shutdown_prefix_wineserver
 
 
 class _BodySlideBaseWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
@@ -490,6 +490,10 @@ class _BodySlideBaseWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             )
             self.after(0, lambda: self._done_btn.configure(state="normal"))
             proc.wait()
+            shutdown_prefix_wineserver(
+                proton_script, compat_data,
+                log_fn=lambda m: self._log(f"{self._wizard_title} Wizard: {m}"),
+            )
             self._log(f"{self._wizard_title} Wizard: {exe.name} closed.")
             self._set_label("_run_status", f"{self._wizard_title} finished.", color="#6bc76b")
             self.after(0, self._on_done)

@@ -11,6 +11,8 @@ exe launcher, so wizard and direct exe runs use the same prefix.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import threading
 from pathlib import Path
 
@@ -49,6 +51,36 @@ def save_saved_proton(game, exe_name: str, proton_name: str) -> None:
     try:
         p.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError:
+        pass
+
+
+def shutdown_prefix_wineserver(proton_script: Path, compat_data: Path, log_fn=None) -> None:
+    """Kill leftover wine processes still attached to a tool prefix.
+
+    Proton sidecars (xalia.exe, services.exe, explorer.exe) can keep the
+    prefix's wineserver alive indefinitely after the tool itself closes;
+    they outlive the app and linger until the desktop session ends.
+    """
+    try:
+        proton_dir = Path(proton_script).parent
+        bin_dir = next(
+            (proton_dir / d / "bin" for d in ("files", "dist")
+             if (proton_dir / d / "bin" / "wineserver").is_file()),
+            None,
+        )
+        if bin_dir is None:
+            return
+        env = os.environ.copy()
+        env["WINEPREFIX"] = str(Path(compat_data) / "pfx")
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+        subprocess.run(
+            [str(bin_dir / "wineserver"), "-k"],
+            env=env, timeout=15,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if log_fn is not None:
+            log_fn("tool prefix wineserver shut down")
+    except Exception:
         pass
 
 

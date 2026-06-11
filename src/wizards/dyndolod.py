@@ -98,7 +98,7 @@ def _flatten_subdirs(dest: Path, exe_name: str) -> None:
 # Base wizard — shared download/extract/deploy/run logic
 # ---------------------------------------------------------------------------
 
-from wizards._proton_prefix import ProtonPrefixStepMixin
+from wizards._proton_prefix import ProtonPrefixStepMixin, shutdown_prefix_wineserver
 
 
 class _DynDOLODBaseWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
@@ -528,6 +528,10 @@ class _DynDOLODBaseWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             )
             self.after(0, lambda: self._done_btn.configure(state="normal"))
             proc.wait()
+            shutdown_prefix_wineserver(
+                proton_script, compat_data,
+                log_fn=lambda m: self._log(f"DynDOLOD Wizard: {m}"),
+            )
             self._log(f"DynDOLOD Wizard: {self._exe_name} closed.")
             self._set_label("_run_status", f"{self._wizard_title} finished.", color="#6bc76b")
             self.after(0, self._on_done)

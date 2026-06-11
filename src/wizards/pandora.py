@@ -63,7 +63,7 @@ def find_pandora_exe(game: "BaseGame") -> Path | None:
     return None
 
 
-from wizards._proton_prefix import ProtonPrefixStepMixin
+from wizards._proton_prefix import ProtonPrefixStepMixin, shutdown_prefix_wineserver
 
 
 class PandoraWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
@@ -499,6 +499,10 @@ class PandoraWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             self.after(0, lambda: self._done_btn.configure(state="normal"))
             _stdout, stderr_bytes = proc.communicate()
             rc = proc.returncode
+            shutdown_prefix_wineserver(
+                proton_script, compat_data,
+                log_fn=lambda m: self._log(f"Pandora Wizard: {m}"),
+            )
             self._log(f"Pandora Wizard: Pandora exited (code {rc}).")
             if stderr_bytes:
                 for line in stderr_bytes.decode(errors="replace").splitlines():

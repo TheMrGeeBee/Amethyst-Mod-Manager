@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import atexit
 import shutil
-import tempfile
 from pathlib import Path
+
+from Utils.tmp_dirs import make_tracked_tmpdir, sweep_stale_tmpdirs
 
 try:
     import LOOT.loot as loot
@@ -28,6 +29,9 @@ except ImportError:
 
 # game_type_attr -> (Game, tempdir_path, data_dir_path)
 _GAME_CACHE: dict[str, tuple[object, Path, Path]] = {}
+
+_TMP_PREFIX = "mm_loot_elig_"
+sweep_stale_tmpdirs(_TMP_PREFIX)
 
 
 def _cleanup() -> None:
@@ -56,7 +60,7 @@ def _get_game(game_type_attr: str):
     except AttributeError:
         return None
 
-    tmp = Path(tempfile.mkdtemp(prefix="mm_loot_elig_"))
+    tmp = make_tracked_tmpdir(_TMP_PREFIX)
     data_dir = tmp / "Data"
     data_dir.mkdir()
     try:
