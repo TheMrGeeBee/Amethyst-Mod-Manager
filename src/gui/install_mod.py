@@ -2084,6 +2084,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
         dest_root = game.get_effective_mod_staging_path() / mod_name
         replace_selected_only = False
         replace_all = False
+        overwrote_existing = False
         if dest_root.exists():
             _existing_meta_path = dest_root / "meta.ini"
             if _existing_meta_path.exists():
@@ -2099,6 +2100,7 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                 def _force_remove(func, path, _exc):
                     func(path)
                 shutil.rmtree(dest_root, onexc=_force_remove)
+                overwrote_existing = True
                 log_fn(f"Install: removed existing '{mod_name}' for overwrite reinstall.")
             elif headless and overwrite_existing is None:
                 # In headless (collection new-profile) installs, a pre-existing folder
@@ -2260,7 +2262,10 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
             file_list = _apply_strip_prefixes_to_file_list(file_list, post_strip_prefixes)
 
         dest_root = game.get_effective_mod_staging_path() / mod_name
-        was_existing_mod = dest_root.exists()
+        # overwrote_existing: the auto Replace-All path rmtree'd the folder
+        # earlier, so exists() alone would misreport the mod as new and
+        # prepend it to the top of the modlist instead of keeping its slot.
+        was_existing_mod = dest_root.exists() or overwrote_existing
         if replace_all and dest_root.exists():
             def _force_remove(func, path, _exc):
                 os.chmod(path, 0o700)

@@ -498,75 +498,243 @@ class ModListNexusActionsMixin:
         api = app._nexus_api
         log_fn = self._log
         staging_root = self._staging_root
-        mod_panel = self
-        # Plan: resolve each mod's name-matched file_id up front (network), then
-        # install the matched ones sequentially on the Tk thread.
+        # Plan: resolve each mod's name-matched file_id up front (network,
+        # parallel), then pipeline downloads + installs collection-style.
         self._log(f"Nexus: Quick Update — checking {len(targets)} mod(s)...")
 
+        def _resolve_one(mod_name: str) -> tuple:
+            """Returns ("queued", payload) or ("skipped", reason)."""
+            meta_path = staging_root / mod_name / "meta.ini"
+            if not meta_path.is_file():
+                return ("skipped", "no Nexus metadata")
+            try:
+                meta = read_meta(meta_path)
+            except Exception as exc:
+                return ("skipped", f"could not read metadata ({exc})")
+            if not meta.mod_id:
+                return ("skipped", "no Nexus mod id in metadata")
+            game_domain = meta.game_domain or game.nexus_game_domain
+            try:
+                files = api.get_mod_files(game_domain, meta.mod_id).files
+            except Exception as exc:
+                return ("skipped", f"could not fetch file list ({exc})")
+            fid, _old = resolve_latest_name_match(files, meta.file_id, mod_name)
+            if fid <= 0 or fid == meta.file_id:
+                return ("skipped", "no name-matched update — use Change Version")
+            file_info = next((f for f in files if f.file_id == fid), None)
+            return ("queued", (mod_name, game_domain, meta, fid, file_info))
+
         def _resolve_worker():
-            queue: list[tuple] = []   # (mod_name, game_domain, meta, meta_path, file_id)
-            skipped = 0
-            for mod_name in targets:
-                meta_path = staging_root / mod_name / "meta.ini"
-                if not meta_path.is_file():
-                    continue
-                try:
-                    meta = read_meta(meta_path)
-                except Exception as exc:
-                    app.after(0, lambda m=mod_name, e=exc:
-                              log_fn(f"Nexus: {m} — could not read metadata ({e}), skipped."))
-                    skipped += 1
-                    continue
-                if not meta.mod_id:
-                    skipped += 1
-                    continue
-                game_domain = meta.game_domain or game.nexus_game_domain
-                try:
-                    files = api.get_mod_files(game_domain, meta.mod_id).files
-                except Exception as exc:
-                    app.after(0, lambda m=mod_name, e=exc:
-                              log_fn(f"Nexus: {m} — could not fetch files ({e}), skipped."))
-                    skipped += 1
-                    continue
-                fid, _old = resolve_latest_name_match(files, meta.file_id, mod_name)
-                if fid <= 0 or fid == meta.file_id:
-                    app.after(0, lambda m=mod_name:
-                              log_fn(f"Nexus: {m} — no name-matched update, skipped."))
-                    skipped += 1
-                    continue
-                queue.append((mod_name, game_domain, meta, meta_path, fid))
-
-            def _start():
-                self._quick_update_run(queue, skipped)
-
-            app.after(0, _start)
+            import concurrent.futures as _cf
+            queue: list[tuple] = []
+            skipped: list[tuple[str, str]] = []   # (mod_name, reason)
+            with _cf.ThreadPoolExecutor(max_workers=4) as pool:
+                for mod_name, (status, payload) in zip(
+                        targets, pool.map(_resolve_one, targets)):
+                    if status == "queued":
+                        queue.append(payload)
+                    else:
+                        skipped.append((mod_name, payload))
+                        app.after(0, lambda m=mod_name, r=payload:
+                                  log_fn(f"Nexus: {m} — {r}, skipped."))
+            app.after(0, lambda: self._quick_update_run(queue, skipped))
 
         threading.Thread(target=_resolve_worker, daemon=True).start()
 
-    def _quick_update_run(self, queue: list[tuple], skipped: int) -> None:
-        """Sequentially install the resolved name-matched files, one at a time."""
+    def _quick_update_run(self, queue: list[tuple],
+                          skipped: list[tuple[str, str]]) -> None:
+        """Download the resolved name-matched files in parallel (same worker
+        count as collection installs) and install each as its download lands.
+        Installs run on a single consumer thread so modlist/plugins/index
+        writes never race."""
+        app = self.winfo_toplevel()
         total = len(queue)
+        if total == 0:
+            self._quick_update_finish(0, [], skipped)
+            return
 
-        def _next(index: int):
-            if index >= total:
-                self._log(
-                    f"Nexus: Quick Update — {total} updated, "
-                    f"{skipped} skipped (no name match)."
+        api = app._nexus_api
+        downloader = app._nexus_downloader
+        game = self._game
+        log_fn = self._log
+        mod_panel = self
+        status_bar = getattr(app, "_status", None)
+
+        is_premium = False
+        try:
+            is_premium = api.validate().is_premium
+        except Exception:
+            pass
+        if not is_premium:
+            log_fn("Nexus: Premium required for Quick Update direct downloads.")
+            self._quick_update_finish(
+                0, [(item[0], "Premium required for direct download") for item in queue],
+                skipped)
+            return
+
+        from Utils.ui_config import load_collection_settings
+        try:
+            dl_workers = max(1, int(load_collection_settings().get("max_concurrent", 3)))
+        except Exception:
+            dl_workers = 3
+
+        import queue as _qmod
+        install_q: _qmod.Queue = _qmod.Queue()
+        _SENTINEL = None
+        failed: list[tuple[str, str]] = []
+        failed_lock = threading.Lock()
+
+        def _make_progress_slot(label: str):
+            """Create a download popup slot on the Tk thread; return its cancel event."""
+            holder: list = []
+            ready = threading.Event()
+
+            def _mk():
+                ev = mod_panel.get_download_cancel_event()
+                mod_panel.show_download_progress(label, cancel=ev)
+                holder.append(ev)
+                ready.set()
+
+            app.after(0, _mk)
+            ready.wait()
+            return holder[0]
+
+        def _extract_progress(done: int, total_b: int, phase: str | None = None):
+            if status_bar is not None:
+                app.after(0, lambda d=done, t=total_b, p=phase:
+                          status_bar.set_progress(d, t, p, title="Extracting"))
+
+        def _download_one(item):
+            mod_name, game_domain, meta, file_id, file_info = item
+            try:
+                cancel_event = _make_progress_slot(f"Updating: {mod_name}")
+                try:
+                    mod_info = api.get_mod(game_domain, meta.mod_id)
+                except Exception as exc:
+                    app.after(0, lambda e=cancel_event:
+                              mod_panel.hide_download_progress(cancel=e))
+                    with failed_lock:
+                        failed.append((mod_name, f"could not fetch mod info ({exc})"))
+                    return
+                result = downloader.download_file(
+                    game_domain=game_domain,
+                    mod_id=meta.mod_id,
+                    file_id=file_id,
+                    progress_cb=lambda cur, tot: app.after(
+                        0, lambda c=cur, t=tot, e=cancel_event:
+                        mod_panel.update_download_progress(c, t, cancel=e)),
+                    cancel=cancel_event,
+                    dest_dir=get_download_cache_dir_for_game(getattr(game, "name", "") or ""),
                 )
-                return
-            mod_name, game_domain, meta, meta_path, file_id = queue[index]
-            self._download_and_install_nexus_file(
-                mod_name=mod_name,
-                game_domain=game_domain,
-                meta=meta,
-                meta_path=meta_path,
-                game=self._game,
-                file_id=file_id,
-                on_done=lambda: _next(index + 1),
-                auto_overwrite_name=mod_name,
-            )
+                app.after(0, lambda e=cancel_event:
+                          mod_panel.hide_download_progress(cancel=e))
+                if not (result.success and result.file_path):
+                    with failed_lock:
+                        failed.append((mod_name, f"download failed — {result.error}"))
+                    return
+                try:
+                    prebuilt = build_meta_from_download(
+                        game_domain=game_domain,
+                        mod_id=meta.mod_id,
+                        file_id=file_id,
+                        archive_name=result.file_name,
+                        mod_info=mod_info,
+                        file_info=file_info,
+                    )
+                    prebuilt.has_update = False
+                except Exception as exc:
+                    app.after(0, lambda e=exc:
+                              log_fn(f"Nexus: Warning — could not build metadata: {e}"))
+                    prebuilt = None
+                install_q.put((mod_name, result, prebuilt))
+            except Exception as exc:
+                with failed_lock:
+                    failed.append((mod_name, f"download error ({exc})"))
 
-        _next(0)
+        def _install_consumer():
+            updated = 0
+            while True:
+                item = install_q.get()
+                if item is _SENTINEL:
+                    break
+                mod_name, result, prebuilt = item
+                app.after(0, lambda m=mod_name:
+                          log_fn(f"Nexus: Installing update for {m}..."))
+
+                def _cleanup(is_fomod: bool = False,
+                             installed_mod_name: str | None = None,
+                             _path=result.file_path):
+                    from Utils.ui_config import (
+                        load_clear_archive_after_install,
+                        load_keep_fomod_archives,
+                    )
+                    if not load_clear_archive_after_install():
+                        return
+                    if is_fomod and load_keep_fomod_archives():
+                        return
+                    delete_archive_and_sidecar(Path(_path))
+
+                try:
+                    install_mod_from_archive(
+                        str(result.file_path), app, log_fn, game, mod_panel,
+                        prebuilt_meta=prebuilt,
+                        on_installed=_cleanup,
+                        progress_fn=_extract_progress,
+                        preferred_name=mod_name,
+                        overwrite_existing=True,
+                        clear_progress_fn=lambda: app.after(
+                            0, status_bar.clear_progress
+                        ) if status_bar is not None else None,
+                    )
+                    updated += 1
+                    app.after(0, lambda m=mod_name:
+                              log_fn(f"Nexus: {m} updated successfully."))
+                except Exception as exc:
+                    with failed_lock:
+                        failed.append((mod_name, f"install failed ({exc})"))
+                finally:
+                    if status_bar is not None:
+                        app.after(0, status_bar.clear_progress)
+            app.after(0, lambda n=updated:
+                      self._quick_update_finish(n, failed, skipped))
+
+        def _download_all():
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=dl_workers) as pool:
+                list(pool.map(_download_one, queue))
+            install_q.put(_SENTINEL)
+
+        threading.Thread(target=_install_consumer, daemon=True).start()
+        threading.Thread(target=_download_all, daemon=True).start()
+
+    def _quick_update_finish(self, updated: int,
+                             failed: list[tuple[str, str]],
+                             skipped: list[tuple[str, str]]) -> None:
+        """Log the batch summary and alert the user about mods Quick Update
+        couldn't handle (no name match, download/install failure)."""
+        self._scan_update_flags()
+        self._redraw()
+        self._log(
+            f"Nexus: Quick Update — {updated} updated, "
+            f"{len(skipped)} skipped (no name match), {len(failed)} failed."
+        )
+        problems = skipped + failed
+        if not problems:
+            return
+        lines = [f"• {name} — {reason}" for name, reason in problems[:12]]
+        if len(problems) > 12:
+            lines.append(f"…and {len(problems) - 12} more (see log).")
+        CTkAlert(
+            state="warning",
+            title="Quick Update: some mods need a manual update",
+            body_text=(
+                "These mods could not be quick-updated. Use Update → "
+                "Change Version on each to update manually:\n\n"
+                + "\n".join(lines)
+            ),
+            btn1="OK", btn2="",
+            parent=self.winfo_toplevel(),
+        )
 
     def _reinstall_mod(self, mod_name: str, archive_path: Path) -> None:
         """Reinstall a mod from its recorded installation archive."""
