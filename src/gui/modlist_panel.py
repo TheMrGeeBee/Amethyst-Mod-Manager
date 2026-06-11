@@ -636,6 +636,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         # Only _pool_size slots are ever created; they are reconfigured on every draw.
         self._pool_size: int = 60
         self._pool_data_idx: list[int] = []          # slot → entry index (-1 = unused)
+        self._pool_last_state: list = []             # slot → last rendered state key (None = dirty)
         self._pool_bg: list[int] = []                # rectangle canvas item ids
         self._pool_name: list[int] = []              # text canvas item ids (mod name / sep label)
         self._pool_flag_icon: list[int] = []         # image canvas item ids (flags column, slot 1)
@@ -661,6 +662,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._pool_check_vars: list[tk.BooleanVar] = []
         self._pool_cb_rect: list[int] = []   # canvas rectangle ids for checkbox outline
         self._pool_cb_mark: list[int] = []   # canvas text ids for checkmark
+        # Marker-strip lookup maps, rebuilt only when _visible_indices is replaced
+        self._marker_maps_vis: list[int] | None = None
+        self._marker_ei_to_row: dict[int, int] = {}
+        self._marker_name_to_row: dict[str, int] = {}
         # Pool canvas_w cached for pool creation after canvas exists
         self._canvas_w: int = 600
         self._context_menu: CTkPopupMenu | None = None
@@ -1581,117 +1586,131 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         and recreated.  Items outside the visible viewport are set to
         state='hidden' so Tkinter does not render them.
         """
-        c = self._canvas
         for s in range(self._pool_size):
-            self._pool_data_idx.append(-1)
+            self._create_pool_slot(s)
 
-            # Background rectangle
-            bg_id = c.create_rectangle(0, -200, 0, -200, fill="", outline="", state="hidden")
-            # Mod name / separator label text
-            name_id = c.create_text(0, -200, text="", anchor="w", fill="",
-                                    font=(_theme.FONT_FAMILY, _theme.FS11), state="hidden")
-            # Flags column icons (up to 3 icons + lock star text)
-            flag_id = c.create_image(0, -200, anchor="center", state="hidden")
-            flag2_id = c.create_image(0, -200, anchor="center", state="hidden")
-            flag3_id = c.create_image(0, -200, anchor="center", state="hidden")
-            flag4_id = c.create_image(0, -200, anchor="center", state="hidden")
-            flag5_id = c.create_image(0, -200, anchor="center", state="hidden")
-            flag_star_id = c.create_text(0, -200, text="★", anchor="center", fill=TONE_FLAG,
-                                         font=(_theme.FONT_FAMILY, _theme.FS11), state="hidden")
-            # Conflict icons (left slot and right slot)
-            conf1_id = c.create_image(0, -200, anchor="center", state="hidden")
-            conf2_id = c.create_image(0, -200, anchor="center", state="hidden")
-            # BSA conflict icons (images — archive-level conflict indicators)
-            bsa_dot1_id = c.create_image(0, -200, anchor="center", state="hidden")
-            bsa_dot2_id = c.create_image(0, -200, anchor="center", state="hidden")
-            # Small vertical separator between loose-file icons and BSA dots
-            bsa_sep_id = c.create_line(0, -200, 0, -200, fill=BORDER, width=1, state="hidden")
-            # Category text
-            cat_id = c.create_text(0, -200, text="", anchor="center", fill="",
-                                  font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
-            # Install date text
-            inst_id = c.create_text(0, -200, text="", anchor="center", fill="",
-                                    font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
-            # Priority text
-            prio_id = c.create_text(0, -200, text="", anchor="center", fill="",
-                                    font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
-            # Version text
-            ver_id = c.create_text(0, -200, text="", anchor="center", fill="",
-                                   font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
-            # Size text
-            size_id = c.create_text(0, -200, text="", anchor="center", fill="",
-                                    font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
-            # Separator collapse icon
-            sep_icon_id = c.create_image(0, -200, anchor="center", state="hidden")
-            # Separator decorative lines (left and right of label).
-            # Lowered to sit just above the row background so flag/conflict
-            # icons stack on top of them when columns overlap.
-            sep_line_l = c.create_line(0, -200, 0, -200, fill="", width=1, state="hidden")
-            sep_line_r = c.create_line(0, -200, 0, -200, fill="", width=1, state="hidden")
-            c.tag_raise(sep_line_l, bg_id)
-            c.tag_raise(sep_line_r, bg_id)
-            c.tag_lower(sep_line_l, flag_id)
-            c.tag_lower(sep_line_r, flag_id)
-            # Custom deploy path badge (shown right of label on separators with override)
-            sep_badge_id = c.create_text(0, -200, text="", anchor="w", fill="",
-                                         font=(_theme.FONT_FAMILY, _theme.FS9), state="hidden")
+    def _ensure_pool_capacity(self, needed: int) -> None:
+        """Grow the slot pool when the viewport holds more rows than slots."""
+        if needed <= self._pool_size:
+            return
+        for s in range(self._pool_size, needed):
+            self._create_pool_slot(s)
+        self._pool_size = needed
+        # Lazily-created lock checkboxes must stay above the new row backgrounds.
+        self._canvas.tag_raise("lock_cb")
 
-            self._pool_bg.append(bg_id)
-            self._pool_name.append(name_id)
-            self._pool_flag_icon.append(flag_id)
-            self._pool_flag_icon2.append(flag2_id)
-            self._pool_flag_icon3.append(flag3_id)
-            self._pool_flag_icon4.append(flag4_id)
-            self._pool_flag_icon5.append(flag5_id)
-            self._pool_flag_star.append(flag_star_id)
-            self._pool_conflict_icon1.append(conf1_id)
-            self._pool_conflict_icon2.append(conf2_id)
-            self._pool_bsa_dot1.append(bsa_dot1_id)
-            self._pool_bsa_dot2.append(bsa_dot2_id)
-            self._pool_bsa_sep.append(bsa_sep_id)
-            self._pool_category_text.append(cat_id)
-            self._pool_install_text.append(inst_id)
-            self._pool_priority_text.append(prio_id)
-            self._pool_version_text.append(ver_id)
-            self._pool_size_text.append(size_id)
-            self._pool_sep_icon.append(sep_icon_id)
-            self._pool_sep_line_l.append(sep_line_l)
-            self._pool_sep_line_r.append(sep_line_r)
-            self._pool_sep_badge.append(sep_badge_id)
+    def _create_pool_slot(self, s: int) -> None:
+        c = self._canvas
+        self._pool_data_idx.append(-1)
+        self._pool_last_state.append(None)
 
-            # Canvas-drawn checkbox (no tk.Checkbutton) — avoids opaque widget background
-            # on Linux. Rect + checkmark text, click handled via tag_bind.
-            var = tk.BooleanVar(value=False)
-            self._pool_check_vars.append(var)
-            cb_tag = f"pool_cb_{s}"
-            rect_id = c.create_rectangle(
-                0, -200, 0, -200, outline=BORDER, width=1, state="hidden",
-                tags=(cb_tag, "pool_cb"),
-            )
-            mark_id = c.create_text(
-                0, -200, text="✓", anchor="center", fill=ACCENT,
-                font=(_theme.FONT_FAMILY, _theme.FS12, "bold"), state="hidden",
-                tags=(cb_tag, "pool_cb"),
-            )
-            self._pool_cb_rect.append(rect_id)
-            self._pool_cb_mark.append(mark_id)
-            def _cb_press(e, slot=s):
-                # Canvas tag_bind fires before bindtag "all", so the global
-                # defocus handler in gui.App won't run here. Defocus manually
-                # so clicking a row checkbox blurs the search entry.
-                self._defocus_text_inputs()
-                return "break"
-            def _cb_release(e, slot=s):
-                self._on_pool_check_toggle(slot)
-                return "break"
-            def _cb_enter(e, slot=s):
-                c.config(cursor="hand2")
-            def _cb_leave(e, slot=s):
-                c.config(cursor="")
-            c.tag_bind(cb_tag, "<ButtonPress-1>", _cb_press)
-            c.tag_bind(cb_tag, "<ButtonRelease-1>", _cb_release)
-            c.tag_bind(cb_tag, "<Enter>", _cb_enter)
-            c.tag_bind(cb_tag, "<Leave>", _cb_leave)
+        # Background rectangle
+        bg_id = c.create_rectangle(0, -200, 0, -200, fill="", outline="", state="hidden")
+        # Mod name / separator label text
+        name_id = c.create_text(0, -200, text="", anchor="w", fill="",
+                                font=(_theme.FONT_FAMILY, _theme.FS11), state="hidden")
+        # Flags column icons (up to 3 icons + lock star text)
+        flag_id = c.create_image(0, -200, anchor="center", state="hidden")
+        flag2_id = c.create_image(0, -200, anchor="center", state="hidden")
+        flag3_id = c.create_image(0, -200, anchor="center", state="hidden")
+        flag4_id = c.create_image(0, -200, anchor="center", state="hidden")
+        flag5_id = c.create_image(0, -200, anchor="center", state="hidden")
+        flag_star_id = c.create_text(0, -200, text="★", anchor="center", fill=TONE_FLAG,
+                                     font=(_theme.FONT_FAMILY, _theme.FS11), state="hidden")
+        # Conflict icons (left slot and right slot)
+        conf1_id = c.create_image(0, -200, anchor="center", state="hidden")
+        conf2_id = c.create_image(0, -200, anchor="center", state="hidden")
+        # BSA conflict icons (images — archive-level conflict indicators)
+        bsa_dot1_id = c.create_image(0, -200, anchor="center", state="hidden")
+        bsa_dot2_id = c.create_image(0, -200, anchor="center", state="hidden")
+        # Small vertical separator between loose-file icons and BSA dots
+        bsa_sep_id = c.create_line(0, -200, 0, -200, fill=BORDER, width=1, state="hidden")
+        # Category text
+        cat_id = c.create_text(0, -200, text="", anchor="center", fill="",
+                              font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
+        # Install date text
+        inst_id = c.create_text(0, -200, text="", anchor="center", fill="",
+                                font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
+        # Priority text
+        prio_id = c.create_text(0, -200, text="", anchor="center", fill="",
+                                font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
+        # Version text
+        ver_id = c.create_text(0, -200, text="", anchor="center", fill="",
+                               font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
+        # Size text
+        size_id = c.create_text(0, -200, text="", anchor="center", fill="",
+                                font=(_theme.FONT_FAMILY, _theme.FS10), state="hidden")
+        # Separator collapse icon
+        sep_icon_id = c.create_image(0, -200, anchor="center", state="hidden")
+        # Separator decorative lines (left and right of label).
+        # Lowered to sit just above the row background so flag/conflict
+        # icons stack on top of them when columns overlap.
+        sep_line_l = c.create_line(0, -200, 0, -200, fill="", width=1, state="hidden")
+        sep_line_r = c.create_line(0, -200, 0, -200, fill="", width=1, state="hidden")
+        c.tag_raise(sep_line_l, bg_id)
+        c.tag_raise(sep_line_r, bg_id)
+        c.tag_lower(sep_line_l, flag_id)
+        c.tag_lower(sep_line_r, flag_id)
+        # Custom deploy path badge (shown right of label on separators with override)
+        sep_badge_id = c.create_text(0, -200, text="", anchor="w", fill="",
+                                     font=(_theme.FONT_FAMILY, _theme.FS9), state="hidden")
+
+        self._pool_bg.append(bg_id)
+        self._pool_name.append(name_id)
+        self._pool_flag_icon.append(flag_id)
+        self._pool_flag_icon2.append(flag2_id)
+        self._pool_flag_icon3.append(flag3_id)
+        self._pool_flag_icon4.append(flag4_id)
+        self._pool_flag_icon5.append(flag5_id)
+        self._pool_flag_star.append(flag_star_id)
+        self._pool_conflict_icon1.append(conf1_id)
+        self._pool_conflict_icon2.append(conf2_id)
+        self._pool_bsa_dot1.append(bsa_dot1_id)
+        self._pool_bsa_dot2.append(bsa_dot2_id)
+        self._pool_bsa_sep.append(bsa_sep_id)
+        self._pool_category_text.append(cat_id)
+        self._pool_install_text.append(inst_id)
+        self._pool_priority_text.append(prio_id)
+        self._pool_version_text.append(ver_id)
+        self._pool_size_text.append(size_id)
+        self._pool_sep_icon.append(sep_icon_id)
+        self._pool_sep_line_l.append(sep_line_l)
+        self._pool_sep_line_r.append(sep_line_r)
+        self._pool_sep_badge.append(sep_badge_id)
+
+        # Canvas-drawn checkbox (no tk.Checkbutton) — avoids opaque widget background
+        # on Linux. Rect + checkmark text, click handled via tag_bind.
+        var = tk.BooleanVar(value=False)
+        self._pool_check_vars.append(var)
+        cb_tag = f"pool_cb_{s}"
+        rect_id = c.create_rectangle(
+            0, -200, 0, -200, outline=BORDER, width=1, state="hidden",
+            tags=(cb_tag, "pool_cb"),
+        )
+        mark_id = c.create_text(
+            0, -200, text="✓", anchor="center", fill=ACCENT,
+            font=(_theme.FONT_FAMILY, _theme.FS12, "bold"), state="hidden",
+            tags=(cb_tag, "pool_cb"),
+        )
+        self._pool_cb_rect.append(rect_id)
+        self._pool_cb_mark.append(mark_id)
+        def _cb_press(e, slot=s):
+            # Canvas tag_bind fires before bindtag "all", so the global
+            # defocus handler in gui.App won't run here. Defocus manually
+            # so clicking a row checkbox blurs the search entry.
+            self._defocus_text_inputs()
+            return "break"
+        def _cb_release(e, slot=s):
+            self._on_pool_check_toggle(slot)
+            return "break"
+        def _cb_enter(e, slot=s):
+            c.config(cursor="hand2")
+        def _cb_leave(e, slot=s):
+            c.config(cursor="")
+        c.tag_bind(cb_tag, "<ButtonPress-1>", _cb_press)
+        c.tag_bind(cb_tag, "<ButtonRelease-1>", _cb_release)
+        c.tag_bind(cb_tag, "<Enter>", _cb_enter)
+        c.tag_bind(cb_tag, "<Leave>", _cb_leave)
 
     def _on_pool_check_toggle(self, slot: int) -> None:
         """A pooled enable-checkbox was clicked — map back to the entry and toggle."""
@@ -1829,6 +1848,148 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                     break
 
         return sep_higher, sep_lower, mod_higher, mod_lower, sel_higher, sel_lower
+
+    def _sep_row_colors(self, i: int, entry,
+                        conflict_sep_higher: set[int], conflict_sep_lower: set[int],
+                        highlighted_sep_idx: int) -> tuple[str, str, str]:
+        """Resolve a separator row's colours → (base_bg, row_bg, txt_col).
+
+        Selected rows are forced to BG_SELECT; the active drag anchor (i ==
+        _drag_idx) is still forced highlighted even mid-drag.
+        """
+        is_overwrite   = (entry.name == OVERWRITE_NAME)
+        is_root_folder = (entry.name == ROOT_FOLDER_NAME)
+        is_synthetic   = is_overwrite or is_root_folder
+        is_sel_row = (i in self._sel_set) or (i == self._drag_idx)
+
+        if is_overwrite:
+            base_bg = BG_DARK_GREEN
+            txt_col = TEXT_TREE_FG
+        elif is_root_folder:
+            base_bg = BG_DARK_BLUE if entry.enabled else _theme.BG_SEP
+            txt_col = TONE_BLUE_SOFT if entry.enabled else TEXT_DIM
+        else:
+            custom_color = self._sep_colors.get(entry.name)
+            base_bg = custom_color if custom_color else _theme.BG_SEP
+            txt_col = _theme.contrasting_text_color(base_bg)
+
+        _is_hover_sep = (i == self._hover_idx and self._drag_idx < 0)
+        if is_sel_row:
+            row_bg = BG_SELECT
+        elif (not is_synthetic or is_overwrite) and i in conflict_sep_higher:
+            txt_col = _theme.contrasting_text_color(_theme.conflict_higher)
+            row_bg = _theme.hover_tint(_theme.conflict_higher) if _is_hover_sep else _theme.conflict_higher
+        elif (not is_synthetic or is_overwrite) and i in conflict_sep_lower:
+            txt_col = _theme.contrasting_text_color(_theme.conflict_lower)
+            row_bg = _theme.hover_tint(_theme.conflict_lower) if _is_hover_sep else _theme.conflict_lower
+        elif not is_synthetic and i == highlighted_sep_idx:
+            txt_col = _theme.contrasting_text_color(_theme.plugin_separator)
+            row_bg = _theme.hover_tint(_theme.plugin_separator) if _is_hover_sep else _theme.plugin_separator
+        elif _is_hover_sep:
+            row_bg = _theme.hover_tint(base_bg)
+        else:
+            row_bg = base_bg
+        return base_bg, row_bg, txt_col
+
+    def _mod_row_colors(self, i: int, row: int, entry, sel_entry,
+                        conflict_mod_higher: set[str], conflict_mod_lower: set[str],
+                        conflict_sel_higher: set[str], conflict_sel_lower: set[str],
+                        ) -> tuple[str, str]:
+        """Resolve a mod row's colours → (base_row_bg, bg).
+
+        base_row_bg is the colour the row would have without hover (used for
+        text-contrast so hover tinting doesn't flip text colour); bg adds the
+        hover tint on top.
+        """
+        is_sel = (i in self._sel_set) or (i == self._drag_idx)
+        _is_hover = (i == self._hover_idx and self._drag_idx < 0)
+        if is_sel:
+            base_row_bg = BG_SELECT
+        elif entry.name == self._highlighted_mod:
+            base_row_bg = _theme.plugin_mod
+        elif sel_entry and (not sel_entry.is_separator
+                            or sel_entry.name == OVERWRITE_NAME):
+            if entry.name in conflict_sel_higher:
+                base_row_bg = _theme.conflict_higher
+            elif entry.name in conflict_sel_lower:
+                base_row_bg = _theme.conflict_lower
+            else:
+                base_row_bg = BG_ROW if row % 2 == 0 else BG_ROW_ALT
+        elif entry.name in conflict_mod_higher:
+            base_row_bg = _theme.conflict_higher
+        elif entry.name in conflict_mod_lower:
+            base_row_bg = _theme.conflict_lower
+        else:
+            base_row_bg = BG_ROW if row % 2 == 0 else BG_ROW_ALT
+
+        if _is_hover and not is_sel:
+            # Coloured rows: tint base. Plain rows: use the flat hover colour.
+            if base_row_bg in (BG_ROW, BG_ROW_ALT):
+                bg = BG_HOVER_ROW
+            else:
+                bg = _theme.hover_tint(base_row_bg)
+        else:
+            bg = base_row_bg
+        return base_row_bg, bg
+
+    def _highlighted_sep_index(self) -> int:
+        """Index of the collapsed separator holding _highlighted_mod, or -1."""
+        if not self._highlighted_mod:
+            return -1
+        _hi_sep_idx = self._sep_idx_for_mod(self._highlighted_mod)
+        if (0 <= _hi_sep_idx < len(self._entries)
+                and self._entries[_hi_sep_idx].name in self._collapsed_seps):
+            return _hi_sep_idx
+        return -1
+
+    def _repaint_hover_rows(self, *indices: int) -> None:
+        """Repaint only the hover-dependent fills of the slots showing *indices*.
+
+        Hover changes just the row background (and the fills painted with it)
+        of at most two rows, so the full _redraw() — every pool slot plus the
+        marker strip — is skipped on mouse moves.
+        """
+        c = self._canvas
+        sel_entry = (self._entries[self._sel_idx]
+                     if 0 <= self._sel_idx < len(self._entries) else None)
+        highlights = None
+        highlighted_sep_idx = -1
+        first_row = max(0, int(c.canvasy(0)) // self.ROW_H)
+        for i in indices:
+            if i < 0 or i >= len(self._entries):
+                continue
+            try:
+                s = self._pool_data_idx.index(i)
+            except ValueError:
+                continue
+            if highlights is None:
+                highlights = self._compute_conflict_highlights(sel_entry)
+                highlighted_sep_idx = self._highlighted_sep_index()
+            (sep_higher, sep_lower, mod_higher, mod_lower,
+             sel_higher, sel_lower) = highlights
+            entry = self._entries[i]
+            if entry.is_separator:
+                _, row_bg, _ = self._sep_row_colors(
+                    i, entry, sep_higher, sep_lower, highlighted_sep_idx)
+                c.itemconfigure(self._pool_bg[s], fill=row_bg)
+                # Unlocked separator lock checkboxes are filled with the row bg.
+                if (entry.name not in (OVERWRITE_NAME, ROOT_FOLDER_NAME)
+                        and not self._sep_locks.get(entry.name, False)):
+                    rect_id = self._lock_cb_rects.get(entry.name)
+                    if rect_id is not None:
+                        c.itemconfigure(rect_id, fill=row_bg)
+            else:
+                _, bg = self._mod_row_colors(
+                    i, first_row + s, entry, sel_entry,
+                    mod_higher, mod_lower, sel_higher, sel_lower)
+                c.itemconfigure(self._pool_bg[s], fill=bg)
+                # Checkbox hit-rect / unchecked box is filled with the row bg.
+                if i < len(self._check_vars) and self._check_vars[i] is not None:
+                    if (self._bundle_name_of(i) is not None
+                            or not self._check_vars[i].get()):
+                        c.itemconfigure(self._pool_cb_rect[s], fill=bg)
+            # Direct poke — force a full repaint of this slot on the next _redraw.
+            self._pool_last_state[s] = None
 
     # Pool item attribute names that get hidden together when a slot leaves
     # the viewport. Listed once so _hide_pool_slot stays a one-line loop.
@@ -2029,14 +2190,12 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         _FONT_RADIO = (_theme.FONT_FAMILY, int(_theme.FS13 * 1.25), "bold")
         _FONT_STAR = (_theme.FONT_FAMILY, _theme.FS11)
 
-        # _drag_sel_indices tracks the *current* (post-reorder) positions of
-        # dragged rows, so don't suppress them — that strips the highlight off
-        # every dragged row in a multi-select drag.  The active drag anchor is
-        # still forced highlighted via the (i == self._drag_idx) clause below.
-        _dragging: set[int] = set()
-
         canvas_top = int(c.canvasy(0))
         canvas_h = c.winfo_height()
+
+        # Tall viewports (4K monitors, low UI scale) can hold more rows than
+        # the default pool — grow it so rows past the last slot still render.
+        self._ensure_pool_capacity(canvas_h // self.ROW_H + 3)
 
         # Recompute priorities cache only when _entries has changed.
         # Must happen before _compute_visible_indices so priority-column sort works.
@@ -2082,15 +2241,20 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
          conflict_mod_higher, conflict_mod_lower,
          conflict_sel_higher, conflict_sel_lower) = self._compute_conflict_highlights(sel_entry)
 
-        highlighted_sep_idx: int = -1
-        if self._highlighted_mod:
-            _hi_sep_idx = self._sep_idx_for_mod(self._highlighted_mod)
-            if (0 <= _hi_sep_idx < len(self._entries)
-                    and self._entries[_hi_sep_idx].name in self._collapsed_seps):
-                highlighted_sep_idx = _hi_sep_idx
+        highlighted_sep_idx: int = self._highlighted_sep_index()
 
         # Track which lock canvas items were repositioned this frame
         _visited_lock_keys: set[str] = set()
+
+        # Per-slot render-state keys: a mod-row slot whose key is unchanged
+        # skips all its canvas calls (same technique as plugin_panel._predraw).
+        # Separator rows always re-render — their collapsed-block aggregates
+        # depend on too many inputs to key cheaply, and few are visible at once.
+        _pool_last_state = self._pool_last_state
+        _layout_key = (cw, _COL_X[0], _COL_X[1], _COL_W[1],
+                       _CAT_X, _CAT_W, _FLAG_X, _FLAG_W, _CONF_X, _CONF_W,
+                       _INST_X, _INST_W, _PRIO_X, _PRIO_W, _VER_X, _VER_W,
+                       _SIZE_X, _SIZE_W)
 
         # Reconfigure pool slots
         for s in range(self._pool_size):
@@ -2108,36 +2272,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                     is_overwrite   = (entry.name == OVERWRITE_NAME)
                     is_root_folder = (entry.name == ROOT_FOLDER_NAME)
                     is_synthetic   = is_overwrite or is_root_folder
-                    is_sel_row = (i in self._sel_set and i not in _dragging) or (i == self._drag_idx)
+                    _pool_last_state[s] = None
 
-                    custom_color = None
-                    if is_overwrite:
-                        base_bg = BG_DARK_GREEN
-                        txt_col = TEXT_TREE_FG
-                    elif is_root_folder:
-                        base_bg = BG_DARK_BLUE if entry.enabled else _theme.BG_SEP
-                        txt_col = TONE_BLUE_SOFT if entry.enabled else TEXT_DIM
-                    else:
-                        custom_color = self._sep_colors.get(entry.name)
-                        base_bg = custom_color if custom_color else _theme.BG_SEP
-                        txt_col = _theme.contrasting_text_color(base_bg)
-
-                    _is_hover_sep = (i == self._hover_idx and self._drag_idx < 0)
-                    if is_sel_row:
-                        row_bg = BG_SELECT
-                    elif (not is_synthetic or is_overwrite) and i in conflict_sep_higher:
-                        txt_col = _theme.contrasting_text_color(_theme.conflict_higher)
-                        row_bg = _theme.hover_tint(_theme.conflict_higher) if _is_hover_sep else _theme.conflict_higher
-                    elif (not is_synthetic or is_overwrite) and i in conflict_sep_lower:
-                        txt_col = _theme.contrasting_text_color(_theme.conflict_lower)
-                        row_bg = _theme.hover_tint(_theme.conflict_lower) if _is_hover_sep else _theme.conflict_lower
-                    elif not is_synthetic and i == highlighted_sep_idx:
-                        txt_col = _theme.contrasting_text_color(_theme.plugin_separator)
-                        row_bg = _theme.hover_tint(_theme.plugin_separator) if _is_hover_sep else _theme.plugin_separator
-                    elif _is_hover_sep:
-                        row_bg = _theme.hover_tint(base_bg)
-                    else:
-                        row_bg = base_bg
+                    base_bg, row_bg, txt_col = self._sep_row_colors(
+                        i, entry, conflict_sep_higher, conflict_sep_lower,
+                        highlighted_sep_idx)
 
                     # Background rectangle
                     c.coords(self._pool_bg[s], 0, y_top, cw, y_bot)
@@ -2454,81 +2593,18 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
                 else:
                     # --- Regular mod row ---
-                    is_sel = (i in self._sel_set and i not in _dragging) or (i == self._drag_idx)
-                    _is_hover = (i == self._hover_idx and self._drag_idx < 0)
-                    # base_row_bg = the colour the row would have without hover
-                    # (used for text-contrast so hover tinting doesn't flip text colour)
-                    if is_sel:
-                        base_row_bg = BG_SELECT
-                    elif entry.name == self._highlighted_mod:
-                        base_row_bg = _theme.plugin_mod
-                    elif sel_entry and (not sel_entry.is_separator
-                                        or sel_entry.name == OVERWRITE_NAME):
-                        if entry.name in conflict_sel_higher:
-                            base_row_bg = _theme.conflict_higher
-                        elif entry.name in conflict_sel_lower:
-                            base_row_bg = _theme.conflict_lower
-                        else:
-                            base_row_bg = BG_ROW if row % 2 == 0 else BG_ROW_ALT
-                    elif entry.name in conflict_mod_higher:
-                        base_row_bg = _theme.conflict_higher
-                    elif entry.name in conflict_mod_lower:
-                        base_row_bg = _theme.conflict_lower
-                    else:
-                        base_row_bg = BG_ROW if row % 2 == 0 else BG_ROW_ALT
+                    base_row_bg, bg = self._mod_row_colors(
+                        i, row, entry, sel_entry,
+                        conflict_mod_higher, conflict_mod_lower,
+                        conflict_sel_higher, conflict_sel_lower)
 
-                    if _is_hover and not is_sel:
-                        # Coloured rows: tint base. Plain rows: use the flat hover colour.
-                        if base_row_bg in (BG_ROW, BG_ROW_ALT):
-                            bg = BG_HOVER_ROW
-                        else:
-                            bg = _theme.hover_tint(base_row_bg)
-                    else:
-                        bg = base_row_bg
-
-                    # Background
-                    c.coords(self._pool_bg[s], 0, y_top, cw, y_bot)
-                    c.itemconfigure(self._pool_bg[s], fill=bg, outline="", state="normal")
-
-                    # Name text (truncate if it would overlap the category column)
-                    _theme_bgs = (_theme.conflict_higher, _theme.conflict_lower,
-                                  _theme.plugin_mod, _theme.plugin_separator)
-                    if base_row_bg in _theme_bgs:
-                        name_color = _theme.contrasting_text_color(base_row_bg)
-                    elif not entry.enabled:
-                        name_color = TEXT_DIM
-                    else:
-                        name_color = TEXT_MAIN
-                    name_font = _FONT_NAME
+                    # Gather every input this row renders from (cheap dict/set
+                    # lookups) so an unchanged slot can skip its canvas calls.
                     _bname_valid = self._bundle_name_of(i)
                     is_bundle_variant = _bname_valid is not None
-                    _name_indent = 0
-                    name_width = self._COL_W[1] - scaled(4) - _name_indent
-                    _display_label = f"{_bname_valid} - {self._variant_name_of(i)}" if is_bundle_variant else entry.name
-                    display_name = _truncate_text_for_width(c, _display_label, name_font, name_width)
-                    c.coords(self._pool_name[s], self._COL_X[1] + _name_indent, y_mid)
-                    c.itemconfigure(self._pool_name[s], text=display_name, anchor="w",
-                                    fill=name_color, font=name_font, state="normal")
-
-                    # Hide separator-only items
-                    c.itemconfigure(self._pool_sep_icon[s], state="hidden")
-                    c.itemconfigure(self._pool_sep_line_l[s], state="hidden")
-                    c.itemconfigure(self._pool_sep_line_r[s], state="hidden")
-                    c.itemconfigure(self._pool_sep_badge[s], state="hidden")
-
-                    # Category text (truncate if it would overlap the flags column)
+                    _display_label = (f"{_bname_valid} - {self._variant_name_of(i)}"
+                                      if is_bundle_variant else entry.name)
                     cat_text = self._category_names.get(entry.name, "")
-                    if cat_text:
-                        cat_font = _FONT_SMALL
-                        cat_width = _CAT_W - scaled(4)
-                        display_cat = _truncate_text_for_width(c, cat_text, cat_font, cat_width)
-                        cat_cx = _CAT_X + _CAT_W // 2
-                        c.coords(self._pool_category_text[s], cat_cx, y_mid)
-                        c.itemconfigure(self._pool_category_text[s],
-                                        text=display_cat, anchor="center",
-                                        fill=TEXT_DIM, font=cat_font, state="normal")
-                    else:
-                        c.itemconfigure(self._pool_category_text[s], state="hidden")
 
                     # Flags column — collect ordered list of icons/items to show side by side.
                     # Each flag is a tuple: ("img", image_obj) or ("star",).
@@ -2561,6 +2637,65 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         and self._icon_root_folder):
                         _flags.append(("img", self._icon_root_folder))
 
+                    conflict = self._conflict_map.get(entry.name, CONFLICT_NONE)
+                    bsa_conflict = self._bsa_conflict_map.get(entry.name, CONFLICT_NONE)
+                    install_text = self._install_dates.get(entry.name, "")
+                    prio_text = str(priorities.get(i, ""))
+                    version_text = self._mod_versions.get(entry.name, "")
+                    size_text = self._mod_sizes.get(entry.name, "")
+                    _has_cb = i < len(self._check_vars) and self._check_vars[i] is not None
+                    checked = self._check_vars[i].get() if _has_cb else None
+
+                    # Skip all canvas calls when nothing this slot renders changed
+                    # (same technique as plugin_panel._predraw).
+                    state_key = (
+                        "m", i, row, _layout_key, entry.name, entry.enabled,
+                        entry.locked, bg, base_row_bg, _display_label, cat_text,
+                        tuple(_flags), conflict, bsa_conflict, install_text,
+                        prio_text, version_text, size_text, checked,
+                    )
+                    if _pool_last_state[s] == state_key:
+                        continue
+
+                    # Background
+                    c.coords(self._pool_bg[s], 0, y_top, cw, y_bot)
+                    c.itemconfigure(self._pool_bg[s], fill=bg, outline="", state="normal")
+
+                    # Name text (truncate if it would overlap the category column)
+                    _theme_bgs = (_theme.conflict_higher, _theme.conflict_lower,
+                                  _theme.plugin_mod, _theme.plugin_separator)
+                    if base_row_bg in _theme_bgs:
+                        name_color = _theme.contrasting_text_color(base_row_bg)
+                    elif not entry.enabled:
+                        name_color = TEXT_DIM
+                    else:
+                        name_color = TEXT_MAIN
+                    name_font = _FONT_NAME
+                    name_width = self._COL_W[1] - _SCALED_4
+                    display_name = _truncate_text_for_width(c, _display_label, name_font, name_width)
+                    c.coords(self._pool_name[s], self._COL_X[1], y_mid)
+                    c.itemconfigure(self._pool_name[s], text=display_name, anchor="w",
+                                    fill=name_color, font=name_font, state="normal")
+
+                    # Hide separator-only items
+                    c.itemconfigure(self._pool_sep_icon[s], state="hidden")
+                    c.itemconfigure(self._pool_sep_line_l[s], state="hidden")
+                    c.itemconfigure(self._pool_sep_line_r[s], state="hidden")
+                    c.itemconfigure(self._pool_sep_badge[s], state="hidden")
+
+                    # Category text (truncate if it would overlap the flags column)
+                    if cat_text:
+                        cat_font = _FONT_SMALL
+                        cat_width = _CAT_W - scaled(4)
+                        display_cat = _truncate_text_for_width(c, cat_text, cat_font, cat_width)
+                        cat_cx = _CAT_X + _CAT_W // 2
+                        c.coords(self._pool_category_text[s], cat_cx, y_mid)
+                        c.itemconfigure(self._pool_category_text[s],
+                                        text=display_cat, anchor="center",
+                                        fill=TEXT_DIM, font=cat_font, state="normal")
+                    else:
+                        c.itemconfigure(self._pool_category_text[s], state="hidden")
+
                     self._render_flag_strip(s, _flags, _FLAG_X, _FLAG_W, y_mid)
 
                     # Conflict indicators: loose-file icons (left) + BSA dots (right of loose,
@@ -2573,14 +2708,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         c.itemconfigure(self._pool_bsa_sep[s], state="hidden")
                     else:
                         self._render_conflict_cell(
-                            s,
-                            self._conflict_map.get(entry.name, CONFLICT_NONE),
-                            self._bsa_conflict_map.get(entry.name, CONFLICT_NONE),
-                            _CONF_X, _CONF_W, y_mid,
+                            s, conflict, bsa_conflict, _CONF_X, _CONF_W, y_mid,
                         )
 
                     # Install date text
-                    install_text = self._install_dates.get(entry.name, "")
                     if install_text:
                         inst_cx = _INST_X + _INST_W // 2
                         c.coords(self._pool_install_text[s], inst_cx, y_mid)
@@ -2594,11 +2725,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                     prio_cx = _PRIO_X + _PRIO_W // 2
                     c.coords(self._pool_priority_text[s], prio_cx, y_mid)
                     c.itemconfigure(self._pool_priority_text[s],
-                                    text=str(priorities.get(i, "")), anchor="center",
+                                    text=prio_text, anchor="center",
                                     fill=TEXT_DIM, font=_FONT_SMALL, state="normal")
 
                     # Version text
-                    version_text = self._mod_versions.get(entry.name, "")
                     if version_text:
                         ver_font = _FONT_SMALL
                         ver_width = _VER_W - scaled(4)
@@ -2612,7 +2742,6 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         c.itemconfigure(self._pool_version_text[s], state="hidden")
 
                     # Size text
-                    size_text = self._mod_sizes.get(entry.name, "")
                     if size_text:
                         size_cx = _SIZE_X + _SIZE_W // 2
                         c.coords(self._pool_size_text[s], size_cx, y_mid)
@@ -2624,9 +2753,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
                     # Enable/disable control (canvas-drawn)
                     # Bundle variants → radio circle (● / ○); normal mods → checkbox
-                    if i < len(self._check_vars) and self._check_vars[i] is not None:
-                        self._pool_check_vars[s].set(self._check_vars[i].get())
-                        checked = self._pool_check_vars[s].get()
+                    if _has_cb:
+                        self._pool_check_vars[s].set(checked)
                         cb_cx = self._COL_X[0] + scaled(12)
                         if is_bundle_variant:
                             # Invisible hit-area rect filled with the row bg colour so it
@@ -2661,8 +2789,12 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         c.itemconfigure(self._pool_cb_rect[s], state="hidden")
                         c.itemconfigure(self._pool_cb_mark[s], state="hidden")
 
+                    _pool_last_state[s] = state_key
+
             else:
-                self._hide_pool_slot(s)
+                if _pool_last_state[s] != ("h",):
+                    self._hide_pool_slot(s)
+                    _pool_last_state[s] = ("h",)
 
         # Park lock canvas items for separators not in the current viewport.
         for key, rect_id in self._lock_cb_rects.items():
@@ -4309,8 +4441,9 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         row = cy // self.ROW_H
         new_hover = vis[row] if 0 <= row < len(vis) else -1
         if new_hover != self._hover_idx:
+            old_hover = self._hover_idx
             self._hover_idx = new_hover
-            self._redraw()
+            self._repaint_hover_rows(old_hover, new_hover)
 
         # Show tooltip when hovering over the flags column icons.
         # Replicate the same layout logic as _redraw() to find which icon the cursor is over.
@@ -4466,8 +4599,9 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         """Clear hover highlight when mouse leaves the canvas."""
         self._tooltip.hide()
         if self._hover_idx != -1:
+            old_hover = self._hover_idx
             self._hover_idx = -1
-            self._redraw()
+            self._repaint_hover_rows(old_hover)
 
     def _on_right_click(self, event):
         if not self._entries:
@@ -7924,9 +8058,16 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         n = len(vis) if vis else 0
 
         if n:
-            # Build a name→entry-index lookup for the visible list.
-            ei_to_row: dict[int, int] = {ei: r for r, ei in enumerate(vis)}
-            name_to_row: dict[str, int] = {self._entries[ei].name: r for r, ei in enumerate(vis)}
+            # Name/entry-index → row lookups for the visible list. Rebuilt only
+            # when _redraw replaces _visible_indices (identity check) — not on
+            # every scroll tick.
+            if self._marker_maps_vis is not vis:
+                self._marker_ei_to_row = {ei: r for r, ei in enumerate(vis)}
+                self._marker_name_to_row = {self._entries[ei].name: r
+                                            for r, ei in enumerate(vis)}
+                self._marker_maps_vis = vis
+            ei_to_row = self._marker_ei_to_row
+            name_to_row = self._marker_name_to_row
 
             def _row_for_mod(mod_name: str) -> int | None:
                 row = name_to_row.get(mod_name)
