@@ -703,6 +703,11 @@ class BaseGame(ABC):
         """
         return True
 
+    # Whether the engine loads all master-group plugins (.esm/.esl extension
+    # or master header flag) before all non-masters. The plugins panel then
+    # enforces that partition like MO2/Wrye Bash do.
+    plugins_master_block: bool = False
+
     @property
     def plugins_include_vanilla(self) -> bool:
         """

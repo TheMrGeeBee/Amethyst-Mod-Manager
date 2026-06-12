@@ -201,6 +201,11 @@ def read_masters_with_sizes(plugin_path: Path) -> dict[str, int]:
 # ESL (Light Master) flag helpers
 # ---------------------------------------------------------------------------
 
+# Bit in the TES4 record header flags field that marks a plugin as a master.
+# The engine loads all master-flagged plugins before all non-masters,
+# regardless of extension or plugins.txt position.
+TES4_FLAG_MASTER = 0x0001
+
 # Bit in the TES4 record header flags field that marks a plugin as "light".
 # Introduced in Fallout 4; also supported by Skyrim SE/VR, Starfield, Enderal SE.
 TES4_FLAG_ESL = 0x0200
@@ -240,6 +245,12 @@ def is_esl_flagged(plugin_path: Path) -> bool:
     """Return ``True`` if the plugin has the ESL (light) bit set in its TES4 header."""
     flags = read_plugin_header_flags(plugin_path)
     return bool(flags is not None and (flags & TES4_FLAG_ESL))
+
+
+def is_master_flagged(plugin_path: Path) -> bool:
+    """Return ``True`` if the plugin has the master (ESM) bit set in its TES4 header."""
+    flags = read_plugin_header_flags(plugin_path)
+    return bool(flags is not None and (flags & TES4_FLAG_MASTER))
 
 
 def is_blueprint_flagged(plugin_path: Path) -> bool:

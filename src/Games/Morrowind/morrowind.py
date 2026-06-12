@@ -36,6 +36,10 @@ class Morrowind(BaseGame):
 
     vanilla_plugins = ["Morrowind.esm", "Tribunal.esm", "Bloodmoon.esm"]
 
+    # Morrowind loads all .esm files before any .esp (TES3 has no header
+    # master flag — the partition is purely by extension).
+    plugins_master_block = True
+
     @property
     def supports_bain(self) -> bool:
         return True

@@ -513,6 +513,49 @@ class Fallout_3(BaseGame):
                 _log(f"  Removed plugins.txt symlink: {target}")
 
     # -----------------------------------------------------------------------
+    # Timestamp load order (Oblivion/FO3/FNV)
+    # -----------------------------------------------------------------------
+
+    # The legacy engine orders plugins by Data/ file mtime — plugins.txt only
+    # selects the active set. Skyrim-era subclasses (plugins.txt-ordered)
+    # override this back to False.
+    _plugin_load_order_by_mtime: bool = True
+
+    # Every Bethesda engine loads master-flagged plugins before non-masters.
+    plugins_master_block = True
+
+    def _orders_plugins_by_mtime(self) -> bool:
+        return self._plugin_load_order_by_mtime and not self.plugins_use_star_prefix
+
+    def stamp_plugin_load_order(self, profile: str, log_fn=None) -> None:
+        """Set ascending mtimes on deployed plugins to match the profile's load order."""
+        _log = log_fn or (lambda _: None)
+        if self._game_path is None or not self._orders_plugins_by_mtime():
+            return
+        from Utils.plugins import read_loadorder, read_plugins
+        profile_dir = self.get_profile_root() / "profiles" / profile
+        ordered = read_loadorder(profile_dir / "loadorder.txt")
+        if not ordered:
+            ordered = [
+                e.name for e in read_plugins(
+                    profile_dir / "plugins.txt",
+                    star_prefix=self.plugins_use_star_prefix,
+                )
+            ]
+        if not ordered:
+            return
+        from Utils.plugin_mtimes import stamp_plugin_load_order
+        stamped = stamp_plugin_load_order(
+            ordered,
+            self._game_path / "Data",
+            staging_root=self.get_effective_mod_staging_path(),
+            overwrite_dir=self.get_effective_overwrite_path(),
+            log_fn=_log,
+        )
+        if stamped:
+            _log(f"  Set mtimes on {stamped} plugin(s) to enforce load order.")
+
+    # -----------------------------------------------------------------------
     # Archive invalidation
     # -----------------------------------------------------------------------
 
@@ -1091,6 +1134,10 @@ class Fallout_3(BaseGame):
         _log("Step 6: Applying archive invalidation ...")
         self.apply_archive_invalidation(_log)
 
+        if self._orders_plugins_by_mtime():
+            _log("Step 7: Setting plugin mtimes to match load order ...")
+            self.stamp_plugin_load_order(profile, _log)
+
         _log(
             f"Deploy complete. "
             f"{linked_mod} mod + {linked_core} vanilla "
@@ -1620,6 +1667,8 @@ class Oblivion(Fallout_3):
 class Skyrim(Fallout_3):
 
     _archive_list_needs_mod_bsas = False
+    # Skyrim 1.4.26+ orders plugins by plugins.txt, not file mtimes.
+    _plugin_load_order_by_mtime = False
     vanilla_plugins = ["Skyrim.esm", "Update.esm"]
     vanilla_dlc_plugins = [
         "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm",
@@ -2036,6 +2085,8 @@ class Starfield(Fallout_3):
 class Enderal(Fallout_3):
 
     _archive_list_needs_mod_bsas = False
+    # Skyrim LE engine — plugins.txt-ordered, not file mtimes.
+    _plugin_load_order_by_mtime = False
     vanilla_plugins = ["Skyrim.esm", "Update.esm", "Enderal - Forgotten Stories.esm"]
     vanilla_dlc_plugins = [
         "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm",

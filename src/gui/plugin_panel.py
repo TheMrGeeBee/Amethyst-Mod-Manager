@@ -102,7 +102,7 @@ from Utils.plugins import (
     sync_plugins_from_filemap,
     prune_plugins_from_filemap,
 )
-from Utils.plugin_parser import check_missing_masters, check_late_masters, check_version_mismatched_masters, read_masters, is_esl_flagged, set_esl_flag, check_esl_eligible
+from Utils.plugin_parser import check_missing_masters, check_late_masters, check_version_mismatched_masters, read_masters, is_esl_flagged, is_master_flagged, set_esl_flag, check_esl_eligible
 from LOOT.loot_sorter import (
     sort_plugins as loot_sort,
     is_available as loot_available,
@@ -642,6 +642,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         # {messages, dirty, requirements, incompatibilities, locations}
         self._loot_info: dict[str, dict] = {}
         self._esl_flagged_plugins: set[str] = set()  # lowercase plugin names with ESL flag set
+        self._master_flag_plugins: set[str] = set()  # lowercase .esp names with the master header bit
         self._esl_safe_plugins: set[str] = set()    # lowercase plugin names eligible for ESL flag
         self._esl_unsafe_plugins: set[str] = set()  # lowercase plugin names ineligible for ESL flag
         # Cache for ESL eligibility results.
@@ -3155,15 +3156,25 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
 
         self._check_all_masters()
 
+        # Engine parity (MO2/Wrye Bash): master-flagged plugins always load
+        # before non-masters — keep the panel showing that real order.
+        _hoisted = self._enforce_master_block()
+
         # Sync loadorder.txt: use _plugin_entries order as the source of truth,
         # so any vanilla plugins prepended above are written at the top.
         final_lo = [e.name for e in self._plugin_entries]
-        if final_lo != saved_order:
+        _order_changed = final_lo != saved_order
+        if _order_changed:
             write_loadorder(loadorder_path, [PluginEntry(name=n, enabled=True) for n in final_lo])
+            if _hoisted:
+                # The hoist moved plugins relative to the saved order —
+                # late-master warnings are order-sensitive, recompute.
+                self._check_all_masters()
 
         # Sync plugins.txt so vanilla plugins are included/excluded and ordered
         # correctly (e.g. Oblivion Remastered requires all plugins in plugins.txt).
-        if self._plugins_include_vanilla:
+        # A persisted master-block hoist also needs plugins.txt to match.
+        if self._plugins_include_vanilla or (_hoisted and _order_changed):
             self._save_plugins()
         elif self._plugin_order_on_change is not None:
             # _save_plugins() fires the order-change hook; when it isn't called
@@ -3175,6 +3186,43 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         self._refresh_userlist_set()
         self._predraw()
 
+    def _master_block_enabled(self) -> bool:
+        return bool(getattr(self._game, "plugins_master_block", False))
+
+    def _is_master_group(self, name: str) -> bool:
+        """Engine rule (as in MO2/WB): .esm/.esl extension or master header flag."""
+        low = name.lower()
+        return low.endswith((".esm", ".esl")) or low in self._master_flag_plugins
+
+    def _enforce_master_block(self) -> bool:
+        """Stable-partition entries so master-group plugins precede non-masters.
+
+        Mirrors MO2's fixPluginRelationships: the engine always loads the
+        master block first, so the panel keeps showing that real order.
+        Returns True when the order changed (selection indices are remapped).
+        """
+        if not self._master_block_enabled() or not self._plugin_entries:
+            return False
+        masters: list[PluginEntry] = []
+        others: list[PluginEntry] = []
+        for e in self._plugin_entries:
+            (masters if self._is_master_group(e.name) else others).append(e)
+        if not masters or not others:
+            return False
+        new_entries = masters + others
+        if all(a is b for a, b in zip(new_entries, self._plugin_entries)):
+            return False
+        old = self._plugin_entries
+        sel_ids = {id(old[i]) for i in self._psel_set if 0 <= i < len(old)}
+        cur_id = id(old[self._sel_idx]) if 0 <= self._sel_idx < len(old) else None
+        self._plugin_entries = new_entries
+        if sel_ids or cur_id is not None:
+            id_to_idx = {id(e): i for i, e in enumerate(new_entries)}
+            self._psel_set = {id_to_idx[i] for i in sel_ids if i in id_to_idx}
+            if cur_id is not None:
+                self._sel_idx = id_to_idx.get(cur_id, self._sel_idx)
+        return True
+
     def _save_plugins(self) -> None:
         """Write current plugin entries to plugins.txt and loadorder.txt.
 
@@ -3184,6 +3232,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         """
         if self._plugins_path is None:
             return
+        self._enforce_master_block()
         include_vanilla = self._plugins_include_vanilla
         mod_entries: list[PluginEntry] = []
         for entry in self._plugin_entries:
@@ -3191,6 +3240,17 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 mod_entries.append(entry)
         write_plugins(self._plugins_path, mod_entries, star_prefix=self._plugins_star_prefix)
         write_loadorder(self._plugins_path.parent / "loadorder.txt", self._plugin_entries)
+        # Timestamp-ordered games (Oblivion/FO3/FNV): re-stamp deployed plugin
+        # mtimes so the new order is the one the engine (and Wrye Bash) uses.
+        game = self._game
+        if game is not None and hasattr(game, "stamp_plugin_load_order"):
+            profile = self._plugins_path.parent.name
+            try:
+                if (game.get_deploy_active()
+                        and game.get_last_deployed_profile() == profile):
+                    game.stamp_plugin_load_order(profile)
+            except Exception as exc:
+                self._log(f"Plugin mtime stamping failed: {exc}")
         if self._plugin_order_on_change is not None:
             self._plugin_order_on_change()
 
@@ -3209,6 +3269,12 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
             return
         if any(self._is_plugin_locked(i) or self._is_plugin_locked(i - 1) for i in indices):
             return
+        if self._master_block_enabled() and any(
+            self._is_master_group(self._plugin_entries[i].name)
+            != self._is_master_group(self._plugin_entries[i - 1].name)
+            for i in indices
+        ):
+            return  # don't cross the master/plugin boundary
         for i in indices:
             self._plugin_entries[i], self._plugin_entries[i - 1] = (
                 self._plugin_entries[i - 1], self._plugin_entries[i],
@@ -3232,6 +3298,12 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
             return
         if any(self._is_plugin_locked(i) or self._is_plugin_locked(i + 1) for i in indices):
             return
+        if self._master_block_enabled() and any(
+            self._is_master_group(self._plugin_entries[i].name)
+            != self._is_master_group(self._plugin_entries[i + 1].name)
+            for i in indices
+        ):
+            return  # don't cross the master/plugin boundary
         for i in indices:
             self._plugin_entries[i], self._plugin_entries[i + 1] = (
                 self._plugin_entries[i + 1], self._plugin_entries[i],
@@ -3752,6 +3824,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
             self._late_masters = {}
             self._version_mismatch_masters = {}
             self._plugin_mod_map = {}
+            self._master_flag_plugins = set()
             self._masters_cache_key = None
             return
 
@@ -3842,6 +3915,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         else:
             self._version_mismatch_masters = {}
         self._load_esl_flags(plugin_paths)
+        self._load_master_flags(plugin_paths)
         self._masters_cache_key = cache_key
         # BOS/SP scan: run off main thread to keep UI responsive
         # trigger a redraw via after().
@@ -3970,6 +4044,37 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
     # ------------------------------------------------------------------
     # ESL flag helpers
     # ------------------------------------------------------------------
+
+    def _load_master_flags(self, plugin_paths: "dict[str, Path]") -> None:
+        """Populate _master_flag_plugins (master header bit on non-.esm/.esl files)."""
+        if not self._master_block_enabled():
+            self._master_flag_plugins = set()
+            return
+        flagged: set[str] = set()
+        cache: dict = getattr(self, "_master_flag_cache", {})
+        self._master_flag_cache = cache
+        for entry in self._plugin_entries:
+            name_lower = entry.name.lower()
+            if name_lower.endswith((".esm", ".esl")):
+                continue  # master by extension — no header read needed
+            path = plugin_paths.get(name_lower)
+            if path is None:
+                continue
+            try:
+                st = os.stat(str(path))
+            except OSError:
+                continue
+            stat_key = (str(path), st.st_mtime_ns, st.st_size)
+            flag_val = cache.get(stat_key)
+            if flag_val is None:
+                try:
+                    flag_val = bool(is_master_flagged(path))
+                except Exception:
+                    flag_val = False
+                cache[stat_key] = flag_val
+            if flag_val:
+                flagged.add(name_lower)
+        self._master_flag_plugins = flagged
 
     def _load_esl_flags(self, plugin_paths: "dict[str, Path]") -> None:
         """Populate _esl_flagged_plugins / _esl_safe_plugins / _esl_unsafe_plugins
@@ -4326,6 +4431,18 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
             self._pcanvas.after_cancel(self._pdrag_scroll_after)
             self._pdrag_scroll_after = None
 
+    def _clamp_drag_slot(self, slot: int, indices: "list[int]", blk_size: int) -> int:
+        """Keep a drag inside its master/non-master block (engine parity)."""
+        if not self._master_block_enabled():
+            return slot
+        groups = {self._is_master_group(self._plugin_entries[i].name) for i in indices}
+        if len(groups) != 1:
+            return slot  # mixed selection — _save_plugins re-partitions on release
+        boundary = sum(1 for e in self._plugin_entries if self._is_master_group(e.name))
+        if True in groups:
+            return min(slot, max(boundary - blk_size, 0))
+        return max(slot, boundary)
+
     def _on_pmouse_drag(self, event):
         if self._drag_idx < 0 or not self._plugin_entries:
             return
@@ -4345,6 +4462,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 return
             blk_size = len(sorted_sel)
             slot = max(0, min(int(cy // self.ROW_H), n - blk_size))
+            slot = self._clamp_drag_slot(slot, sorted_sel, blk_size)
 
             if slot == self._drag_slot:
                 self._predraw()
@@ -4365,6 +4483,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
             self._psel_set = set(range(insert_at, insert_at + blk_size))
         else:
             slot = max(0, min(int(cy // self.ROW_H), n - 1))
+            slot = self._clamp_drag_slot(slot, [self._drag_idx], 1)
 
             if slot == self._drag_slot:
                 return
