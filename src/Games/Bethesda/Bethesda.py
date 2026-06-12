@@ -448,7 +448,11 @@ class Fallout_3(BaseGame):
     @property
     def frameworks(self) -> dict[str, str]:
         fw = {"Script Extender": self._script_extender_exe}
-        if self._archive_list_fix_name and self._archive_list_fix_path:
+        # The SArchiveList fix plugin is only relevant on games where we
+        # append mod BSAs (FO3/GOTY/FNV) — later engines inherit the attrs
+        # but never hit that codepath.
+        if (self._archive_list_needs_mod_bsas
+                and self._archive_list_fix_name and self._archive_list_fix_path):
             fw[self._archive_list_fix_name] = self._archive_list_fix_path
         return fw
 
@@ -1983,6 +1987,7 @@ class Starfield(Fallout_3):
     # BA2-based — no dummy BSA.
     _invalidation_bsa_name = None
     _invalidation_bsa_version = None
+    _archive_list_needs_mod_bsas = False
 
     @property
     def _script_extender_exe(self) -> str:
