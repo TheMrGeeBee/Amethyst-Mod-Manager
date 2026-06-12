@@ -390,10 +390,11 @@ def restore_custom_deploy_backup_for_path(
         if not bak_src.is_file():
             continue
         rel = bak_src.relative_to(backup_dir)
+        if any(part.endswith(_MOVE_TMP_SUFFIX) for part in rel.parts):
+            continue  # interrupted-move partial — cleaned with the subtree below
         orig = Path("/") / rel
         try:
-            orig.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(bak_src), str(orig))
+            _move_crash_safe(bak_src, orig)
             restored += 1
             _log(f"  Restored {orig.name} from custom_deploy_backup/")
         except OSError as exc:
@@ -484,7 +485,15 @@ def _restore_backup_dir(
     restored = 0
     _bak_files: list[Path] = []
     for _dp, _dns, _fns in os.walk(str(backup_dir)):
+        # Interrupted cross-device moves leave *.mm_tmp partials — never
+        # restore those; drop them so they don't survive into the next deploy.
+        for _dn in [d for d in _dns if d.endswith(_MOVE_TMP_SUFFIX)]:
+            _dns.remove(_dn)
+            shutil.rmtree(os.path.join(_dp, _dn), ignore_errors=True)
         for _fn in _fns:
+            if _fn.endswith(_MOVE_TMP_SUFFIX):
+                _rm_any(os.path.join(_dp, _fn))
+                continue
             _bak_files.append(Path(_dp) / _fn)
     for bak_src in _bak_files:
         rel = bak_src.relative_to(backup_dir)
@@ -493,8 +502,7 @@ def _restore_backup_dir(
             _log(f"  SKIP: path traversal blocked — {rel}")
             continue
         try:
-            orig.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(bak_src), str(orig))
+            _move_crash_safe(bak_src, orig)
             restored += 1
             _log(f"  Restored {rel} from {tag}")
         except OSError as exc:
@@ -645,7 +653,35 @@ _HARDLINK_FALLBACK_ERRNOS = frozenset(
     ) if e is not None
 )
 
+# Errnos that mean "symlink can't work here" rather than a real failure:
+#   EPERM  — filesystem doesn't support symlinks (exFAT, FAT32, most CIFS)
+#   ENOSYS/ENOTSUP/EOPNOTSUPP — explicit "operation not supported" from the FS
+# On any of these we fall back to copy. EEXIST and friends still raise.
+_SYMLINK_FALLBACK_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, "EPERM", None),
+        getattr(errno, "ENOSYS", None),
+        getattr(errno, "ENOTSUP", None),
+        getattr(errno, "EOPNOTSUPP", None),
+    ) if e is not None
+)
+
 _hardlink_fallback_notified = False
+_symlink_fallback_notified = False
+
+
+def _notify_symlink_fallback(exc: OSError) -> None:
+    """Emit a one-time stderr note when symlink → copy fallback kicks in."""
+    global _symlink_fallback_notified
+    if _symlink_fallback_notified:
+        return
+    _symlink_fallback_notified = True
+    import sys
+    sys.stderr.write(
+        f"[deploy] symlink unsupported on this path ({exc.strerror or exc}); "
+        f"falling back to copy. This usually means the game lives on a "
+        f"filesystem without symlink support (exFAT/FAT32/SMB).\n"
+    )
 
 
 def _notify_hardlink_fallback(exc: OSError) -> None:
@@ -692,9 +728,68 @@ def _transfer(src: Path, dst: Path, mode: LinkMode) -> None:
             shutil.copy2(src, dst)
             return
     if mode is LinkMode.SYMLINK:
-        os.symlink(src, dst)
+        try:
+            os.symlink(src, dst)
+            return
+        except OSError as exc:
+            if exc.errno not in _SYMLINK_FALLBACK_ERRNOS:
+                raise
+            _notify_symlink_fallback(exc)
+        shutil.copy2(src, dst)
     else:
         shutil.copy2(src, dst)
+
+
+# Suffix for in-flight cross-device move targets. A crash mid-copy leaves
+# only a *.mm_tmp leftover, never a partial file/folder at the real path —
+# restore walkers skip and clean these.
+_MOVE_TMP_SUFFIX = ".mm_tmp"
+
+
+def _move_crash_safe(src: "Path | str", dst: "Path | str") -> None:
+    """Move a file or directory, surviving interruption across devices.
+
+    Same-device moves are a single atomic rename. Cross-device (EXDEV), the
+    data is copied to a sibling ``<name>.mm_tmp`` first, renamed into place,
+    and only then is the source deleted — shutil.move's copy-then-delete can
+    leave a partial copy at the destination that a later restore would trust.
+    """
+    src_str, dst_str = str(src), str(dst)
+    os.makedirs(os.path.dirname(dst_str), exist_ok=True)
+    try:
+        os.rename(src_str, dst_str)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+    tmp = dst_str + _MOVE_TMP_SUFFIX
+    _rm_any(tmp)
+    src_st = os.lstat(src_str)
+    import stat as _stat_m
+    if _stat_m.S_ISDIR(src_st.st_mode):
+        shutil.copytree(src_str, tmp, symlinks=True)
+        os.rename(tmp, dst_str)
+        shutil.rmtree(src_str)
+    else:
+        shutil.copy2(src_str, tmp, follow_symlinks=False)
+        os.replace(tmp, dst_str)
+        os.unlink(src_str)
+
+
+def _rm_any(path: str) -> None:
+    """Remove a leftover file, symlink, or directory tree; missing is fine."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return
+    import stat as _stat_m
+    if _stat_m.S_ISDIR(st.st_mode):
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def _clear_dir(directory: Path) -> int:
@@ -827,9 +922,16 @@ def _do_link_ex(src: str, dst: str, mode: LinkMode) -> tuple["LinkMode | None", 
                 shutil.copy2(src, dst)
                 return LinkMode.COPY, None
         if mode is LinkMode.SYMLINK:
-            os.symlink(src, dst)
-        else:
+            try:
+                os.symlink(src, dst)
+                return LinkMode.SYMLINK, None
+            except OSError as exc:
+                if exc.errno not in _SYMLINK_FALLBACK_ERRNOS:
+                    return None, exc
+                _notify_symlink_fallback(exc)
             shutil.copy2(src, dst)
+            return LinkMode.COPY, None
+        shutil.copy2(src, dst)
         return mode, None
     except OSError as e:
         return None, e
@@ -1347,7 +1449,7 @@ def _move_runtime_files(
                         if dst_dir not in made_dirs:
                             os.makedirs(dst_dir, exist_ok=True)
                             made_dirs.add(dst_dir)
-                        shutil.move(entry.path, dst)
+                        _move_crash_safe(entry.path, dst)
                         emptied_dirs.add(Path(entry.path).parent)
                         moved += 1
         except OSError:

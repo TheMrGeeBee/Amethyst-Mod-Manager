@@ -519,6 +519,11 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         self._plugin_mod_map: dict[str, str] = {}  # plugin name → staging mod folder name
         self._highlighted_plugins: set[str] = set()  # plugin names highlighted when their mod is selected
         self._master_highlights: set[str] = set()    # master plugin names for the currently selected plugin
+        self._masters_lower_cache: set[str] = set()  # lowercased _master_highlights (keyed by identity)
+        self._masters_lower_src: set[str] | None = None
+        self._fi_reverse_cache: dict[int, int] = {}  # data idx → view row (keyed by identity)
+        self._fi_reverse_src: list[int] | None = None
+        self._plugin_counter_texts: tuple = ()
         # Plugins of mods in a BSA conflict with the currently-selected mod.
         # Semantics mirror the modlist panel's row colouring:
         #   _bsa_conflict_higher_plugins — plugins whose mod LOSES to the
@@ -3243,7 +3248,35 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
     # Canvas drawing
     # ------------------------------------------------------------------
 
-    def _predraw(self):
+    def _master_names_lower(self) -> set[str]:
+        """Lowercased copy of _master_highlights, cached until the set is replaced."""
+        mh = self._master_highlights
+        if self._masters_lower_src is not mh:
+            self._masters_lower_src = mh
+            self._masters_lower_cache = {m.lower() for m in mh}
+        return self._masters_lower_cache
+
+    def _update_plugin_counters(self) -> None:
+        """Recompute the active/ESL counter labels; no-op when texts are unchanged."""
+        all_entries = self._plugin_entries
+        active = sum(1 for e in all_entries if e.enabled)
+        esl_count = sum(
+            1 for e in all_entries
+            if e.name.lower() in self._esl_flagged_plugins
+        )
+        texts = (
+            f"{active}/{len(all_entries)} active",
+            f"{esl_count} ESL",
+            f"{len(all_entries) - esl_count} non-ESL",
+        )
+        if texts == self._plugin_counter_texts:
+            return
+        self._plugin_counter_texts = texts
+        self._plugin_counter_label.configure(text=texts[0])
+        self._plugin_esl_counter_label.configure(text=texts[1])
+        self._plugin_non_esl_counter_label.configure(text=texts[2])
+
+    def _predraw(self, update_counters: bool = True):
         """Redraw by reconfiguring the pre-allocated pool of canvas items."""
         self._predraw_after_id = None
         c = self._pcanvas
@@ -3261,14 +3294,8 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         n = len(entries)
         total_h = n * self.ROW_H
 
-        active = sum(1 for e in all_entries if e.enabled)
-        self._plugin_counter_label.configure(text=f"{active}/{len(all_entries)} active")
-        esl_count = sum(
-            1 for e in all_entries
-            if e.name.lower() in self._esl_flagged_plugins
-        )
-        self._plugin_esl_counter_label.configure(text=f"{esl_count} ESL")
-        self._plugin_non_esl_counter_label.configure(text=f"{len(all_entries) - esl_count} non-ESL")
+        if update_counters:
+            self._update_plugin_counters()
 
         canvas_top = int(c.canvasy(0))
         canvas_h = c.winfo_height()
@@ -3278,9 +3305,24 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         first_row = max(0, canvas_top // self.ROW_H)
         last_row = min(n, (canvas_top + canvas_h) // self.ROW_H + 2)
         vis_count = last_row - first_row
-        master_names_lower = {m.lower() for m in self._master_highlights}
+        master_names_lower = self._master_names_lower()
 
         _pool_last_state = self._pool_last_state
+
+        # Row-independent constants hoisted out of the pool-slot loop.
+        _theme_bgs = (_theme.conflict_higher, _theme.conflict_lower, _theme.plugin_mod)
+        name_font = (_theme.FONT_FAMILY, _theme.FS11)
+        name_max_px = self._pcol_x[2] - self._pcol_x[1] - scaled(4)
+        strip_w = scaled(3)
+        idx_text_x = self._pcol_x[4] + scaled(25)
+        flags_x0 = self._pcol_x[2]
+        flags_x1 = self._pcol_x[3]
+        flag_gap = scaled(20)
+        flags_center = (flags_x0 + flags_x1) // 2
+        ul_dot_r = scaled(4)
+        cb_cx = self._pcol_x[0] + scaled(12)
+        cb_size = scaled(18)
+        lk_cx = self._pcol_x[3] + scaled(12)
 
         for s in range(self._pool_size):
             row = first_row + s
@@ -3348,12 +3390,11 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 c.itemconfigure(self._pool_bg[s], fill=bg, state="normal")
 
                 if has_missing:
-                    c.coords(self._pool_missing_strip[s], 0, y_top, scaled(3), y_bot)
+                    c.coords(self._pool_missing_strip[s], 0, y_top, strip_w, y_bot)
                     c.itemconfigure(self._pool_missing_strip[s], state="normal")
                 else:
                     c.itemconfigure(self._pool_missing_strip[s], state="hidden")
 
-                _theme_bgs = (_theme.conflict_higher, _theme.conflict_lower, _theme.plugin_mod)
                 if has_missing:
                     name_color = STATUS_BADGE_RED
                 elif bg in _theme_bgs:
@@ -3362,24 +3403,18 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                     name_color = TEXT_DIM
                 else:
                     name_color = TEXT_MAIN
-                name_max_px = self._pcol_x[2] - self._pcol_x[1] - scaled(4)
-                name_font = (_theme.FONT_FAMILY, _theme.FS11)
                 display_name = _truncate_plugin_name(c, entry.name, name_font, name_max_px)
                 c.coords(self._pool_name[s], self._pcol_x[1], y_mid)
                 c.itemconfigure(self._pool_name[s], text=display_name,
                                 fill=name_color, state="normal")
 
-                c.coords(self._pool_idx_text[s], self._pcol_x[4] + scaled(25), y_mid)
+                c.coords(self._pool_idx_text[s], idx_text_x, y_mid)
                 c.itemconfigure(self._pool_idx_text[s], text=f"{actual_idx:03d}",
                                 fill=TEXT_DIM, state="normal")
 
-                flags_x0 = self._pcol_x[2]
-                flags_x1 = self._pcol_x[3]
                 active_flags = [f for f in [has_missing, has_late, has_vmm, has_ul, has_esl, has_loot, has_bos_sp] if f]
                 n_flags = len(active_flags)
                 # Pack flags tightly with a fixed gap, centered in the column.
-                flag_gap = scaled(20)
-                flags_center = (flags_x0 + flags_x1) // 2
                 pack_start = flags_center - (flag_gap * (n_flags - 1)) // 2 if n_flags else flags_center
                 _flag_pos = iter(pack_start + flag_gap * i for i in range(n_flags))
 
@@ -3411,7 +3446,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 if ul_dot_id is not None:
                     if has_ul:
                         cx = next(_flag_pos)
-                        r = scaled(4)
+                        r = ul_dot_r
                         c.coords(ul_dot_id, cx - r, y_mid - r, cx + r, y_mid + r)
                         c.itemconfigure(ul_dot_id,
                                         fill=STATUS_BADGE_RED if has_ul_cycle else TEXT_WHITE,
@@ -3437,7 +3472,6 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
 
                 bos_sp_badge_id = self._pool_bos_sp_badge[s] if s < len(self._pool_bos_sp_badge) else None
                 if bos_sp_badge_id is not None:
-                    bos_sp_kind = self._bos_sp_plugins.get(name_lower, "")
                     if bos_sp_kind:
                         _bos_sp_label = {"bos": "B", "sp": "S", "both": "B+S"}.get(bos_sp_kind, "P")
                         _bos_sp_color = {"bos": "#60a5fa", "sp": "#fbbf24", "both": "#c084fc"}.get(bos_sp_kind, "#c084fc")
@@ -3449,8 +3483,6 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 self._pool_data_idx[s] = actual_idx
 
                 if not dragging:
-                    cb_cx = self._pcol_x[0] + scaled(12)
-                    cb_size = scaled(18)
                     cx1, cy1 = cb_cx - cb_size // 2, y_mid - cb_size // 2
                     cx2, cy2 = cb_cx + cb_size // 2, y_mid + cb_size // 2
                     c.coords(self._pool_check_rects[s], cx1, cy1, cx2, cy2)
@@ -3462,7 +3494,6 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                                     fill=TEXT_DIM if is_vanilla else ACCENT,
                                     state="normal" if entry.enabled else "hidden")
 
-                    lk_cx = self._pcol_x[3] + scaled(12)
                     c.coords(self._pool_lock_rects[s], lk_cx - cb_size // 2, cy1,
                              lk_cx + cb_size // 2, cy2)
                     c.itemconfigure(self._pool_lock_rects[s],
@@ -3561,7 +3592,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         c.create_rectangle(0, 0, strip_w, strip_h, fill=BG_DEEP, outline="", tags="trough")
 
         if n and has_any:
-            master_names_lower = {m.lower() for m in self._master_highlights}
+            master_names_lower = self._master_names_lower()
             plugin_mod_color = _theme.plugin_mod
             conflict_higher_color = _theme.conflict_higher
             conflict_lower_color = _theme.conflict_lower
@@ -3680,7 +3711,9 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         """Debounced _predraw — coalesces rapid scroll/resize events."""
         if self._predraw_after_id is not None:
             self.after_cancel(self._predraw_after_id)
-        self._predraw_after_id = self.after_idle(self._predraw)
+        # Scroll/resize never change the counts — skip the O(n) counter scans.
+        self._predraw_after_id = self.after_idle(
+            lambda: self._predraw(update_counters=False))
 
     # ------------------------------------------------------------------
     # Missing masters detection
@@ -4020,10 +4053,10 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         fi = self._plugin_filtered_indices
         # Determine visual (view) row for alternating colour
         if fi is not None:
-            try:
-                view_row = fi.index(data_row)
-            except ValueError:
-                view_row = data_row
+            if self._fi_reverse_src is not fi:
+                self._fi_reverse_src = fi
+                self._fi_reverse_cache = {di: vr for vr, di in enumerate(fi)}
+            view_row = self._fi_reverse_cache.get(data_row, data_row)
         else:
             view_row = data_row
         for s in range(self._pool_size):
@@ -4033,7 +4066,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                 name_lower = entry.name.lower() if entry else ""
                 if is_sel:
                     bg = BG_SELECT
-                elif entry and name_lower in {m.lower() for m in self._master_highlights}:
+                elif entry and name_lower in self._master_names_lower():
                     bg = BG_GREEN_ROW
                 elif entry and name_lower in self._highlighted_plugins:
                     bg = _theme.plugin_mod
@@ -4057,6 +4090,14 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                     else:
                         name_color = TEXT_MAIN
                     self._pcanvas.itemconfigure(self._pool_name[s], fill=name_color)
+                    # Re-tint the unchecked checkbox/lock backgrounds too, or the
+                    # old row colour lingers as a square under the new bg.
+                    if not entry.enabled:
+                        self._pcanvas.itemconfigure(self._pool_check_rects[s], fill=bg)
+                    if not self._plugin_locks.get(entry.name, False):
+                        self._pcanvas.itemconfigure(self._pool_lock_rects[s], fill=bg)
+                # Partial repaint — force a full refresh of this slot next _predraw.
+                self._pool_last_state[s] = None
                 break
 
     def _on_pmouse_motion(self, event) -> None:

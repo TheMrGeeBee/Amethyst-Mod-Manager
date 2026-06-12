@@ -8,6 +8,7 @@ Extracted from deploy.py during the 2026-04 refactor. No behaviour changes.
 from __future__ import annotations
 
 import concurrent.futures
+import errno
 import os
 import shutil
 import time as _time
@@ -25,6 +26,7 @@ from Utils.deploy_shared import (
     _do_link_ex,
     _get_staging_source_path,
     _mkdir_leaves,
+    _move_crash_safe,
     _path_under_root,
     _prebuild_mod_indexes,
     _resolve_root_path_str,
@@ -56,6 +58,10 @@ def _report_mode_breakdown(_log, mode_counts: "dict[LinkMode, int]",
         _log("  Note: some files could not be hardlinked (game and mod "
              "staging are likely on different filesystems) — fell back to "
              "symlink/copy.")
+    elif requested is LinkMode.SYMLINK and LinkMode.COPY in used:
+        _log("  Note: some files could not be symlinked (the destination "
+             "filesystem likely doesn't support symlinks, e.g. exFAT/FAT32) "
+             "— fell back to copy.")
 
 
 class CoreBackupConflictError(RuntimeError):
@@ -108,6 +114,11 @@ def _dir_has_deployed_mod_files(deploy_dir: Path, limit: int = 4096) -> bool:
 # which leave no symlinks or extra hardlinks for _dir_has_deployed_mod_files
 # to detect.  Removed implicitly by restore_data_core's rmtree.
 _DEPLOY_MARKER_NAME = ".mm_deployed"
+
+# Slack when comparing mtimes across filesystems: FAT stores mtimes at 2s
+# resolution, exFAT at 10ms, so a copy2-preserved timestamp read back from
+# the game drive may differ from the staging original by up to 2s.
+_MTIME_TOLERANCE_NS = 2_000_000_000
 
 
 def _tree_has_files(root: Path) -> bool:
@@ -476,8 +487,7 @@ def deploy_filemap(
             _existing_p = Path(_existing_dir_str)
             _bak_dir = _custom_backup_dir / _existing_p.relative_to(_existing_p.anchor)
             try:
-                _bak_dir.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(_existing_dir_str, str(_bak_dir))
+                _move_crash_safe(_existing_dir_str, _bak_dir)
                 _folders_replaced += 1
                 _log(f"  Backed up existing folder {_existing_p.name}/ → custom_deploy_backup/")
             except OSError as exc:
@@ -584,6 +594,33 @@ def deploy_filemap(
         )
     total = len(tasks)
 
+    # Up-front free-space check for explicit copy-mode tasks — abort before
+    # touching the game dir rather than filling the drive mid-deploy.
+    # (Hardlink/symlink fallbacks that end in copy are caught by the ENOSPC
+    # abort in the transfer loop instead.)
+    _copy_bytes = 0
+    for _src_s, _dst_s, _rl, _ic, _use_sym, _ov in tasks:
+        _eff = LinkMode.SYMLINK if _use_sym else (_ov if _ov is not None else mode)
+        if _eff is LinkMode.COPY:
+            try:
+                _copy_bytes += os.stat(_src_s).st_size
+            except OSError:
+                pass
+    if _copy_bytes:
+        try:
+            _vfs = os.statvfs(str(deploy_dir))
+            _free = _vfs.f_frsize * _vfs.f_bavail
+        except OSError:
+            _free = None
+        if _free is not None and _copy_bytes > _free:
+            raise OSError(
+                errno.ENOSPC,
+                f"Not enough free space on the game drive: this deploy needs "
+                f"~{_copy_bytes // (1024 * 1024)} MB copied but only "
+                f"{_free // (1024 * 1024)} MB is free. Free up space, then "
+                f"deploy again (or run Restore).",
+            )
+
     # Pre-create all destination directories up front (single-threaded) to
     # avoid mkdir races inside the thread pool.
     with _timer("deploy_filemap — mkdir"):
@@ -610,8 +647,7 @@ def deploy_filemap(
         elif _stat_module.S_ISREG(_st.st_mode):
             dst_p = Path(dst_s)
             bak = _custom_backup_dir / dst_p.relative_to(dst_p.anchor)
-            bak.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(dst_s, str(bak))
+            _move_crash_safe(dst_s, bak)
             _log(f"  Backed up existing {os.path.basename(dst_s)} → custom_deploy_backup/")
 
     linked = 0
@@ -645,6 +681,15 @@ def deploy_filemap(
                     mode_counts[actual] = mode_counts.get(actual, 0) + 1
             elif err is not None:
                 dst_err, exc = err
+                if getattr(exc, "errno", None) == errno.ENOSPC:
+                    # Drive full — stop immediately instead of spamming a
+                    # WARN per remaining file and "succeeding" half-deployed.
+                    pool.shutdown(wait=True, cancel_futures=True)
+                    _log(f"  ERROR: game drive is full — aborting deploy "
+                         f"(failed at {dst_err}). Free up space, then run "
+                         f"Restore and deploy again.")
+                    raise OSError(errno.ENOSPC,
+                                  f"Game drive full while deploying {dst_err}")
                 _log(f"  WARN: could not transfer {dst_err}: {exc}")
             if progress_fn is not None and (done_count % 200 == 0 or done_count == total):
                 progress_fn(done_count, total)
@@ -749,6 +794,13 @@ def deploy_core(
                 linked += 1
                 mode_counts[actual] = mode_counts.get(actual, 0) + 1
             else:
+                if getattr(exc, "errno", None) == errno.ENOSPC:
+                    pool.shutdown(wait=True, cancel_futures=True)
+                    _log(f"  ERROR: game drive is full — aborting deploy "
+                         f"(failed at {rel_str}). Free up space, then run "
+                         f"Restore and deploy again.")
+                    raise OSError(errno.ENOSPC,
+                                  f"Game drive full while deploying {rel_str}")
                 _log(f"  WARN: could not transfer {rel_str}: {exc}")
             if progress_fn is not None:
                 progress_fn(done_count, total)
@@ -985,13 +1037,16 @@ def restore_data_core(
                                 # (cross-device that move is a full data copy).
                                 try:
                                     _sst = os.lstat(staging_path)
+                                    # Tolerate coarse-timestamp filesystems
+                                    # (FAT: 2s, exFAT: 10ms) truncating the
+                                    # mtime copy2 preserved on deploy.
                                     if (_sst.st_size == st.st_size
-                                            and _sst.st_mtime_ns == st.st_mtime_ns):
+                                            and abs(_sst.st_mtime_ns - st.st_mtime_ns)
+                                            <= _MTIME_TOLERANCE_NS):
                                         continue
                                 except OSError:
                                     pass
-                                staging_path.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.move(src_str, str(staging_path))
+                                _move_crash_safe(src_str, staging_path)
                                 rescued += 1
                                 rescued_to_mod += 1
                                 continue
@@ -1008,16 +1063,14 @@ def restore_data_core(
                                 else:
                                     dst_str = _staging_str + "/" + target_mod + "/" + rel_str
                                     rescued_to_mod += 1
-                                os.makedirs(os.path.dirname(dst_str), exist_ok=True)
-                                shutil.move(src_str, dst_str)
+                                _move_crash_safe(src_str, dst_str)
                                 rescued += 1
                                 continue
                         else:
                             continue  # no staging check — skip as before
                     # Genuine runtime-generated file (never in a mod) — goes to overwrite
                     dst_str = _overwrite_str + "/" + rel_str
-                    os.makedirs(os.path.dirname(dst_str), exist_ok=True)
-                    shutil.move(src_str, dst_str)
+                    _move_crash_safe(src_str, dst_str)
                     rescued += 1
                     rescued_to_overwrite += 1
                     rescued_overwrite_rels.append(rel_str)

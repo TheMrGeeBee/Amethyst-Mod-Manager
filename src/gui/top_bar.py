@@ -626,6 +626,11 @@ class TopBar(ctk.CTkFrame):
             and game.get_last_deployed_profile() == profile
         )
         if is_deployed:
+            from Utils.deploy_pipeline import check_paths_mounted
+            _mount_err = check_paths_mounted(game)
+            if _mount_err:
+                self._log(f"Profile removal blocked: {_mount_err}")
+                return
             game.set_active_profile_dir(profile_dir)
             try:
                 if hasattr(game, "restore"):
@@ -1040,6 +1045,12 @@ class TopBar(ctk.CTkFrame):
                 # Use the last-deployed profile's paths for restore so runtime
                 # files go back to the right overwrite/ folder.
                 current_profile = self._profile_var.get()
+                from Utils.deploy_pipeline import check_paths_mounted
+                _mount_err = check_paths_mounted(game)
+                if _mount_err:
+                    _tlog(f"Restore aborted: {_mount_err}")
+                    _success[0] = False
+                    return
                 last_deployed = game.get_last_deployed_profile()
                 if last_deployed:
                     game.set_active_profile_dir(

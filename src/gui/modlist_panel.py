@@ -453,6 +453,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         # on first hover. Cleared whenever update info is recomputed (since the
         # update checker is what backfills descriptions).
         self._description_cache: dict[str, str] = {}
+        # (entry idx, [(icon center x, tooltip text)]) for the last hovered flags row
+        self._flag_tip_cache: tuple[int, list[tuple[int, str]]] | None = None
         self._show_summary_tooltips: bool = load_show_summary_tooltips()
 
         # Set of mod names that have missing Nexus requirements
@@ -2158,6 +2160,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         This is the same technique used by the plugin panel for smooth scrolling.
         """
         self._redraw_after_id = None
+        self._flag_tip_cache = None  # row data may have changed — rebuild on next hover
         c = self._canvas
         cw = self._canvas_w
 
@@ -4431,6 +4434,72 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._description_cache[mod_name] = desc
         return desc
 
+    def _build_flag_tooltips(self, entry, flag_x: int, flag_w: int,
+                             spacing: int) -> list[tuple[int, str]]:
+        """Replicate _redraw()'s flag-icon layout as (center_x, tooltip) pairs."""
+        has_missing = (entry.name in self._missing_reqs
+                       and entry.name not in self._ignored_missing_reqs)
+        _items: list[str] = []
+        if entry.name in self._mod_notes_map:
+            _items.append("note")
+        if has_missing:
+            _items.append("missing")
+        if entry.locked:
+            _items.append("star")
+        if entry.name in self._update_mods:
+            _items.append("update")
+        if entry.name in self._endorsed_mods:
+            _items.append("endorsed")
+        if entry.name in self._prertx_mods:
+            _items.append("prertx")
+        elif entry.name in self._collection_bundled_mods:
+            _items.append("collection_bundled")
+        elif entry.name in self._collection_patched_mods:
+            _items.append("collection_patched")
+        if self._mod_is_modified_in_mf(entry.name):
+            _items.append("disabled_files")
+        if entry.name in self._root_folder_mods:
+            _items.append("root")
+        elif entry.name in self._root_rule_mods:
+            _items.append("root_rule")
+        _flag_tooltips: list[tuple[int, str]] = []
+        _n = len(_items)
+        if _n > 0:
+            _group_w = (_n - 1) * spacing
+            _fx_start = flag_x + flag_w // 2 - _group_w // 2
+            for _fi, _kind in enumerate(_items):
+                _fx = _fx_start + _fi * spacing
+                if _kind == "note":
+                    _txt = self._mod_notes_map.get(entry.name, "")
+                    tip = (_txt[:500] + "…") if len(_txt) > 500 else _txt
+                    if not tip:
+                        tip = "Note"
+                elif _kind == "missing":
+                    missing = self._missing_reqs_detail.get(entry.name, [])
+                    tip = ("Missing requirements:\n" + "\n".join(f"  - {m}" for m in missing)
+                           if missing else "Missing requirements")
+                elif _kind == "update":
+                    tip = "Update available on Nexus Mods"
+                elif _kind == "endorsed":
+                    tip = "Endorsed"
+                elif _kind == "prertx":
+                    tip = "Pre-RTX mod"
+                elif _kind == "collection_bundled":
+                    tip = "This mod is a collection bundled mod"
+                elif _kind == "collection_patched":
+                    tip = "This mod has diff patches applied by the collection install"
+                elif _kind == "disabled_files":
+                    tip = "Modified in Mod Files tab"
+                elif _kind == "root":
+                    tip = "This mod is sent to the root folder"
+                elif _kind == "root_rule":
+                    tip = "This mod contains files that route to the game root"
+                else:
+                    tip = ""
+                if tip:
+                    _flag_tooltips.append((_fx, tip))
+        return _flag_tooltips
+
     def _on_mouse_motion(self, event):
         """Update hover highlight as the mouse moves over the modlist."""
         if not self._entries or self._drag_idx >= 0:
@@ -4452,75 +4521,19 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         flags_col_start = self._COL_X[flag_slot]
         flags_col_end = flags_col_start + self._COL_W[flag_slot]
         if flags_col_start <= x < flags_col_end and 0 <= row < len(vis):
-            entry = self._entries[vis[row]]
+            ei = vis[row]
+            entry = self._entries[ei]
             if not entry.is_separator:
-                # Build the same ordered flag list as _redraw()
                 _FLAG_ICON_SPACING = scaled(22)
                 _HIT_RADIUS = _FLAG_ICON_SPACING // 2
-                _flag_tooltips: list[tuple[int, str]] = []  # (center_x, tooltip_text)
-                _flag_x_start: int = 0
-                _FLAG_X = flags_col_start
-                _FLAG_W = self._COL_W[flag_slot]
-                has_missing = (entry.name in self._missing_reqs
-                               and entry.name not in self._ignored_missing_reqs)
-                _items: list[str] = []
-                if entry.name in self._mod_notes_map:
-                    _items.append("note")
-                if has_missing:
-                    _items.append("missing")
-                if entry.locked:
-                    _items.append("star")
-                if entry.name in self._update_mods:
-                    _items.append("update")
-                if entry.name in self._endorsed_mods:
-                    _items.append("endorsed")
-                if entry.name in self._prertx_mods:
-                    _items.append("prertx")
-                elif entry.name in self._collection_bundled_mods:
-                    _items.append("collection_bundled")
-                elif entry.name in self._collection_patched_mods:
-                    _items.append("collection_patched")
-                if self._mod_is_modified_in_mf(entry.name):
-                    _items.append("disabled_files")
-                if entry.name in self._root_folder_mods:
-                    _items.append("root")
-                elif entry.name in self._root_rule_mods:
-                    _items.append("root_rule")
-                _n = len(_items)
-                if _n > 0:
-                    _group_w = (_n - 1) * _FLAG_ICON_SPACING
-                    _fx_start = _FLAG_X + _FLAG_W // 2 - _group_w // 2
-                    for _fi, _kind in enumerate(_items):
-                        _fx = _fx_start + _fi * _FLAG_ICON_SPACING
-                        if _kind == "note":
-                            _txt = self._mod_notes_map.get(entry.name, "")
-                            tip = (_txt[:500] + "…") if len(_txt) > 500 else _txt
-                            if not tip:
-                                tip = "Note"
-                        elif _kind == "missing":
-                            missing = self._missing_reqs_detail.get(entry.name, [])
-                            tip = ("Missing requirements:\n" + "\n".join(f"  - {m}" for m in missing)
-                                   if missing else "Missing requirements")
-                        elif _kind == "update":
-                            tip = "Update available on Nexus Mods"
-                        elif _kind == "endorsed":
-                            tip = "Endorsed"
-                        elif _kind == "prertx":
-                            tip = "Pre-RTX mod"
-                        elif _kind == "collection_bundled":
-                            tip = "This mod is a collection bundled mod"
-                        elif _kind == "collection_patched":
-                            tip = "This mod has diff patches applied by the collection install"
-                        elif _kind == "disabled_files":
-                            tip = "Modified in Mod Files tab"
-                        elif _kind == "root":
-                            tip = "This mod is sent to the root folder"
-                        elif _kind == "root_rule":
-                            tip = "This mod contains files that route to the game root"
-                        else:
-                            tip = ""
-                        if tip:
-                            _flag_tooltips.append((_fx, tip))
+                _cached = self._flag_tip_cache
+                if _cached is not None and _cached[0] == ei:
+                    _flag_tooltips = _cached[1]
+                else:
+                    _flag_tooltips = self._build_flag_tooltips(
+                        entry, flags_col_start, self._COL_W[flag_slot], _FLAG_ICON_SPACING)
+                    self._flag_tip_cache = (ei, _flag_tooltips)
+                if _flag_tooltips:
                     # Find which icon the cursor is closest to (within hit radius)
                     for _fx, tip in _flag_tooltips:
                         if abs(x - _fx) <= _HIT_RADIUS:

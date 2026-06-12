@@ -20,6 +20,7 @@ from Utils.deploy_shared import (
     _deploy_workers,
     _do_link,
     _mkdir_leaves,
+    _move_crash_safe,
     _move_runtime_files,
     _prebuild_mod_indexes,
     _resolve_root_path_str,
@@ -245,8 +246,7 @@ def deploy_filemap_to_root(
             os.unlink(dst_s)
         elif _stat.S_ISREG(_st.st_mode):
             bak_str = _backup_str + "/" + rel_str
-            os.makedirs(os.path.dirname(bak_str), exist_ok=True)
-            shutil.move(dst_s, bak_str)
+            _move_crash_safe(dst_s, bak_str)
 
     linked = 0
     done_count = 0

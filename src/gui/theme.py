@@ -3,6 +3,7 @@ Shared theme constants and icon loader for the GUI.
 Used by gui.py and all gui submodules.
 """
 
+from functools import lru_cache
 from pathlib import Path
 
 import customtkinter as ctk
@@ -93,6 +94,7 @@ _bind_palette(APPEARANCE_MODE)
 # ---------------------------------------------------------------------------
 # Contrast helper
 # ---------------------------------------------------------------------------
+@lru_cache(maxsize=256)
 def contrasting_text_color(hex_bg: str) -> str:
     """Return '#111111' or '#eeeeee' (dark/light) based on the luminance of
     *hex_bg* (e.g. '#3a7bd5') so text always stays readable."""
@@ -109,6 +111,7 @@ def contrasting_text_color(hex_bg: str) -> str:
         return TEXT_SEP
 
 
+@lru_cache(maxsize=256)
 def hover_tint(hex_bg: str, amount: int = 20) -> str:
     """Return a hover variant of *hex_bg* — brighter by *amount* per channel,
     or darker if brightening would clip (channel already near 255).

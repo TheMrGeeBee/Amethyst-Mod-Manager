@@ -20,6 +20,7 @@ from Utils.deploy_shared import (
     _deploy_workers,
     _do_link,
     _mkdir_leaves,
+    _move_crash_safe,
     _path_under_root,
     _prune_empty_dirs,
     _resolve_source,
@@ -583,8 +584,7 @@ def deploy_custom_rules(
                 bak_root, rel = picked
                 try:
                     bak = bak_root / rel
-                    bak.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(dst), str(bak))
+                    _move_crash_safe(dst, bak)
                 except OSError as e:
                     _log(f"  WARN: could not back up {dst}: {e}")
 

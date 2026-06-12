@@ -20,7 +20,7 @@ import customtkinter as ctk
 import tkinter as tk
 
 from Games.base_game import BaseGame
-from Utils.portal_filechooser import pick_folder
+from Utils.portal_filechooser import pick_folder, is_doc_portal_path
 from Utils.deploy import LinkMode
 from Utils.xdg import xdg_open
 from Utils.steam_finder import (
@@ -118,6 +118,7 @@ class ReconfigureGamePanel(ctk.CTkFrame):
         self._archive_invalidation_var = tk.BooleanVar(value=True)
         self._profile_ini_files_var = tk.BooleanVar(value=False)
         self._patch_version_var = tk.StringVar(value="8")
+        self._flatpak_symlink_warned = False
 
         # Optional: when embedded in a modal CTkToplevel, set this to that
         # window so _run_folder_picker can release/re-acquire the grab.
@@ -813,11 +814,27 @@ class ReconfigureGamePanel(ctk.CTkFrame):
 
         pick_folder(title, _on_picked)
 
+    @staticmethod
+    def _doc_portal_error(chosen: Path) -> "str | None":
+        if is_doc_portal_path(chosen):
+            return (
+                "That folder was shared through the desktop portal and is only "
+                "accessible inside this app's sandbox — deployed files and links "
+                "would break. Grant the app direct access instead, e.g.:\n"
+                "flatpak override io.github.Amethyst.ModManager "
+                "--filesystem=<real folder path>   (then restart the app)"
+            )
+        return None
+
     def _on_browse(self):
         def _apply(chosen: Optional[Path]):
             if not self._status_label.winfo_exists():
                 return
             if chosen:
+                _doc_err = self._doc_portal_error(chosen)
+                if _doc_err:
+                    self._status_label.configure(text=_doc_err, text_color=TEXT_ERR)
+                    return
                 # Verify the game exe is present in the chosen folder
                 all_exes = [self._game.exe_name] + list(self._game.exe_name_alts)
                 found_exe = any(
@@ -952,6 +969,10 @@ class ReconfigureGamePanel(ctk.CTkFrame):
             if not self._prefix_status_label.winfo_exists():
                 return
             if chosen:
+                _doc_err = self._doc_portal_error(chosen)
+                if _doc_err:
+                    self._prefix_status_label.configure(text=_doc_err, text_color=TEXT_ERR)
+                    return
                 if chosen.name.lower() != "pfx" and (chosen / "pfx").is_dir():
                     chosen = chosen / "pfx"
                 if chosen.name.lower() != "pfx":
@@ -978,6 +999,10 @@ class ReconfigureGamePanel(ctk.CTkFrame):
             if not self._staging_status_label.winfo_exists():
                 return
             if chosen:
+                _doc_err = self._doc_portal_error(chosen)
+                if _doc_err:
+                    self._staging_status_label.configure(text=_doc_err, text_color=TEXT_ERR)
+                    return
                 chosen = chosen / self._game.game_id
                 self._set_staging(chosen, status="found")
             else:
@@ -1292,12 +1317,35 @@ class ReconfigureGamePanel(ctk.CTkFrame):
                     self._status_label.configure(
                         text=(
                             f"Cannot use hardlinks: the staging folder and "
-                            f"{names} are on different drives. "
+                            f"{names} are on different drives or filesystems. "
                             f"Switch to Symlink instead."
                         ),
                         text_color=TEXT_ERR,
                     )
                     return
+        # ---------------------------------------------------------------------
+
+        # -- Flatpak-sandboxed launcher + symlink warning ----------------------
+        # A game inside the Steam/Heroic flatpak sandbox can't follow symlinks
+        # into host-home staging — mods would silently not load. Warn once;
+        # a second Save proceeds (the user may have widened the sandbox).
+        if mode_str == "symlink" and not self._flatpak_symlink_warned:
+            from Utils.deploy_pipeline import flatpak_runtime_app
+            _app = flatpak_runtime_app(self._found_path)
+            if _app:
+                self._flatpak_symlink_warned = True
+                self._status_label.configure(
+                    text=(
+                        f"Warning: this game runs inside the {_app} flatpak, "
+                        f"which may not be able to read symlinked mods. "
+                        f"Hardlink (staging on the same drive) is safer, or run:\n"
+                        f"flatpak override --user {_app} "
+                        f"--filesystem=<staging folder>:ro\n"
+                        f"Click Save again to keep Symlink anyway."
+                    ),
+                    text_color=TEXT_WARN,
+                )
+                return
         # ---------------------------------------------------------------------
 
         self._game.set_game_path(self._found_path)

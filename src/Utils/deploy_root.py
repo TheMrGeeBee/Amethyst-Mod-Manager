@@ -20,6 +20,7 @@ from Utils.deploy_shared import (
     _deploy_workers,
     _do_link_ex,
     _mkdir_leaves,
+    _move_crash_safe,
     _path_under_root,
     _prune_empty_dirs,
     _resolve_root_path,
@@ -124,8 +125,7 @@ def deploy_root_folder(
             dst.unlink()
         elif _stat.S_ISREG(st.st_mode):
             bak = backup_dir / rel
-            bak.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(dst), str(bak))
+            _move_crash_safe(dst, bak)
             _log(f"  Backed up existing {rel} → Root_Backup/")
 
     # Pre-create destination directories, then transfer in parallel.
@@ -281,8 +281,7 @@ def deploy_root_flagged_mods(
             dst.unlink()
         elif _stat.S_ISREG(st.st_mode):
             bak = backup_dir / rel_posix
-            bak.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(dst), str(bak))
+            _move_crash_safe(dst, bak)
             _log(f"  Backed up existing {rel_posix} → Root_Backup/")
 
     # Pre-create destination directories, then transfer in parallel.

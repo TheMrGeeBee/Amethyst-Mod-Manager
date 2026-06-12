@@ -36,6 +36,44 @@ LogFn = Callable[[str], None]
 ProgressFn = Callable[[int, int, Optional[str]], None]
 
 
+def check_paths_mounted(game) -> "str | None":
+    """Return an error message if the game or staging drive looks unmounted.
+
+    Guards against deploying into (or restoring under) a dead mountpoint:
+    mkdir(parents=True) would silently recreate the game tree on the root
+    filesystem and every file would land on the wrong drive.
+    """
+    import os
+
+    game_root = _safe(game.get_game_path)
+    if game_root:
+        p = Path(game_root)
+        if not p.is_dir():
+            return (f"game folder not found: {p} — is the drive mounted?")
+        try:
+            with os.scandir(p) as it:
+                if next(it, None) is None:
+                    return (f"game folder is empty: {p} — is the drive mounted?")
+        except OSError as exc:
+            return f"game folder not accessible: {p} ({exc})"
+
+    profile_root = _safe(game.get_profile_root)
+    if profile_root is not None:
+        pr = Path(profile_root)
+        if not pr.is_dir():
+            return (f"mod staging/profile folder not found: {pr} — "
+                    f"is the drive mounted?")
+        try:
+            with os.scandir(pr) as it:
+                if next(it, None) is None:
+                    return (f"mod staging/profile folder is empty: {pr} — "
+                            f"is the drive mounted?")
+        except OSError as exc:
+            return f"mod staging/profile folder not accessible: {pr} ({exc})"
+
+    return None
+
+
 def _fs_id(path: Path) -> "int | None":
     """Return the device id for *path* (or its nearest existing parent).
 
@@ -127,7 +165,28 @@ def _log_deploy_context(game, profile: str, profile_dir: Path,
                        "filesystems — hardlinks will fall back to "
                        "symlink/copy (uses extra disk space; symlinks can "
                        "break some games).")
+
+    # Flatpak-sandboxed launchers can't read symlink targets outside their
+    # own sandbox — symlinks into host-home staging look broken to the game.
+    if deploy_mode is LinkMode.SYMLINK and game_root:
+        _app = flatpak_runtime_app(Path(game_root))
+        if _app and (staging is None or flatpak_runtime_app(Path(staging)) != _app):
+            log_fn(f"  WARNING: game runs inside the {_app} flatpak — "
+                   f"symlinked mods may be invisible to it. If mods don't "
+                   f"load, run: flatpak override --user {_app} "
+                   f"--filesystem='{staging}':ro  or switch the deploy "
+                   f"method to Hardlink (same drive) in game settings.")
     log_fn("=" * 60)
+
+
+def flatpak_runtime_app(path: Path) -> "str | None":
+    """Return the flatpak app id whose sandbox data dir contains *path*."""
+    var_app = Path.home() / ".var" / "app"
+    try:
+        rel = path.relative_to(var_app)
+    except ValueError:
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 def _make_ue5_conflict_key_fn(game, index_path: Path):
@@ -280,6 +339,11 @@ def run_deploy_pipeline(
     is always reset to *profile* before returning, even on error.
     """
     game_root = game.get_game_path()
+
+    mount_err = check_paths_mounted(game)
+    if mount_err:
+        log_fn(f"Deploy aborted: {mount_err}")
+        return False
 
     import time as _time
     _t_start = _time.perf_counter()
