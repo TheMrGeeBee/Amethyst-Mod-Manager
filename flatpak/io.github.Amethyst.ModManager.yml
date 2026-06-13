@@ -71,7 +71,9 @@ modules:
       - install -Dm755 CPP/7zip/Bundles/Alone2/_o/7zz /app/bin/7zz
     sources:
       - type: archive
-        url: https://www.7-zip.org/a/7z2501-src.tar.xz
+        url: https://github.com/ip7z/7zip/releases/download/25.01/7z2501-src.tar.xz
+        mirror-urls:
+          - https://www.7-zip.org/a/7z2501-src.tar.xz
         sha256: ed087f83ee789c1ea5f39c464c55a5c9d4008deb0efe900814f2df262b82c36e
         strip-components: 0
   - name: unrar
