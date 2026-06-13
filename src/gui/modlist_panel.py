@@ -920,6 +920,17 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             command=self._on_check_updates
         )
         self._update_btn.pack(side="left", padx=4, pady=5)
+        self._help_tooltip = TkTooltip(
+            self, bg="#1a1a2e", fg="#d6e4ff", font=_theme.TK_FONT_SMALL,
+        )
+        self._help_tooltip.attach(
+            self._update_btn,
+            "Checks every mod against Nexus and reports:\n"
+            "  • Newer versions available for installed mods\n"
+            "  • Mods with missing required dependencies\n"
+            "It also refreshes each mod's metadata — Category, Version,\n"
+            "size, endorsement status and install date shown in the columns.",
+        )
 
         self._filter_btn = ctk.CTkButton(
             bar, text="Filters", width=64, height=26,
