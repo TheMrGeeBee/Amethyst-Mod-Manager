@@ -214,6 +214,7 @@ def deploy_custom_rules(
     mode: LinkMode = LinkMode.HARDLINK,
     strip_prefixes: set[str] | None = None,
     per_mod_strip_prefixes: dict[str, list[str]] | None = None,
+    per_mod_link_modes: dict[str, LinkMode] | None = None,
     log_fn=None,
     progress_fn=None,
     prefix_root: Path | None = None,
@@ -242,6 +243,23 @@ def deploy_custom_rules(
     _log = _safe_log(log_fn)
     _strip = {p.lower() for p in strip_prefixes} if strip_prefixes else set()
     _per_mod_strip = per_mod_strip_prefixes or {}
+
+    # Per-separator deploy-method overrides. Self-load (mirroring deploy_filemap)
+    # when the caller didn't supply them so a separator's File Transfer Method
+    # applies to custom-routed files too, not just the normal deploy step.
+    _per_mode = per_mod_link_modes
+    if _per_mode is None:
+        try:
+            from Utils.deploy_shared import (
+                load_separator_deploy_paths as _lsdp,
+                expand_separator_link_modes as _eslm,
+            )
+            from Utils.modlist import read_modlist as _rml
+            _per_mode = _eslm(_lsdp(filemap_path.parent),
+                              _rml(filemap_path.parent / "modlist.txt"))
+        except Exception:
+            _per_mode = {}
+    _per_mode = _per_mode or {}
 
     def _rule_base(rule: CustomRule) -> Path | None:
         """Return the root directory this rule's ``dest`` is resolved under,
@@ -296,7 +314,7 @@ def deploy_custom_rules(
                 return rule, strip_len, matched_ext
         return None
 
-    tasks: list[tuple[Path, Path]] = []   # (src, dst)
+    tasks: list[tuple[Path, Path, str]] = []   # (src, dst, mod_name)
     handled_lower: set[str] = set()
     # primary_matches: rel_lower -> (rule, strip_len, rel_str, mod_name, matched_ext)
     primary_matches: dict[str, tuple[CustomRule, int, str, str, str]] = {}
@@ -401,7 +419,7 @@ def deploy_custom_rules(
         else:
             tail = rel_str
         for dest_base in _rule_dest_bases(rule):
-            tasks.append((src, dest_base / tail if tail else dest_base))
+            tasks.append((src, dest_base / tail if tail else dest_base, mod_name))
         handled_lower.add(rel_lower)
 
     def _drag_container(container_lower: str, container_name: str,
@@ -433,7 +451,8 @@ def deploy_custom_rules(
                 continue
             src = Path(src_str)
             for dest_base in dest_bases:
-                tasks.append((src, dest_base / container_name / rel_in_container))
+                tasks.append((src, dest_base / container_name / rel_in_container,
+                              sib_mod_name))
             handled_lower.add(sib_lower)
 
     # Process rules in declaration order. For each rule:
@@ -553,7 +572,7 @@ def deploy_custom_rules(
         shutil.rmtree(prefix_backup_dir)
 
     # Create destination directories (skip parents implied by deeper leaves)
-    _mkdir_leaves({str(dst.parent) for _, dst in tasks})
+    _mkdir_leaves({str(dst.parent) for _, dst, _ in tasks})
 
     placed_abs: list[str] = []
     total = len(tasks)
@@ -577,7 +596,7 @@ def deploy_custom_rules(
     # Back up any vanilla files we are about to overwrite (must be serial).
     # One lstat per destination instead of exists()+is_symlink().
     import stat as _stat
-    for src, dst in tasks:
+    for src, dst, _mod in tasks:
         try:
             _st = os.lstat(dst)
         except OSError:
@@ -596,12 +615,16 @@ def deploy_custom_rules(
                 except OSError as e:
                     _log(f"  WARN: could not back up {dst}: {e}")
 
-    # Transfer files in parallel.
-    transfer_tasks: list[tuple[str, str]] = [(str(s), str(d)) for s, d in tasks]
+    # Transfer files in parallel. Each task carries the effective link mode:
+    # a separator's File Transfer Method override (if any) wins over the global
+    # mode, matching deploy_filemap's per-mod behaviour.
+    transfer_tasks: list[tuple[str, str, LinkMode]] = [
+        (str(s), str(d), _per_mode.get(m, mode)) for s, d, m in tasks
+    ]
 
-    def _do_custom(item: tuple[str, str]) -> tuple[str | None, tuple[str, OSError] | None]:
-        src_s, dst_s = item
-        err = _do_link(src_s, dst_s, mode)
+    def _do_custom(item: tuple[str, str, LinkMode]) -> tuple[str | None, tuple[str, OSError] | None]:
+        src_s, dst_s, eff_mode = item
+        err = _do_link(src_s, dst_s, eff_mode)
         if err is None:
             return dst_s, None
         return None, (dst_s, err)

@@ -17,9 +17,12 @@ from Utils.deploy import (
     deploy_custom_rules,
     deploy_filemap_to_root,
     load_per_mod_strip_prefixes,
+    load_separator_deploy_paths,
+    expand_separator_link_modes,
     restore_custom_rules,
     restore_filemap_from_root,
 )
+from Utils.modlist import read_modlist
 from Utils.config_paths import get_profiles_dir
 
 _PROFILES_DIR = get_profiles_dir()
@@ -204,6 +207,12 @@ class Cyberpunk2077(BaseGame):
         profile_dir = self.get_profile_root() / "profiles" / profile
         per_mod_strip = load_per_mod_strip_prefixes(profile_dir)
 
+        # Separator overrides — loaded from the real profile_dir so custom-routed
+        # files honour a separator's File Transfer Method (shared-staging safe).
+        _sep_deploy = load_separator_deploy_paths(profile_dir)
+        _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
+        per_mod_modes = expand_separator_link_modes(_sep_deploy, _sep_entries) or None
+
         custom_rules = self.custom_routing_rules
         custom_exclude: set[str] = set()
         if custom_rules:
@@ -214,6 +223,7 @@ class Cyberpunk2077(BaseGame):
                 mode=mode,
                 strip_prefixes=self.mod_folder_strip_prefixes,
                 per_mod_strip_prefixes=per_mod_strip,
+                per_mod_link_modes=per_mod_modes,
                 log_fn=_log,
             )
 

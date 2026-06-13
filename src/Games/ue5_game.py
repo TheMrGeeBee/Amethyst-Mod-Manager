@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from Games.base_game import BaseGame
-from Utils.deploy import LinkMode, load_per_mod_strip_prefixes, load_separator_deploy_paths, expand_separator_deploy_paths, expand_separator_raw_deploy, _resolve_nocase, _write_deploy_snapshot, _move_runtime_files, _FILEMAP_SNAPSHOT_NAME
+from Utils.deploy import LinkMode, load_per_mod_strip_prefixes, load_separator_deploy_paths, expand_separator_deploy_paths, expand_separator_raw_deploy, expand_separator_link_modes, _resolve_nocase, _write_deploy_snapshot, _move_runtime_files, _FILEMAP_SNAPSHOT_NAME
 from Utils.deploy_custom_rules import deploy_custom_rules, restore_custom_rules, compute_prefix_handled
 from Utils.modlist import read_modlist
 from Utils.config_paths import get_profiles_dir
@@ -1012,6 +1012,12 @@ class UE5Game(BaseGame):
         profile_dir = self.get_profile_root() / "profiles" / profile
         per_mod_strip = load_per_mod_strip_prefixes(profile_dir)
 
+        _sep_deploy = load_separator_deploy_paths(profile_dir)
+        _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
+        per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries)
+        per_mod_raw = expand_separator_raw_deploy(_sep_deploy, _sep_entries)
+        per_mod_modes = expand_separator_link_modes(_sep_deploy, _sep_entries) or None
+
         prefix_rules = self._prefix_routing_rules()
         if prefix_rules:
             _log("Routing prefix-bound files via custom rules ...")
@@ -1021,14 +1027,10 @@ class UE5Game(BaseGame):
                 mode=mode,
                 strip_prefixes=self.mod_folder_strip_prefixes,
                 per_mod_strip_prefixes=per_mod_strip,
+                per_mod_link_modes=per_mod_modes,
                 log_fn=_log,
                 prefix_root=self.get_prefix_path(),
             )
-
-        _sep_deploy = load_separator_deploy_paths(profile_dir)
-        _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
-        per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries)
-        per_mod_raw = expand_separator_raw_deploy(_sep_deploy, _sep_entries)
         overwrite_dir = staging.parent / "overwrite"
 
         manifest: list[str] = []

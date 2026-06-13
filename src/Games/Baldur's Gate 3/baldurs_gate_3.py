@@ -34,6 +34,7 @@ from Utils.deploy import (
     CustomRule, LinkMode, deploy_filemap, deploy_core, move_to_core, restore_data_core,
     deploy_custom_rules, load_per_mod_strip_prefixes,
     load_separator_deploy_paths, expand_separator_deploy_paths,
+    expand_separator_link_modes,
     cleanup_custom_deploy_dirs, restore_custom_rules,
 )
 from Utils.modlist import read_modlist
@@ -365,6 +366,13 @@ class BaldursGate3(BaseGame):
         profile_dir = self.get_profile_root() / "profiles" / profile
         per_mod_strip = load_per_mod_strip_prefixes(profile_dir)
 
+        # Separator overrides — loaded from the real profile_dir and passed
+        # explicitly so shared-staging layouts get the right link modes.
+        _sep_deploy = load_separator_deploy_paths(profile_dir)
+        _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
+        per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
+        per_mod_modes = expand_separator_link_modes(_sep_deploy, _sep_entries) or None
+
         custom_rules = self.custom_routing_rules
         custom_exclude: set[str] = set()
         if custom_rules and self._game_path:
@@ -375,6 +383,7 @@ class BaldursGate3(BaseGame):
                 mode=mode,
                 strip_prefixes=self.mod_folder_strip_prefixes,
                 per_mod_strip_prefixes=per_mod_strip,
+                per_mod_link_modes=per_mod_modes,
                 log_fn=_log,
             )
             _log(f"  Routed {len(custom_exclude)} file(s) to Data/.")
@@ -384,14 +393,12 @@ class BaldursGate3(BaseGame):
         _log("  Backed up existing files → Mods_Core/.")
 
         _log(f"Step 2: Transferring mod .pak files into Mods/ ({mode.name}) ...")
-        _sep_deploy = load_separator_deploy_paths(profile_dir)
-        _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
-        per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
         linked_mod, placed = deploy_filemap(filemap, mods_dir, staging,
                                             mode=mode,
                                             strip_prefixes=self.mod_folder_strip_prefixes,
                                             per_mod_strip_prefixes=per_mod_strip,
                                             per_mod_deploy_dirs=per_mod_deploy,
+                                            per_mod_link_modes=per_mod_modes,
                                             log_fn=_log,
                                             progress_fn=progress_fn,
                                             exclude=custom_exclude or None,

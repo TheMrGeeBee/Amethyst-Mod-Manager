@@ -449,7 +449,18 @@ def deploy_filemap(
         # Mods whose separator opted into "merge folders" are skipped here so
         # their top-level folders are merged with the target instead of
         # wholesale-replaced; per-file backup-and-replace still applies.
-        if is_custom_task and "/" in dst_rel and mod_name not in _per_merge:
+        #
+        # The wholesale-replace is only safe to apply when the folder will be
+        # dir-symlinked afterwards (symlink-effective mode): the symlink covers
+        # every file under the folder, including any a custom routing rule
+        # deployed there (Step 0). Under hardlink/copy there is no symlink to
+        # repopulate it, and custom-routed files are excluded from the per-file
+        # deploy — wiping the folder would silently lose them. So for non-symlink
+        # modes we skip the wholesale-replace and let per-file backup-and-replace
+        # handle each file, leaving co-located custom-routed files intact.
+        _eff_mode = override_mode if override_mode is not None else mode
+        if is_custom_task and "/" in dst_rel and mod_name not in _per_merge \
+                and _eff_mode is LinkMode.SYMLINK:
             _top = dst_rel.split("/", 1)[0]
             _custom_top_roots.setdefault(_eff_s, set()).add(_top)
             _key = (_eff_s, _top.lower())
