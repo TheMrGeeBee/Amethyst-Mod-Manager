@@ -10,6 +10,7 @@ Mod structure:
 """
 
 import json
+import re
 from pathlib import Path
 
 from Games.base_game import BaseGame, WizardTool
@@ -18,6 +19,9 @@ from Utils.modlist import read_modlist
 from Utils.config_paths import get_profiles_dir
 
 _PROFILES_DIR = get_profiles_dir()
+
+# Split-texture filename AT loads via a case-sensitive GetFiles("texture_*.png").
+_AT_SPLIT_PNG_RE = re.compile(r"^texture_\d+\.png$", re.IGNORECASE)
 
 class StardewValley(BaseGame):
 
@@ -169,6 +173,10 @@ class StardewValley(BaseGame):
         _sep_deploy = load_separator_deploy_paths(profile_dir)
         _sep_entries = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
         per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
+        _at_fixed = self._fix_alt_textures_casing(filemap, staging)
+        if _at_fixed:
+            _log(f"  Fixed 'textures' → 'Textures' casing for {_at_fixed} "
+                 "Alternative Textures content pack file(s).")
         _orphan_configs = self._orphaned_overwrite_configs(filemap)
         if _orphan_configs:
             _log(f"  Skipping {len(_orphan_configs)} orphaned overwrite file(s) "
@@ -193,6 +201,101 @@ class StardewValley(BaseGame):
             f"{linked_mod} mod + {linked_core} vanilla "
             f"= {linked_mod + linked_core} total file(s) in {plugins_dir.name}/."
         )
+
+    def _fix_alt_textures_casing(self, filemap: Path, staging: Path) -> int:
+        """Canonicalise Alternative Textures content pack casing in the filemap.
+
+        Alternative Textures uses raw .NET filesystem calls (bypassing SMAPI's
+        case-insensitive resolver) on a content pack's files, so casing the mod
+        author got "wrong" (harmless on Windows, common when authored there)
+        breaks on Linux. AT scans <ContentPack>/Textures (next to manifest.json)
+        via GetDirectories, and gates per-folder texture.json / texture.png /
+        texture_N.png via case-sensitive File.Exists / GetFiles. Detect content
+        packs for PeacefulEnd.AlternativeTextures (at ANY nesting depth — authors
+        commonly group [CP]+[AT] folders under a parent) and canonicalise both
+        the 'Textures' folder and those filenames in the filemap. Source
+        resolution stays case-insensitive, so the on-disk casing is still found.
+        Returns the number of filemap lines rewritten.
+        """
+        if not filemap.is_file():
+            return 0
+
+        try:
+            lines = filemap.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return 0
+
+        # Lowercased deploy-path prefixes of the directory holding an AT content
+        # pack's manifest.json (e.g. "test/[at] drink water...").  An empty
+        # string marks a pack whose manifest sits at the deploy root.  Its
+        # Textures folder is the path segment immediately after this prefix.
+        at_prefixes: set[str] = set()
+        for line in lines:
+            if "\t" not in line:
+                continue
+            rel_str, mod_name = line.split("\t", 1)
+            if rel_str.rsplit("/", 1)[-1].lower() != "manifest.json":
+                continue
+            mod_src = staging / mod_name / rel_str
+            try:
+                data = json.loads(mod_src.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                continue
+            cp = data.get("ContentPackFor")
+            uid = cp.get("UniqueID") if isinstance(cp, dict) else None
+            if isinstance(uid, str) and uid == "PeacefulEnd.AlternativeTextures":
+                pack_dir = rel_str.rsplit("/", 1)[0] if "/" in rel_str else ""
+                at_prefixes.add(pack_dir.lower())
+
+        if not at_prefixes:
+            return 0
+
+        def _match_prefix(rel_lower: str) -> "str | None":
+            # The Textures folder must be the segment right after the pack dir.
+            for pre in at_prefixes:
+                if pre == "":
+                    if "/" in rel_lower:
+                        return ""
+                elif rel_lower.startswith(pre + "/"):
+                    return pre
+            return None
+
+        fixed = 0
+        out: list[str] = []
+        for line in lines:
+            if "\t" in line:
+                rel_str, mod_name = line.split("\t", 1)
+                parts = rel_str.split("/")
+                pre = _match_prefix(rel_str.lower())
+                # depth of the segment right after the pack dir (the Textures lvl)
+                tex_idx = -1 if pre is None else (0 if pre == "" else pre.count("/") + 1)
+                # Need a Textures folder AND at least one file beneath it.
+                if tex_idx >= 0 and len(parts) >= tex_idx + 3 \
+                        and parts[tex_idx].lower() == "textures":
+                    changed = False
+                    # Folder: .../textures/... → .../Textures/...
+                    if parts[tex_idx] != "Textures":
+                        parts[tex_idx] = "Textures"
+                        changed = True
+                    # Filename: texture.json / texture.png / texture_N.png —
+                    # AT gates these via case-sensitive File.Exists / GetFiles.
+                    base = parts[-1]
+                    if base != base.lower() and (
+                            base.lower() in ("texture.json", "texture.png")
+                            or _AT_SPLIT_PNG_RE.match(base)):
+                        parts[-1] = base.lower()
+                        changed = True
+                    if changed:
+                        line = "/".join(parts) + "\t" + mod_name
+                        fixed += 1
+            out.append(line)
+
+        if fixed:
+            try:
+                filemap.write_text("\n".join(out) + "\n", encoding="utf-8")
+            except OSError:
+                return 0
+        return fixed
 
     def _orphaned_overwrite_configs(self, filemap: Path) -> set[str]:
         """Lowercased rel paths of [Overwrite] files to skip on deploy.
