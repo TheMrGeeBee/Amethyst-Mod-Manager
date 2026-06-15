@@ -5775,7 +5775,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         top = self.winfo_toplevel()
         dlg = _RenameDialog(top, entry.name)
         top.wait_window(dlg)
-        new_name = dlg.result
+        from gui.mod_name_utils import sanitize_mod_folder_name
+        new_name = sanitize_mod_folder_name(dlg.result) if dlg.result else dlg.result
         if not new_name or new_name == entry.name:
             return
         # Rename staging folder on disk
@@ -5881,7 +5882,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         Returns True on success. Used by the post-install rename prompt so it
         doesn't need to know the mod's index in the list.
         """
-        if not old_name or not new_name or old_name == new_name:
+        if not old_name or not new_name:
+            return False
+        from gui.mod_name_utils import sanitize_mod_folder_name
+        new_name = sanitize_mod_folder_name(new_name)
+        if not new_name or old_name == new_name:
             return False
         # Locate the entry by name.
         idx = -1

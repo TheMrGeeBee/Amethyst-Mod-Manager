@@ -174,7 +174,7 @@ from gui.dialogs import (
 )
 from gui.fomod_dialog import FomodDialog
 from gui.bain_dialog import BainDialog
-from gui.mod_name_utils import _strip_title_metadata, _suggest_mod_names
+from gui.mod_name_utils import _strip_title_metadata, _suggest_mod_names, sanitize_mod_folder_name
 from Utils.fomod_parser import detect_fomod, parse_module_config, parse_mod_info
 from Utils.fomod_installer import resolve_files, check_module_dependencies
 from Utils.bain_installer import detect_bain, resolve_bain_files
@@ -994,6 +994,10 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
 
     suggestions = _suggest_mod_names(raw_stem)
     mod_name = preferred_name.strip() if preferred_name.strip() else (suggestions[0] if suggestions else raw_stem)
+    # Ensure the on-disk folder name is Wine/Windows-addressable: trailing dots
+    # or spaces and reserved characters make the folder invisible to Wine tools
+    # (xEdit, PGPatcher, …) and break deploy into Wine prefixes.
+    mod_name = sanitize_mod_folder_name(mod_name)
 
     # Collection installers tag SKSE-style mods (install_type="dinput") as
     # root_folder=True. Those mods are a mix of game-root files (skse_loader.exe)

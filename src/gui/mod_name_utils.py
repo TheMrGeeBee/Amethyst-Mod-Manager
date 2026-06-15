@@ -6,6 +6,40 @@ Used by install_mod, dialogs (NameModDialog), and modlist_panel. No dependency o
 import re
 
 
+# Characters Windows/Wine forbid in a path component.  Mods are deployed and
+# read through Wine tools (xEdit, PGPatcher, BodySlide, …) and into Wine
+# prefixes, so a folder name Wine can't address breaks those tools — and a
+# trailing dot or space is silently stripped by Windows path normalisation,
+# which makes the folder vanish from the tool's point of view.
+_WINDOWS_RESERVED_CHARS = r'<>:"/\\|?*'
+
+
+def sanitize_mod_folder_name(name: str) -> str:
+    """Return *name* made safe for use as a Wine/Windows-addressable folder.
+
+    - Strips characters Windows/Wine forbid in a path component.
+    - Removes control characters.
+    - Trims trailing dots and spaces (Windows path normalisation drops these,
+      so a folder named "Foo." or "Foo " becomes unreachable to Wine tools).
+    - Falls back to "Mod" if nothing usable remains.
+
+    Leading/trailing whitespace is also trimmed.  This only affects the
+    on-disk folder name; the user's chosen display name is unaffected
+    elsewhere.
+    """
+    s = name.strip()
+    # Drop reserved characters and ASCII control chars.
+    s = re.sub(rf"[{re.escape(_WINDOWS_RESERVED_CHARS)}]", "", s)
+    s = "".join(ch for ch in s if ord(ch) >= 32)
+    # Windows strips trailing dots and spaces from each path component.
+    s = s.rstrip(". ")
+    # Reserved DOS device names (CON, PRN, NUL, COM1…) — extremely rare for a
+    # mod name, but a folder so named is unusable under Wine.
+    if re.fullmatch(r"(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])", s):
+        s = s + "_"
+    return s if s else "Mod"
+
+
 def _strip_title_metadata(name: str) -> str:
     """
     Remove common metadata from a mod name: parenthesized/bracketed tags,
