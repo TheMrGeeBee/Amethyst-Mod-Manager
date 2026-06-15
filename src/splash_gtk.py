@@ -63,10 +63,46 @@ def main():
     # maps directly to an X11 override_redirect window — bypasses KWin entirely.
     win.show_all()
 
-    if x is not None and y is not None:
-        win.move(x, y)
-    else:
-        win.set_position(Gtk.WindowPosition.CENTER)
+    def _centred_xy():
+        """Compute a centred position ourselves as a fallback.
+
+        The parent passes pre-computed x/y, but if it couldn't query the
+        monitor layout it may pass nothing.  Centre on the monitor under the
+        pointer (or the primary monitor) using GdkDisplay geometry.
+        """
+        try:
+            display = win.get_display()
+            try:
+                seat = display.get_default_seat()
+                ptr = seat.get_pointer()
+                _scr, _px, _py = ptr.get_position()
+                monitor = display.get_monitor_at_point(_px, _py)
+            except Exception:
+                monitor = display.get_primary_monitor() or display.get_monitor(0)
+            geo = monitor.get_geometry()
+            ww, wh = win.get_size()
+            return geo.x + (geo.width - ww) // 2, geo.y + (geo.height - wh) // 2
+        except Exception:
+            return None, None
+
+    def _place():
+        nonlocal x, y
+        if x is None or y is None:
+            x, y = _centred_xy()
+        if x is not None and y is not None:
+            win.move(x, y)
+        else:
+            win.set_position(Gtk.WindowPosition.CENTER)
+
+    _place()
+
+    # On wlroots compositors (Hyprland, Sway) the move() above is frequently
+    # dropped because the surface isn't mapped yet — the WM then places the
+    # window at an arbitrary spot.  Re-issue the move once from an idle/timeout
+    # callback after the surface has been mapped, which those compositors honour.
+    from gi.repository import GLib
+    win.connect('map', lambda *_: GLib.idle_add(_place))
+    GLib.timeout_add(50, lambda: (_place(), False)[1])
 
     Gtk.main()
 
