@@ -1,0 +1,86 @@
+{
+  "name": "SW: Jedi Fallen Order",
+  "game_id": "SW__Jedi_Fallen_Order",
+  "exe_name": "SwGame/Binaries/Win64/starwarsjedifallenorder.exe",
+  "deploy_type": "root",
+  "mod_data_path": "",
+  "steam_id": "1172380",
+  "nexus_game_domain": "starwarsjedifallenorder",
+  "image_url": "https://cdn2.steamgriddb.com/icon_thumb/02aa5d1035be2d3a0d4a703226305db0.png",
+  "mod_folder_strip_prefixes": [
+    "SwGame",
+    "Content",
+    "Paks",
+    "Movies"
+  ],
+  "conflict_ignore_filenames": [
+    "*.txt",
+    "*.png",
+    "*.jpg"
+  ],
+  "mod_folder_strip_prefixes_post": [],
+  "mod_install_prefix": "",
+  "mod_required_top_level_folders": [],
+  "mod_auto_strip_until_required": false,
+  "mod_required_file_types": [],
+  "mod_install_as_is_if_no_match": false,
+  "restore_before_deploy": true,
+  "normalize_folder_case": true,
+  "filemap_casing": "upper",
+  "wine_dll_overrides": {},
+  "custom_routing_rules": [
+    {
+      "dest": "drive_c/users/steamuser/Saved Games/Respawn/JediFallenOrder/",
+      "extensions": [
+        ".sav"
+      ],
+      "flatten": true,
+      "to_prefix": true
+    },
+    {
+      "dest": "SwGame/Content/Paks",
+      "folders": [
+        "LogicMods"
+      ],
+      "flatten": true
+    },
+    {
+      "dest": "SwGame/Content/Paks",
+      "extensions": [
+        ".pak"
+      ],
+      "include_siblings": true
+    },
+    {
+      "dest": "SwGame/Content/Movies",
+      "extensions": [
+        ".mp4"
+      ],
+      "include_siblings": true
+    },
+    {
+      "dest": "SwGame/Binaries/Win64",
+      "folders": [
+        "reshade-shaders"
+      ],
+      "flatten": true
+    },
+    {
+      "dest": "SwGame/Binaries/Win64",
+      "filenames": [
+        "*preset.ini"
+      ],
+      "flatten": true
+    },
+    {
+      "dest": "SwGame/Binaries/Win64",
+      "filenames": [
+        "*reshade*.ini"
+      ],
+      "flatten": true
+    }
+  ],
+  "custom_frameworks": {},
+  "version": 1,
+  "editable": false
+}
