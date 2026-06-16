@@ -89,40 +89,42 @@ def _strip_title_metadata(name: str) -> str:
 def _suggest_mod_names(filename_stem: str) -> list[str]:
     """
     Given a raw filename stem (no extension), return a list of name candidates
-    from most-clean to least-clean.
+    for the install/rename dialog, **best (default) first**.
 
-    Nexus Mods format:  ModName-nexusid-version-timestamp
-    e.g. "All in one (all game versions)-32444-11-1770897704"
-      → ["All in one", "All in one (all game versions)",
-         "All in one (all game versions)-32444-11-1770897704"]
+    Nexus Mods download names follow ``ModName-nexusid-version-timestamp``.
+    The only suffix we strip for the *default* name is that Nexus tail — the
+    title itself (including any parentheses, version, or descriptive tags the
+    uploader chose) is preserved.  This mirrors Mod Organizer 2, whose
+    name-guess regex treats ``( ) . -`` and spaces as legitimate mod-name
+    characters and removes only the trailing id/version.
 
-    Steps:
-      1. Strip trailing dash-numeric segments (Nexus ID/version/timestamp).
-      2. Strip title metadata (parentheses, brackets, version strings, underscores).
-      3. Return de-duplicated list from cleanest to rawest.
+    The aggressively-cleaned name (parens/version/edition tags removed) is still
+    offered as a *lower-priority* candidate so the rename dialog can suggest it,
+    but it is no longer the default — too many real titles carry meaningful
+    parentheses (Stardew framework tags "(CP)"/"(AT)", disambiguators like
+    "(Black)" vs "(Silver)", etc.) that the old default silently destroyed.
     """
     # Step 1: strip duplicate-download suffix added by browsers/OS (e.g. " (1)", " (2)")
     stem = re.sub(r"\s*\(\d+\)\s*$", "", filename_stem).strip()
 
-    # Step 2 (was 1): strip trailing numeric dash-segments (Nexus: name-id-ver-timestamp)
-    nexus_clean = re.sub(r"(-\d+)+$", "", stem).strip()
+    # Step 2: strip the Nexus tail (-nexusid-version-timestamp).  Each segment is
+    # a dash followed by digits and optional trailing letters (e.g. "-4a", "-2SE"
+    # that Nexus appends for versioned uploads).  We require at least two such
+    # segments so a single "-2" inside a real title (e.g. "Mod-2") is left alone.
+    nexus_clean = re.sub(r"(?:-\d+[A-Za-z]*){2,}$", "", stem).strip()
+    if nexus_clean == stem:
+        # Fall back to the looser numeric-only strip for names with just one
+        # trailing -digits segment (rare, but keep prior behaviour for those).
+        nexus_clean = re.sub(r"(-\d+)+$", "", stem).strip()
 
-    # If the nexus-cleaned name ends with a dotted version (e.g. "Ordinator 9.35.0"),
-    # that version was part of the uploader's filename before the Nexus ID — preserve it.
-    _ends_with_version = bool(re.search(r"\s+\d+(?:\.\d+)+$", nexus_clean))
-
-    # Step 3 (was 2): strip title metadata from the Nexus-cleaned name
+    # Aggressively-cleaned variant: strip parens/brackets/version/edition tags.
+    # Offered as a fallback candidate only — NOT the default (see docstring).
     title_clean = _strip_title_metadata(nexus_clean)
 
-    # If stripping removed a version that was intentionally in the name, restore nexus_clean
-    # as the preferred candidate (title_clean still included as fallback below).
-    if _ends_with_version and title_clean != nexus_clean:
-        title_clean = nexus_clean
-
-    # Build de-duplicated list from cleanest to rawest
+    # Build de-duplicated list, default (least-destructive) first.
     seen = set()
     result = []
-    for candidate in (title_clean, nexus_clean, filename_stem):
+    for candidate in (nexus_clean, title_clean, filename_stem):
         if candidate and candidate not in seen:
             seen.add(candidate)
             result.append(candidate)
