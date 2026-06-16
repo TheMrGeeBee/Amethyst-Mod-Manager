@@ -19,6 +19,8 @@ import io
 import re
 import shutil
 import threading
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -28,6 +30,7 @@ import customtkinter as ctk
 
 from Utils.protontricks import D3D_DEP_KEY, install_d3dcompiler_47, is_dep_installed
 from Utils.deploy import apply_wine_dll_overrides
+from gui.mod_name_utils import sanitize_mod_folder_name
 
 if TYPE_CHECKING:
     from Games.base_game import BaseGame
@@ -153,7 +156,48 @@ _OPTIONAL_SHADER_PACKS: list[tuple[str, str, "str | None"]] = [
     ("Daodan317081",     "https://github.com/Daodan317081/reshade-shaders/archive/refs/heads/master.zip",      None),
     ("Brussell Shaders", "https://github.com/brussell1/Shaders/archive/refs/heads/master.zip",                 None),
     ("Matsilagi (Ports)","https://github.com/Matsilagi/reshade-shaders/archive/refs/heads/master.zip",         None),
+    ("fubax-shaders",    "https://github.com/Fubaxiusz/fubax-shaders/archive/refs/heads/master.zip",           None),
+    ("Insane-Shaders",   "https://github.com/LordOfLunacy/Insane-Shaders/archive/refs/heads/master.zip",       None),
+    ("Warp-FX",          "https://github.com/Radegast-FFXIV/Warp-FX/archive/refs/heads/master.zip",            None),
+    ("GShade Shaders",   "https://github.com/Mortalitas/GShade-Shaders/archive/refs/heads/master.zip",         None),
+    ("Legacy (crosire)", "https://github.com/crosire/reshade-shaders/archive/refs/heads/legacy.zip",           None),
+    # --- additions from crosire's official EffectPackages.ini index ---
+    ("CRT-Royale",       "https://github.com/akgunter/crt-royale-reshade/archive/refs/heads/master.zip",       "reshade-shaders"),
+    ("RSRetroArch",      "https://github.com/Matsilagi/RSRetroArch/archive/refs/heads/main.zip",                None),
+    ("VRToolkit",        "https://github.com/retroluxfilm/reshade-vrtoolkit/archive/refs/heads/main.zip",       None),
+    ("FGFX",             "https://github.com/AlexTuduran/FGFX/archive/refs/heads/main.zip",                      None),
+    ("CShade",           "https://github.com/papadanku/CShade/archive/refs/heads/main.zip",                      None),
+    ("Lilium HDR",       "https://github.com/EndlesslyFlowering/ReShade_HDR_shaders/archive/refs/heads/master.zip", None),
+    ("vort_Shaders",     "https://github.com/vortigern11/vort_Shaders/archive/refs/heads/main.zip",              None),
+    ("BX-Shade",         "https://github.com/liuxd17thu/BX-Shade/archive/refs/heads/main.zip",                   None),
+    ("SHADERDECK",       "https://github.com/IAmTreyM/SHADERDECK/archive/refs/heads/main.zip",                   None),
+    ("Ann-ReShade",      "https://github.com/AnastasiaGals/Ann-ReShade/archive/refs/heads/main.zip",             None),
+    ("PumboAutoHDR",     "https://github.com/Filoppi/PumboAutoHDR/archive/refs/heads/master.zip",                None),
+    ("ZenteonFX",        "https://github.com/Zenteon/ZenteonFX/archive/refs/heads/main.zip",                     None),
+    ("Ptho-FX",          "https://github.com/PthoEastCoast/Ptho-FX/archive/refs/heads/main.zip",                 None),
+    ("potatoFX",         "https://github.com/GimleLarpes/potatoFX/archive/refs/heads/main.zip",                  None),
+    ("Anagrama",         "https://github.com/nullfrctl/reshade-shaders/archive/refs/heads/main.zip",             None),
+    ("MaxG3D HDR",       "https://github.com/MaxG2D/ReshadeSimpleHDRShaders/archive/refs/heads/main.zip",        None),
+    ("Barbatos",         "https://github.com/BarbatosBachiko/Reshade-Shaders/archive/refs/heads/main.zip",       None),
+    ("smolbbsoop",       "https://github.com/smolbbsoop/smolbbsoopshaders/archive/refs/heads/main.zip",          None),
+    ("BFBFX",            "https://github.com/yplebedev/BFBFX/archive/refs/heads/main.zip",                       "reshade-shaders"),
+    ("Rendepth",         "https://github.com/outmode/rendepth-reshade/archive/refs/heads/main.zip",              None),
+    ("Crop and Resize",  "https://github.com/P0NYSLAYSTATION/Scaling-Shaders/archive/refs/heads/main.zip",       None),
+    ("LumeniteFX",       "https://github.com/umar-afzaal/LumeniteFX/archive/refs/heads/mainline.zip",            None),
+    ("Reshade-Shades",   "https://github.com/JakobPCoder/Reshade-Shades/archive/refs/heads/main.zip",            None),
 ]
+
+# Effect filenames that presets still reference but which no current shader
+# pack ships — they were renamed or removed upstream, so they can never be
+# downloaded no matter how many packs are ticked.  Used only to give the user
+# a clearer "this isn't a bug" message (key = bare filename, lowercase; value
+# = explanation).  ReShade resolves effects by bare filename, so the rename
+# targets below are the same shader under a new name.
+_OBSOLETE_PRESET_EFFECTS: dict[str, str] = {
+    "depth3d.fx":            "renamed upstream to SuperDepth3D.fx (Depth3D pack)",
+    "superdepth3d_vr+.fx":   "renamed upstream to SuperDepth3D.fx (Depth3D pack)",
+    "emotionblur.fx":        "removed from AstrayFX upstream (had a shader bug)",
+}
 
 
 def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
@@ -190,9 +234,17 @@ def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
                 if not rel:
                     continue
 
-                # Keep only the Shaders/ and Textures/ subtrees.
-                if not any(rel == k.rstrip("/") or rel.startswith(k) for k in _KEEP):
+                # Keep only the Shaders/ and Textures/ subtrees.  Match the top
+                # folder case-insensitively (some packs ship lowercase
+                # ``shaders/`` — e.g. CShade) and canonicalise it to the
+                # capitalised name so every pack merges into the same
+                # dest/Shaders and dest/Textures and the pruner finds Textures/.
+                head, _, tail = rel.partition("/")
+                canon = next((k.rstrip("/") for k in _KEEP
+                              if head.lower() == k.rstrip("/").lower()), None)
+                if canon is None:
                     continue
+                rel = canon + ("/" + tail if tail else "")
 
                 target = dest / rel
                 if member.endswith("/"):
@@ -205,12 +257,84 @@ def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
         raise RuntimeError(f"Shader zip is not a valid archive: {exc}") from exc
 
 
+def _pack_cache_filename(url: str) -> str:
+    """Readable, collision-free filename for a pack's cached zip.
+
+    GitHub archive URLs look like
+    ``…/<owner>/<repo>/archive/refs/heads/<branch>.zip`` — fold owner+repo+
+    branch into the name so two repos with the same branch don't clash, and
+    sanitise for the filesystem.
+    """
+    try:
+        parts = urllib.parse.urlparse(url).path.strip("/").split("/")
+        owner, repo = parts[0], parts[1]
+        branch = parts[-1].rsplit(".", 1)[0]  # drop .zip
+        stem = f"{owner}__{repo}__{branch}"
+    except Exception:
+        stem = url
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem)
+    return stem + ".zip"
+
+
+def _fetch_pack_zip(url: str, cache_dir: Path, timeout: float = 60.0) -> bytes:
+    """Return a pack's zip bytes, reusing a cached copy when GitHub reports the
+    content is unchanged (HTTP 304 via ``If-None-Match``).
+
+    The zip is cached under *cache_dir* as ``<owner>__<repo>__<branch>.zip``
+    with a sidecar ``.etag`` file.  A 304 (or any network error when a cached
+    copy exists) reuses the cached zip, so a second wizard run re-downloads
+    nothing.  Raises RuntimeError only when there is neither a fresh download
+    nor a usable cached copy.
+    """
+    zip_path = cache_dir / _pack_cache_filename(url)
+    etag_path = zip_path.with_suffix(zip_path.suffix + ".etag")
+
+    cached = zip_path.read_bytes() if zip_path.is_file() else None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+    }
+    if cached is not None and etag_path.is_file():
+        try:
+            tag = etag_path.read_text(encoding="utf-8").strip()
+            if tag:
+                headers["If-None-Match"] = tag
+        except OSError:
+            pass
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            try:
+                zip_path.write_bytes(body)
+                new_tag = resp.headers.get("ETag")
+                if new_tag:
+                    etag_path.write_text(new_tag, encoding="utf-8")
+            except OSError:
+                pass  # cache write is best-effort; the bytes are still usable
+            return body
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304 and cached is not None:
+            return cached  # unchanged upstream — reuse the cached zip
+        if cached is not None:
+            return cached
+        raise RuntimeError(f"{url}: {exc}") from exc
+    except Exception as exc:
+        if cached is not None:
+            return cached  # offline / transient error — fall back to cache
+        raise RuntimeError(f"{url}: {exc}") from exc
+
+
 def _download_and_extract_shaders(
     dest_dir: Path,
     optional_packs: "list[tuple[str, str, str | None]]",
 ) -> Path:
     """Download the base shader repo plus any selected optional packs and merge
     them all into *dest_dir*/reshade-shaders/.
+
+    Each pack's zip is cached under ``dest_dir/packs/`` (ETag-validated), so a
+    second run reuses the cached zips and downloads nothing that hasn't changed
+    upstream.
 
     *optional_packs* is a subset of :data:`_OPTIONAL_SHADER_PACKS` — the
     entries the user ticked.  Downloads run in parallel.
@@ -225,6 +349,9 @@ def _download_and_extract_shaders(
         shutil.rmtree(str(out), ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
 
+    cache_dir = dest_dir / "packs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
     to_fetch = [(_SHADER_BASE_URL, _SHADER_BASE_SUBFOLDER)] + [
         (url, sub) for (_, url, sub) in optional_packs
     ]
@@ -234,12 +361,7 @@ def _download_and_extract_shaders(
 
     def _fetch(idx: int, url: str, subfolder: "str | None") -> None:
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
-            )
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                results[idx] = (resp.read(), subfolder)
+            results[idx] = (_fetch_pack_zip(url, cache_dir), subfolder)
         except Exception as exc:
             errors.append(f"{url}: {exc}")
 
@@ -266,6 +388,30 @@ def _download_and_extract_shaders(
 # ---------------------------------------------------------------------------
 # Preset-driven effect selection
 # ---------------------------------------------------------------------------
+
+def _set_preset_path_in_ini(ini_path: Path, preset_filename: str) -> None:
+    """Rewrite the ``PresetPath=`` line in a ReShade.ini so ReShade loads the
+    preset under *preset_filename* (a bare name, placed next to the ini).
+
+    Best-effort: if the ini can't be read/written the caller's preset still
+    installs, just under a name ReShade won't auto-select.
+    """
+    try:
+        lines = ini_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    new_value = ".\\" + preset_filename
+    for i, line in enumerate(lines):
+        if line.split("=", 1)[0].strip().lower() == "presetpath":
+            lines[i] = "PresetPath=" + new_value
+            break
+    else:
+        return  # no PresetPath key — leave the ini untouched
+    try:
+        ini_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
 
 def parse_preset_effect_files(preset_path: Path) -> set[str]:
     """Return the set of ``.fx`` filenames referenced by a ReShade preset.
@@ -305,10 +451,39 @@ def parse_preset_effect_files(preset_path: Path) -> set[str]:
     return wanted
 
 
+# Matches ``#include "Foo.fxh"`` (or .fx) — captures the bare filename.
+_INCLUDE_RE = re.compile(
+    r'#\s*include\s+[<"]\s*([^>"]+?)\s*[>"]', re.IGNORECASE
+)
+# Matches a quoted texture filename referenced inside a shader, e.g.
+# ``source = "lut.png";`` — captures the basename of any image asset.
+_TEXTURE_REF_RE = re.compile(
+    r'["\']([^"\']+\.(?:png|jpg|jpeg|bmp|dds|tga))["\']', re.IGNORECASE
+)
+
+
+def _scan_includes_and_textures(
+    path: Path,
+) -> "tuple[set[str], set[str]]":
+    """Return (included basenames lower, texture basenames lower) referenced
+    directly by the shader at *path*.  Best-effort text scan — never raises."""
+    incs: set[str] = set()
+    texs: set[str] = set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return incs, texs
+    for m in _INCLUDE_RE.finditer(text):
+        incs.add(Path(m.group(1).replace("\\", "/")).name.lower())
+    for m in _TEXTURE_REF_RE.finditer(text):
+        texs.add(Path(m.group(1).replace("\\", "/")).name.lower())
+    return incs, texs
+
+
 def prune_shaders_to_preset(shaders_dir: Path, wanted: "set[str]") -> set[str]:
     """Delete every ``.fx`` under *shaders_dir* whose filename is not in
-    *wanted*.  ``.fxh`` include headers and all textures are kept (they are
-    shared dependencies that the pruned effects may rely on).
+    *wanted*, then prune the ``.fxh`` include headers and textures down to only
+    those the surviving effects transitively reference.
 
     The same effect filename can exist in several downloaded packs.  ReShade
     resolves effects by bare filename across its recursive search path, so two
@@ -316,23 +491,96 @@ def prune_shaders_to_preset(shaders_dir: Path, wanted: "set[str]") -> set[str]:
     Only the first copy of each wanted effect is kept; later duplicates are
     removed.
 
+    Headers/textures are matched by bare filename (the same way ReShade's
+    search path resolves them), so a kept effect that ``#include``\\ s
+    ``ReShade.fxh`` keeps the first ``ReShade.fxh`` found anywhere in the tree.
+    Without this the merged set from ~20 packs leaves hundreds of unused
+    ``.fxh``/texture files behind even when the preset uses a handful of
+    effects.
+
     Returns the subset of *wanted* that was **not** found on disk, so the
     caller can warn about effects missing from the downloaded packs.
     """
     if not wanted:
         return set()
 
+    # --- pass 1: keep only the wanted .fx (first copy of each) ----------------
     found: set[str] = set()
+    kept_fx: list[Path] = []
     for fx in sorted(shaders_dir.rglob("*.fx"), key=lambda p: (len(p.parts), str(p))):
         name = fx.name.lower()
         if name in wanted and name not in found:
             found.add(name)        # keep the first copy
+            kept_fx.append(fx)
         else:
             # Unwanted effect, or a duplicate of one already kept.
             try:
                 fx.unlink()
             except OSError:
                 pass
+
+    # --- pass 2: resolve transitive #include closure + texture refs -----------
+    # Index every remaining include header by bare name so includes resolve the
+    # way ReShade's search path does.  Headers aren't always ``.fxh``: some
+    # packs (e.g. Pirate Shaders) ship preprocessor config as ``.cfg`` and
+    # ``#include`` it from the effect, so any non-.fx include extension counts.
+    header_by_name: dict[str, Path] = {}
+    for ext in ("*.fxh", "*.cfg", "*.h"):
+        for h in sorted(shaders_dir.rglob(ext), key=lambda p: (len(p.parts), str(p))):
+            header_by_name.setdefault(h.name.lower(), h)
+
+    needed_headers: set[str] = set()
+    needed_tex: set[str] = set()
+    # BFS over includes starting from the kept effects.
+    queue: list[Path] = list(kept_fx)
+    seen: set[str] = set()
+    while queue:
+        cur = queue.pop()
+        incs, texs = _scan_includes_and_textures(cur)
+        needed_tex |= texs
+        for inc in incs:
+            if inc in seen:
+                continue
+            seen.add(inc)
+            if inc.endswith(".fx"):
+                # An effect including another effect — already kept if wanted;
+                # otherwise we can't satisfy it, ignore.
+                continue
+            if inc in header_by_name:
+                needed_headers.add(inc)
+                queue.append(header_by_name[inc])
+
+    # --- pass 3: delete unreferenced headers and textures ---------------------
+    # Keep only the first copy of each needed header (the one ``header_by_name``
+    # resolved to); drop unreferenced headers and same-named duplicates from
+    # other packs so the tree mirrors a hand-authored preset mod.
+    keep_header_paths = {header_by_name[n] for n in needed_headers if n in header_by_name}
+    header_files = (
+        list(shaders_dir.rglob("*.fxh"))
+        + list(shaders_dir.rglob("*.cfg"))
+        + list(shaders_dir.rglob("*.h"))
+    )
+    for h in header_files:
+        if h not in keep_header_paths:
+            try:
+                h.unlink()
+            except OSError:
+                pass
+
+    tex_root = shaders_dir / "Textures"
+    if tex_root.is_dir():
+        kept_tex_names: set[str] = set()
+        for t in sorted(tex_root.rglob("*"), key=lambda p: (len(p.parts), str(p))):
+            if not t.is_file():
+                continue
+            name = t.name.lower()
+            if name in needed_tex and name not in kept_tex_names:
+                kept_tex_names.add(name)        # keep the first copy
+            else:
+                try:
+                    t.unlink()
+                except OSError:
+                    pass
 
     # Clean up now-empty directories left behind by the deletions.
     for d in sorted(shaders_dir.rglob("*"), key=lambda p: -len(p.parts)):
@@ -402,6 +650,11 @@ class ReShadeWizard(ctk.CTkFrame):
         # Install destination: "game" | "root_folder" | "mod"
         self._install_dest = ctk.StringVar(value="game")
         self._mod_name_var = ctk.StringVar(value="ReShade")
+        # Track whether the user has typed in the mod-name field, so the
+        # preset-derived default doesn't overwrite a manual edit on re-entry.
+        self._mod_name_edited = False
+        self._suppress_mod_name_trace = False
+        self._mod_name_var.trace_add("write", self._on_mod_name_typed)
 
         # --- Title bar ---
         title_bar = ctk.CTkFrame(self, fg_color=BG_HEADER, corner_radius=0, height=40)
@@ -431,7 +684,9 @@ class ReShadeWizard(ctk.CTkFrame):
         self._on_close_cb()
 
     def _cleanup_tmp(self):
-        pass  # downloads are kept in config download_cache for reuse
+        # Pack zips are kept under download_cache/reshade/packs/ (ETag-cached)
+        # so the next run reuses them instead of re-downloading.
+        pass
 
     def _clear_body(self):
         for w in self._body.winfo_children():
@@ -733,11 +988,26 @@ class ReShadeWizard(ctk.CTkFrame):
                     f"preset effect(s); {len(self._preset_missing)} missing."
                 )
                 if self._preset_missing:
-                    miss = ", ".join(sorted(self._preset_missing))
-                    ok_msg = (
-                        f"Installed {kept} of {len(self._preset_wanted)} preset effects.\n"
-                        f"Missing (not in any pack): {miss}"
+                    # Split into "obsolete/renamed upstream" (unfixable, not a
+                    # bug) and effects that genuinely weren't in any pack.
+                    obsolete = sorted(
+                        m for m in self._preset_missing if m in _OBSOLETE_PRESET_EFFECTS
                     )
+                    unavailable = sorted(
+                        m for m in self._preset_missing if m not in _OBSOLETE_PRESET_EFFECTS
+                    )
+                    lines = [
+                        f"Installed {kept} of {len(self._preset_wanted)} preset effects."
+                    ]
+                    if unavailable:
+                        lines.append("Missing (not in any pack): " + ", ".join(unavailable))
+                    if obsolete:
+                        lines.append(
+                            "Skipped (renamed/removed upstream, no pack provides these): "
+                            + ", ".join(obsolete)
+                        )
+                    ok_msg = "\n".join(lines)
+                    miss = ", ".join(sorted(self._preset_missing))
                     self._log(f"ReShade wizard: missing preset effects: {miss}")
                 else:
                     ok_msg = f"Trimmed shaders to {kept} preset effect(s)."
@@ -927,6 +1197,21 @@ class ReShadeWizard(ctk.CTkFrame):
             command=self._sync_mod_name_state,
         ).pack(anchor="w", padx=12, pady=2)
 
+        # Default the mod name to "<preset> - ReShade" when a preset is in use
+        # so installing several presets gives distinct, self-describing mods.
+        # Only set it while the field is still untouched (the plain "ReShade"
+        # default) so a name the user already typed is preserved on re-entry.
+        if (
+            self._preset_path is not None
+            and not self._mod_name_edited
+            and self._mod_name_var.get().strip() in ("", "ReShade")
+        ):
+            preset_label = self._preset_path.stem.replace("_", " ").strip()
+            if preset_label:
+                self._suppress_mod_name_trace = True
+                self._mod_name_var.set(f"{preset_label} - ReShade")
+                self._suppress_mod_name_trace = False
+
         mod_row = ctk.CTkFrame(dest_box, fg_color="transparent")
         mod_row.pack(fill="x", padx=12, pady=(2, 10))
         ctk.CTkLabel(
@@ -961,6 +1246,12 @@ class ReShadeWizard(ctk.CTkFrame):
             command=self._do_install,
         )
         self._do_install_btn.pack(side="right")
+
+    def _on_mod_name_typed(self, *_):
+        """Mark the mod-name field as user-edited (unless we set it ourselves),
+        so the preset-derived default stops overriding it."""
+        if not self._suppress_mod_name_trace:
+            self._mod_name_edited = True
 
     def _sync_mod_name_state(self):
         """Enable the mod-name entry only when installing as a managed mod."""
@@ -1030,16 +1321,26 @@ class ReShadeWizard(ctk.CTkFrame):
                 self._log(f"ReShade wizard: copied {dll_src.name} → {self._reshade_dll}")
 
                 # 2. Copy bundled ReShade.ini and the preset (or a blank one).
+                #    A user-supplied preset keeps its own (Wine-safe) filename so
+                #    it's recognisable in-game; ReShade.ini's PresetPath is
+                #    patched to match.  A blank preset uses the default name.
+                if self._preset_path is not None and self._preset_path.is_file():
+                    preset_name = sanitize_mod_folder_name(self._preset_path.stem) + ".ini"
+                else:
+                    preset_name = "ReShadePreset.ini"
+
                 src_ini = Path(__file__).parent / "ReShade.ini"
                 if src_ini.is_file():
                     shutil.copy2(str(src_ini), str(dest_dir / "ReShade.ini"))
+                    if preset_name != "ReShadePreset.ini":
+                        _set_preset_path_in_ini(dest_dir / "ReShade.ini", preset_name)
                     self._log("ReShade wizard: copied ReShade.ini")
                 if self._preset_path is not None and self._preset_path.is_file():
-                    shutil.copy2(str(self._preset_path), str(dest_dir / "ReShadePreset.ini"))
-                    self._log(f"ReShade wizard: installed preset {self._preset_path.name} as ReShadePreset.ini")
+                    shutil.copy2(str(self._preset_path), str(dest_dir / preset_name))
+                    self._log(f"ReShade wizard: installed preset {self._preset_path.name} as {preset_name}")
                 else:
-                    (dest_dir / "ReShadePreset.ini").touch()
-                    self._log("ReShade wizard: created ReShadePreset.ini")
+                    (dest_dir / preset_name).touch()
+                    self._log(f"ReShade wizard: created {preset_name}")
 
                 # 3. Copy reshade-shaders/ directly into dest_dir
                 shaders_src = self._extracted_shaders
