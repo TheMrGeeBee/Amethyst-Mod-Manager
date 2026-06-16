@@ -720,7 +720,6 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         self._arc_search_var: tk.StringVar | None = None
 
         # "Show only conflicts" filter state (per-tab)
-        self._mf_only_conflicts_var: tk.BooleanVar | None = None
         self._data_only_conflicts_var: tk.BooleanVar | None = None
         self._arc_only_conflicts_var: tk.BooleanVar | None = None
 
@@ -800,6 +799,16 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
 
         for name in ("Plugins", "Mod Files", "Ini Files", "Data", "Downloads"):
             self._tabs.add(name)
+
+        # The "Ini Files" tab shows far more than .ini files (json, txt, cfg,
+        # yaml, xml, …), so present it as "Text Files" cosmetically while keeping
+        # "Ini Files" as the internal tab key used everywhere else.
+        try:
+            self._tabs._segmented_button._buttons_dict["Ini Files"].configure(
+                text="Text Files"
+            )
+        except (KeyError, AttributeError):
+            pass
 
         # Lazy-refresh flags: these tabs are expensive to rebuild on every
         # filemap change, so they are only rebuilt when their tab is selected.

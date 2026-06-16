@@ -15,7 +15,7 @@ Host (PluginPanel) owns: ``self._game``, ``self._tabs``, ``self._log``,
 ``self._safe_after``, the mod-files state attributes initialised in
 ``PluginPanel.__init__`` (``_mod_files_mod_name``, ``_mod_files_index_path``,
 ``_mod_files_profile_dir``, ``_mod_files_excluded``, ``_mod_files_on_change``,
-``_plugin_order_on_change``, ``_mf_only_conflicts_var``), the Pack/Unpack
+``_plugin_order_on_change``), the Pack/Unpack
 button click handlers ``_on_pack_bsa_click`` / ``_on_unpack_bsa_click`` /
 ``_update_pack_bsa_button_state``, the shared helpers ``_get_conflict_cache``,
 ``_show_simple_context_menu``, ``_get_staging_path``, ``_open_folder_in_browser``.
@@ -106,20 +106,6 @@ class PluginPanelModFilesMixin:
             command=self._toggle_mf_filter_panel,
         )
         self._mf_filter_btn.pack(side="right", padx=(0, 8), pady=2)
-
-        self._mf_only_conflicts_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            toolbar, text="Show only conflicts",
-            variable=self._mf_only_conflicts_var,
-            width=140, height=20,
-            checkbox_width=16, checkbox_height=16,
-            font=("Cantarell", _theme.CTK_FS10),
-            text_color=TEXT_MAIN,
-            fg_color=ACCENT, hover_color=ACCENT_HOV,
-            border_color=BORDER, checkmark_color="white",
-            bg_color=BG_HEADER,
-            command=lambda: self._mf_refresh_current_view(),
-        ).pack(side="right", padx=(0, 8), pady=2)
 
         self._mod_files_label = tk.Label(
             toolbar, text="(no mod selected)",
@@ -252,6 +238,31 @@ class PluginPanelModFilesMixin:
         )
         self._mf_unpack_bsa_btn.pack(side="left", padx=(0, 4), pady=4)
 
+        # Search bar (bottom) — same placement/style as the Data/Plugins tabs.
+        tab.grid_rowconfigure(3, weight=0)
+        search_bar = tk.Frame(tab, bg=BG_HEADER, highlightthickness=0)
+        search_bar.grid(row=3, column=0, columnspan=2, sticky="ew")
+        tk.Label(
+            search_bar, text="Search:", bg=BG_HEADER, fg=TEXT_DIM,
+            font=(_theme.FONT_FAMILY, _theme.FS10),
+        ).pack(side="left", padx=(8, 4), pady=3)
+        self._mf_search_var = tk.StringVar()
+        self._mf_search_after_id: str | None = None
+        self._mf_search_var.trace_add("write", self._on_mf_search_changed)
+        mf_search_entry = tk.Entry(
+            search_bar, textvariable=self._mf_search_var,
+            bg=BG_DEEP, fg=TEXT_MAIN, insertbackground=TEXT_MAIN,
+            relief="flat", font=(_theme.FONT_FAMILY, _theme.FS10),
+            highlightthickness=0, highlightbackground=BG_DEEP,
+        )
+        mf_search_entry.pack(side="left", padx=(0, 8), pady=3, fill="x", expand=True)
+        mf_search_entry.bind("<Escape>", lambda e: self._mf_search_var.set(""))
+        def _mf_search_select_all(evt):
+            evt.widget.select_range(0, tk.END)
+            evt.widget.icursor(tk.END)
+            return "break"
+        mf_search_entry.bind("<Control-a>", _mf_search_select_all)
+
         # Track the open overlay so we can close it from anywhere.
         self._bsa_unpack_overlay = None
         # Image preview overlay (placed over the modlist panel).
@@ -260,6 +271,10 @@ class PluginPanelModFilesMixin:
         # File-type filter state (side panel shares column 0 on the mod list).
         self._mf_filter_extensions: set[str] = set()           # include-only
         self._mf_filter_extensions_exclude: set[str] = set()   # hide these
+        # Conflict-status filter (side panel). When either is True, only files
+        # matching the selected conflict state(s) are shown.
+        self._mf_filter_conflict_win: bool = False
+        self._mf_filter_conflict_lose: bool = False
         self._mf_filter_panel_open: bool = False
         self._mf_last_ext_counts: dict[str, int] = {}
         self._mfsp_listed_counts: dict[str, int] | None = None
@@ -475,6 +490,34 @@ class PluginPanelModFilesMixin:
         self._mf_filter_scroll_frame = scroll_frame
 
         tk.Label(
+            scroll_frame, text="By conflict status",
+            font=_theme.TK_FONT_BOLD, fg=TEXT_MAIN, bg=BG_PANEL, anchor="w",
+        ).pack(anchor="w", pady=(2, 4))
+
+        self._mfsp_conflict_win_var = tk.BooleanVar(value=self._mf_filter_conflict_win)
+        self._mfsp_conflict_lose_var = tk.BooleanVar(value=self._mf_filter_conflict_lose)
+        ctk.CTkCheckBox(
+            scroll_frame, text="Winning conflicts",
+            variable=self._mfsp_conflict_win_var,
+            width=20, height=20, checkbox_width=16, checkbox_height=16,
+            font=_theme.FONT_SMALL, text_color=_theme.conflict_higher,
+            fg_color=ACCENT, hover_color=ACCENT_HOV,
+            border_color=BORDER, checkmark_color="white",
+            command=self._on_mf_conflict_filter_change,
+        ).pack(anchor="w", pady=2)
+        ctk.CTkCheckBox(
+            scroll_frame, text="Losing conflicts",
+            variable=self._mfsp_conflict_lose_var,
+            width=20, height=20, checkbox_width=16, checkbox_height=16,
+            font=_theme.FONT_SMALL, text_color=_theme.conflict_lower,
+            fg_color=ACCENT, hover_color=ACCENT_HOV,
+            border_color=BORDER, checkmark_color="white",
+            command=self._on_mf_conflict_filter_change,
+        ).pack(anchor="w", pady=2)
+
+        tk.Frame(scroll_frame, bg=BG_PANEL, height=8).pack(fill="x")
+
+        tk.Label(
             scroll_frame, text="By file type",
             font=_theme.TK_FONT_BOLD, fg=TEXT_MAIN, bg=BG_PANEL, anchor="w",
         ).pack(anchor="w", pady=(2, 4))
@@ -561,11 +604,23 @@ class PluginPanelModFilesMixin:
         self._update_mf_filter_btn_color()
         self._mf_refresh_current_view()
 
+    def _on_mf_conflict_filter_change(self) -> None:
+        self._mf_filter_conflict_win = bool(self._mfsp_conflict_win_var.get())
+        self._mf_filter_conflict_lose = bool(self._mfsp_conflict_lose_var.get())
+        self._update_mf_filter_btn_color()
+        self._mf_refresh_current_view()
+
     def _clear_all_mf_filters(self) -> None:
         self._mf_filter_extensions = set()
         self._mf_filter_extensions_exclude = set()
+        self._mf_filter_conflict_win = False
+        self._mf_filter_conflict_lose = False
         for v in self._mfsp_filetype_vars.values():
             v.set(0)
+        if hasattr(self, "_mfsp_conflict_win_var"):
+            self._mfsp_conflict_win_var.set(False)
+        if hasattr(self, "_mfsp_conflict_lose_var"):
+            self._mfsp_conflict_lose_var.set(False)
         self._refresh_mf_filter_filetype_list()
         self._update_mf_filter_btn_color()
         self._mf_refresh_current_view()
@@ -627,7 +682,8 @@ class PluginPanelModFilesMixin:
         btn = getattr(self, "_mf_filter_btn", None)
         if btn is None:
             return
-        if self._mf_filter_extensions or self._mf_filter_extensions_exclude:
+        if (self._mf_filter_extensions or self._mf_filter_extensions_exclude
+                or self._mf_filter_conflict_win or self._mf_filter_conflict_lose):
             btn.configure(fg_color=ACCENT_HOV, hover_color=ACCENT_HOV)
         else:
             btn.configure(fg_color=ACCENT, hover_color=ACCENT_HOV)
@@ -654,6 +710,19 @@ class PluginPanelModFilesMixin:
         if inc:
             return ext in inc
         return True
+
+    def _mf_conflict_filter_ok(self, tag: str | None) -> bool:
+        """True if a file with the given conflict tag passes the conflict-status
+        filter. ``tag`` is "conflict_win", "conflict_lose" or None."""
+        want_win = self._mf_filter_conflict_win
+        want_lose = self._mf_filter_conflict_lose
+        if not want_win and not want_lose:
+            return True
+        if tag == "conflict_win":
+            return want_win
+        if tag == "conflict_lose":
+            return want_lose
+        return False
 
     def _mf_apply_disabled_tag(self, iid: str, disabled: bool):
         """Add/remove the greyed ``mf_disabled`` tag based on disable state,
@@ -978,6 +1047,29 @@ class PluginPanelModFilesMixin:
         # unstripped, remove its stale synthetic placeholder).
         self._mf_prune_stale_placeholders()
 
+    def _on_mf_search_changed(self, *_):
+        """Debounced re-render of the Mod Files tree on search-query change."""
+        after_id = getattr(self, "_mf_search_after_id", None)
+        if after_id is not None:
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+        self._mf_search_after_id = self.after(150, self._mf_apply_search)
+
+    def _mf_apply_search(self):
+        self._mf_search_after_id = None
+        self._mf_refresh_current_view()
+
+    def _mf_search_ok(self, rel_str: str) -> bool:
+        """True if the file passes the current search query (matches on any
+        part of its mod-relative path)."""
+        query = getattr(self, "_mf_search_var", None)
+        q = query.get().strip().casefold() if query is not None else ""
+        if not q:
+            return True
+        return q in rel_str.replace("\\", "/").casefold()
+
     def _mf_refresh_current_view(self):
         """Re-render the Mod Files tab using whichever view is active —
         either the single-mod path or the separator path."""
@@ -1126,12 +1218,17 @@ class PluginPanelModFilesMixin:
                 return None
             return "conflict_win" if winner == mod_name else "conflict_lose"
 
-        only_conflicts = bool(
-            self._mf_only_conflicts_var and self._mf_only_conflicts_var.get()
+        conflict_filter_active = bool(
+            self._mf_filter_conflict_win or self._mf_filter_conflict_lose
         )
 
         ext_filter_active = bool(
             self._mf_filter_extensions or self._mf_filter_extensions_exclude
+        )
+
+        search_active = bool(
+            getattr(self, "_mf_search_var", None)
+            and self._mf_search_var.get().strip()
         )
 
         # Build tree structure
@@ -1139,7 +1236,9 @@ class PluginPanelModFilesMixin:
         for rel_key, rel_str in sorted(files.items()):
             if not self._mf_ext_filter_ok(rel_key):
                 continue
-            if only_conflicts and _conflict_tag(rel_key) is None:
+            if not self._mf_conflict_filter_ok(_conflict_tag(rel_key)):
+                continue
+            if not self._mf_search_ok(rel_str):
                 continue
             parts = rel_str.replace("\\", "/").split("/")
             node = tree_dict
@@ -1147,9 +1246,10 @@ class PluginPanelModFilesMixin:
                 node = node.setdefault(part, {})
             node.setdefault("__files__", []).append((parts[-1], rel_key, rel_str))
 
-        if (only_conflicts or ext_filter_active) and not tree_dict:
+        if (conflict_filter_active or ext_filter_active or search_active) and not tree_dict:
             placeholder = (
-                "  (no files match the filters)" if ext_filter_active
+                "  (no files match the search)" if search_active
+                else "  (no files match the filters)" if ext_filter_active
                 else "  (no conflicts)"
             )
             self._mf_tree.insert("", "end", text=placeholder, tags=("dim",))
@@ -1235,6 +1335,16 @@ class PluginPanelModFilesMixin:
             )
             if all_off:
                 self._mf_apply_disabled_tag(fid, True)
+
+        # With an active search query, expand every folder so the (sparse)
+        # matches are visible rather than buried in collapsed branches.
+        if search_active:
+            for fid in self._mf_folder_iids:
+                try:
+                    self._mf_tree.item(fid, open=True)
+                except Exception:
+                    pass
+            return
 
         # Restore expand state + scroll from the previous render of this mod.
         prev = getattr(self, "_mf_prev_expanded_paths", None)
@@ -1332,11 +1442,15 @@ class PluginPanelModFilesMixin:
         self._mf_tree.tag_configure("mf_stripped", foreground=TEXT_DIM)
         self._mf_tree.tag_configure("mf_disabled", foreground=TEXT_DIM)
 
-        only_conflicts = bool(
-            self._mf_only_conflicts_var and self._mf_only_conflicts_var.get()
+        conflict_filter_active = bool(
+            self._mf_filter_conflict_win or self._mf_filter_conflict_lose
         )
         ext_filter_active = bool(
             self._mf_filter_extensions or self._mf_filter_extensions_exclude
+        )
+        search_active = bool(
+            getattr(self, "_mf_search_var", None)
+            and self._mf_search_var.get().strip()
         )
         agg_ext_counts: dict[str, int] = {}
 
@@ -1401,7 +1515,9 @@ class PluginPanelModFilesMixin:
             for rel_key, rel_str in sorted(files.items()):
                 if not self._mf_ext_filter_ok(rel_key):
                     continue
-                if only_conflicts and _conflict_tag(rel_key) is None:
+                if not self._mf_conflict_filter_ok(_conflict_tag(rel_key)):
+                    continue
+                if not self._mf_search_ok(rel_str):
                     continue
                 parts = rel_str.replace("\\", "/").split("/")
                 node = tree_dict
@@ -1409,7 +1525,7 @@ class PluginPanelModFilesMixin:
                     node = node.setdefault(part, {})
                 node.setdefault("__files__", []).append((parts[-1], rel_key, rel_str))
 
-            if (only_conflicts or ext_filter_active) and not tree_dict:
+            if (conflict_filter_active or ext_filter_active or search_active) and not tree_dict:
                 continue
             if not files:
                 continue
@@ -1469,13 +1585,25 @@ class PluginPanelModFilesMixin:
         self._mf_filter_list_sync()
 
         if not rendered_any:
-            if ext_filter_active:
+            if search_active:
+                placeholder = "  (no files match the search)"
+            elif ext_filter_active:
                 placeholder = "  (no files match the filters)"
-            elif only_conflicts:
+            elif conflict_filter_active:
                 placeholder = "  (no conflicts in this separator)"
             else:
                 placeholder = "  (no files found in mods under this separator)"
             self._mf_tree.insert("", "end", text=placeholder, tags=("dim",))
+            return
+
+        # With an active search query, expand every folder so the (sparse)
+        # matches are visible rather than buried in collapsed branches.
+        if search_active:
+            for fid in self._mf_folder_iids:
+                try:
+                    self._mf_tree.item(fid, open=True)
+                except Exception:
+                    pass
             return
 
         # Restore expand / scroll state from the previous separator render.

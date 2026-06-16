@@ -4762,6 +4762,15 @@ class IniFileEditorPanel(ctk.CTkFrame):
         self._on_done = on_done or (lambda p: None)
         self._original_content: str | None = None
         self._highlight: "str | None" = highlight or None
+        # Match navigation state
+        self._match_starts: "list[str]" = []   # tk text indices ("line.col") of each match
+        self._match_idx: int = -1
+        self._active_needle: str = ""           # current highlighted term (find box or initial)
+        self._SCROLL_W = 16
+        self._scroll_first = 0.0
+        self._scroll_last = 1.0
+        self._thumb_drag_offset: "float | None" = None
+        self._marker_after_id: "str | None" = None
 
         # Title bar
         title_bar = ctk.CTkFrame(self, fg_color=BG_HEADER, corner_radius=0, height=36)
@@ -4779,12 +4788,80 @@ class IniFileEditorPanel(ctk.CTkFrame):
         ).pack(side="right", padx=4)
         ctk.CTkFrame(self, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x")
 
-        # Text editor
+        # In-editor search bar — live-highlights matches, drives the marker
+        # strip + prev/next navigation (same machinery as a content-search hit).
+        search_bar = ctk.CTkFrame(self, fg_color=BG_HEADER, corner_radius=0)
+        search_bar.pack(fill="x")
+        ctk.CTkLabel(
+            search_bar, text="Find:", font=FONT_SMALL, text_color=TEXT_DIM,
+        ).pack(side="left", padx=(12, 6), pady=6)
+        self._find_var = tk.StringVar()
+        self._find_entry = ctk.CTkEntry(
+            search_bar, textvariable=self._find_var, height=26,
+            font=FONT_SMALL, fg_color=BG_DEEP, text_color=TEXT_MAIN,
+            border_color=BORDER, corner_radius=4,
+        )
+        self._find_entry.pack(side="left", padx=(0, 8), pady=6, fill="x", expand=True)
+        self._find_var.trace_add("write", self._on_find_changed)
+        self._find_entry.bind("<Return>",       lambda _e: self._goto_next_match())
+        self._find_entry.bind("<Shift-Return>", lambda _e: self._goto_prev_match())
+        self._find_entry.bind("<Escape>",       lambda _e: self._find_var.set(""))
+        self._find_debounce_id: "str | None" = None
+
+        # Text editor + combined scrollbar/marker strip (same pattern as the
+        # Ini Files list and modlist panels: one canvas paints trough, thumb,
+        # and a tick for every search match).
+        editor_frame = tk.Frame(self, bg=BG_PANEL, highlightthickness=0)
+        editor_frame.pack(fill="both", expand=True, padx=12, pady=12)
+        editor_frame.rowconfigure(0, weight=1)
+        editor_frame.columnconfigure(0, weight=1)
+
         self._textbox = ctk.CTkTextbox(
-            self, font=FONT_MONO, fg_color=BG_DEEP, text_color=TEXT_MAIN,
+            editor_frame, font=FONT_MONO, fg_color=BG_DEEP, text_color=TEXT_MAIN,
             wrap="none", corner_radius=4, border_width=1, border_color=BORDER,
         )
-        self._textbox.pack(fill="both", expand=True, padx=12, pady=12)
+        self._textbox.grid(row=0, column=0, sticky="nsew")
+        # Underlying tk.Text — drives the marker strip via yscrollcommand.
+        # CTkTextbox already owns the inner Text's yscrollcommand (its own
+        # scrollbar) and re-asserts it via a periodic check loop, so we keep its
+        # callback and chain our marker repaint after it instead of replacing it.
+        self._text = self._textbox._textbox
+        self._ctk_yset = self._textbox._y_scrollbar.set
+        self._text.configure(yscrollcommand=self._scroll_set)
+        # Suppress CTk's built-in vertical scrollbar — we provide the strip.
+        # Neutralise its auto-show check loop so it stays hidden. A
+        # `self.after(50, self._check_if_scrollbars_needed, ...)` call queued in
+        # CTkTextbox.__init__ already captured the *original* bound method, so a
+        # plain attribute override isn't enough — also stop it from ever
+        # re-gridding the y scrollbar.
+        self._textbox._hide_y_scrollbar = True
+        self._textbox._check_if_scrollbars_needed = lambda *a, **k: None
+        _orig_grid = self._textbox._create_grid_for_text_and_scrollbars
+        def _grid_no_yscroll(*a, **k):
+            k["re_grid_y_scrollbar"] = False
+            _orig_grid(*a, **k)
+            try:
+                self._textbox._y_scrollbar.grid_forget()
+            except Exception:
+                pass
+        self._textbox._create_grid_for_text_and_scrollbars = _grid_no_yscroll
+        try:
+            self._textbox._y_scrollbar.grid_forget()
+        except Exception:
+            pass
+
+        self._marker_strip = tk.Canvas(
+            editor_frame, bg=BG_DEEP, bd=0, highlightthickness=0,
+            width=self._SCROLL_W, takefocus=0,
+        )
+        self._marker_strip.grid(row=0, column=1, sticky="ns", padx=(2, 0))
+        self._marker_strip.bind("<Configure>",       self._on_marker_resize)
+        self._marker_strip.bind("<ButtonPress-1>",   self._on_scrollbar_press)
+        self._marker_strip.bind("<B1-Motion>",       self._on_scrollbar_drag)
+        self._marker_strip.bind("<ButtonRelease-1>", self._on_scrollbar_release)
+        self._marker_strip.bind("<Button-4>", lambda e: self._text.yview_scroll(-3, "units"))
+        self._marker_strip.bind("<Button-5>", lambda e: self._text.yview_scroll(3, "units"))
+        self._marker_strip.bind("<MouseWheel>", self._on_marker_mousewheel)
 
         # Button bar
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -4802,6 +4879,25 @@ class IniFileEditorPanel(ctk.CTkFrame):
             command=self._on_cancel,
         ).pack(side="right")
 
+        # Match-navigation controls (left side) — only shown when highlighting.
+        self._nav_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        self._prev_btn = ctk.CTkButton(
+            self._nav_frame, text="↑ Prev", width=72, height=28,
+            fg_color=BG_HEADER, hover_color=BG_HOVER, text_color=TEXT_MAIN,
+            font=FONT_SMALL, corner_radius=4, command=self._goto_prev_match,
+        )
+        self._prev_btn.pack(side="left", padx=(0, 6))
+        self._next_btn = ctk.CTkButton(
+            self._nav_frame, text="↓ Next", width=72, height=28,
+            fg_color=BG_HEADER, hover_color=BG_HOVER, text_color=TEXT_MAIN,
+            font=FONT_SMALL, corner_radius=4, command=self._goto_next_match,
+        )
+        self._next_btn.pack(side="left", padx=(0, 8))
+        self._match_count_lbl = ctk.CTkLabel(
+            self._nav_frame, text="", font=FONT_SMALL, text_color=TEXT_DIM,
+        )
+        self._match_count_lbl.pack(side="left")
+
         self._load_file()
 
     def _load_file(self):
@@ -4812,11 +4908,29 @@ class IniFileEditorPanel(ctk.CTkFrame):
         self._textbox.delete("0.0", "end")
         self._textbox.insert("0.0", self._original_content)
         if self._highlight:
-            self._apply_highlight(self._highlight)
+            # Prefill the Find box; its trace runs _apply_highlight for us.
+            self._find_var.set(self._highlight)
+            self._run_find()
+        else:
+            self._update_nav_controls()
+        self._schedule_marker_redraw()
 
     def _apply_highlight(self, needle: str):
-        """Highlight every case-insensitive occurrence of *needle* in bright green."""
+        """Highlight every case-insensitive occurrence of *needle* in bright green,
+        record each match position, and enable the match-navigation controls.
+        Scans the *live* editor content so it tracks user edits."""
+        self._active_needle = needle or ""
+        self._match_starts = []
+        self._match_idx = -1
+        # Always clear any previous highlight tags first.
+        try:
+            self._textbox.tag_remove("search_highlight", "0.0", "end")
+            self._textbox.tag_remove("search_current", "0.0", "end")
+        except Exception:
+            pass
         if not needle:
+            self._update_nav_controls()
+            self._schedule_marker_redraw()
             return
         try:
             self._textbox.tag_config(
@@ -4824,16 +4938,22 @@ class IniFileEditorPanel(ctk.CTkFrame):
                 background=STATUS_SUCCESS_SOLID,
                 foreground=TEXT_BLACK,
             )
+            # Brighter emphasis tag for the currently-focused match.
+            self._textbox.tag_config(
+                "search_current",
+                background=ACCENT,
+                foreground=TEXT_MAIN,
+            )
         except Exception:
             return
-        content = self._original_content or ""
+        content = self._textbox.get("0.0", "end-1c")
         hay = content.casefold()
         needle_cf = needle.casefold()
         nlen = len(needle_cf)
         if nlen == 0:
+            self._update_nav_controls()
             return
         start = 0
-        first_mark: "str | None" = None
         while True:
             idx = hay.find(needle_cf, start)
             if idx == -1:
@@ -4842,16 +4962,177 @@ class IniFileEditorPanel(ctk.CTkFrame):
             end_index = f"1.0+{idx + nlen}c"
             try:
                 self._textbox.tag_add("search_highlight", start_index, end_index)
+                # Resolve to a concrete "line.col" index so it survives edits/lookup.
+                self._match_starts.append(self._text.index(start_index))
             except Exception:
                 break
-            if first_mark is None:
-                first_mark = start_index
             start = idx + nlen
-        if first_mark is not None:
+        if self._match_starts:
+            self._goto_match(0)
+        self._update_nav_controls()
+        self._schedule_marker_redraw()
+
+    def _on_find_changed(self, *_):
+        """Debounced live re-highlight as the user types in the Find box."""
+        if self._find_debounce_id is not None:
             try:
-                self._textbox.see(first_mark)
+                self.after_cancel(self._find_debounce_id)
             except Exception:
                 pass
+        self._find_debounce_id = self.after(150, self._run_find)
+
+    def _run_find(self):
+        self._find_debounce_id = None
+        self._apply_highlight(self._find_var.get())
+
+    # -- Match navigation ---------------------------------------------------
+
+    def _update_nav_controls(self):
+        """Show the prev/next bar only when there is more than one match;
+        keep a count label whenever there is at least one."""
+        n = len(self._match_starts)
+        if n == 0:
+            try:
+                self._nav_frame.pack_forget()
+            except Exception:
+                pass
+            return
+        self._nav_frame.pack(side="left")
+        # Prev/Next only make sense with multiple matches.
+        state = "normal" if n > 1 else "disabled"
+        self._prev_btn.configure(state=state)
+        self._next_btn.configure(state=state)
+        cur = (self._match_idx + 1) if self._match_idx >= 0 else 0
+        self._match_count_lbl.configure(text=f"{cur} / {n}")
+
+    def _goto_match(self, idx: int):
+        n = len(self._match_starts)
+        if n == 0:
+            return
+        idx %= n
+        # Clear previous current-match emphasis, re-flagging it as a plain hit.
+        if 0 <= self._match_idx < n:
+            prev_start = self._match_starts[self._match_idx]
+            try:
+                self._textbox.tag_remove(
+                    "search_current", prev_start, f"{prev_start}+{self._match_len()}c")
+            except Exception:
+                pass
+        self._match_idx = idx
+        start = self._match_starts[idx]
+        try:
+            self._textbox.tag_add(
+                "search_current", start, f"{start}+{self._match_len()}c")
+            self._text.see(start)
+        except Exception:
+            pass
+        self._update_nav_controls()
+        self._schedule_marker_redraw()
+
+    def _match_len(self) -> int:
+        return len((self._active_needle or "").casefold())
+
+    def _goto_next_match(self):
+        if self._match_starts:
+            self._goto_match(self._match_idx + 1)
+
+    def _goto_prev_match(self):
+        if self._match_starts:
+            self._goto_match(self._match_idx - 1)
+
+    # -- Combined scrollbar + marker strip ----------------------------------
+
+    def _scroll_set(self, first, last):
+        try:
+            self._ctk_yset(first, last)
+        except Exception:
+            pass
+        self._scroll_first = float(first)
+        self._scroll_last = float(last)
+        self._schedule_marker_redraw()
+
+    def _schedule_marker_redraw(self):
+        if self._marker_after_id is not None:
+            try:
+                self.after_cancel(self._marker_after_id)
+            except Exception:
+                pass
+        self._marker_after_id = self.after(16, self._draw_marker_strip)
+
+    def _on_marker_resize(self, _event=None):
+        self._schedule_marker_redraw()
+
+    def _draw_marker_strip(self):
+        self._marker_after_id = None
+        c = self._marker_strip
+        try:
+            c.delete("all")
+        except Exception:
+            return
+        h = c.winfo_height()
+        w = c.winfo_width()
+        if h <= 1:
+            return
+        # Thumb
+        first = max(0.0, min(1.0, self._scroll_first))
+        last = max(first, min(1.0, self._scroll_last))
+        y0 = int(first * h)
+        y1 = max(y0 + 8, int(last * h))
+        c.create_rectangle(2, y0, w - 2, y1, fill=BG_HOVER, outline="", tags="thumb")
+        # One tick per match, positioned by its fractional line position.
+        if not self._match_starts:
+            return
+        try:
+            total_lines = int(float(self._text.index("end-1c").split(".")[0]))
+        except Exception:
+            total_lines = 0
+        if total_lines <= 0:
+            return
+        for i, start in enumerate(self._match_starts):
+            try:
+                line = int(float(start.split(".")[0]))
+            except Exception:
+                continue
+            frac = (line - 1) / max(1, total_lines - 1) if total_lines > 1 else 0.0
+            y = int(frac * (h - 3))
+            color = ACCENT if i == self._match_idx else STATUS_SUCCESS_SOLID
+            c.create_rectangle(0, y, w, y + 3, fill=color, outline="", tags="marker")
+
+    def _on_scrollbar_press(self, event):
+        h = self._marker_strip.winfo_height()
+        if h <= 1:
+            return
+        y0 = self._scroll_first * h
+        y1 = self._scroll_last * h
+        if y0 <= event.y <= y1:
+            self._thumb_drag_offset = event.y - y0
+        else:
+            self._thumb_drag_offset = (y1 - y0) / 2.0
+            self._scroll_to_pointer(event.y)
+
+    def _on_scrollbar_drag(self, event):
+        if self._thumb_drag_offset is not None:
+            self._scroll_to_pointer(event.y - self._thumb_drag_offset)
+
+    def _on_scrollbar_release(self, _event):
+        self._thumb_drag_offset = None
+
+    def _scroll_to_pointer(self, py):
+        h = self._marker_strip.winfo_height()
+        if h <= 1:
+            return
+        frac = max(0.0, min(1.0, py / h))
+        try:
+            self._text.yview_moveto(frac)
+        except Exception:
+            pass
+
+    def _on_marker_mousewheel(self, event):
+        delta = -1 if getattr(event, "delta", 0) > 0 else 1
+        try:
+            self._text.yview_scroll(delta * 3, "units")
+        except Exception:
+            pass
 
     def _on_save(self):
         try:

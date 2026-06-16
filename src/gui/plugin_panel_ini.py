@@ -129,6 +129,41 @@ class PluginPanelIniMixin:
         _style_name = "IniFiles.Treeview"
         style = ttk.Style()
         style.theme_use("default")
+
+        # Custom expand/collapse arrow — same icon as the Data tab. Falls back to
+        # the native indicator inside the Flatpak sandbox (PNG decode quirks).
+        from gui.ctk_components import _is_flatpak_sandbox
+        use_default_indicator = _is_flatpak_sandbox()
+        if not use_default_indicator:
+            from PIL import Image as PilImage, ImageTk
+            from gui.ctk_components import ICON_PATH as _ICON_PATH, _load_icon_image as _load_iim
+            _im_open = _load_iim(_ICON_PATH.get("arrow"))
+            _im_close = _im_open.rotate(90)
+            _im_empty = PilImage.new("RGB", (15, 15), BG_DEEP)
+            _img_open_i = ImageTk.PhotoImage(_im_open, name="img_open_ini", size=(15, 15))
+            _img_close_i = ImageTk.PhotoImage(_im_close, name="img_close_ini", size=(15, 15))
+            _img_empty_i = ImageTk.PhotoImage(_im_empty, name="img_empty_ini", size=(15, 15))
+            self._ini_arrow_images = (_img_open_i, _img_close_i, _img_empty_i)
+            try:
+                style.element_create("Treeitem.iniindicator", "image", "img_close_ini",
+                    ("user1", "img_open_ini"), ("user2", "img_empty_ini"),
+                    sticky="w", width=15, height=15)
+            except Exception:
+                pass
+        try:
+            indicator_elem = "Treeitem.indicator" if use_default_indicator else "Treeitem.iniindicator"
+            style.layout(f"{_style_name}.Item", [
+                ("Treeitem.padding", {"sticky": "nsew", "children": [
+                    (indicator_elem, {"side": "left", "sticky": "nsew"}),
+                    ("Treeitem.image", {"side": "left", "sticky": "nsew"}),
+                    ("Treeitem.focus", {"side": "left", "sticky": "nsew", "children": [
+                        ("Treeitem.text", {"side": "left", "sticky": "nsew"}),
+                    ]}),
+                ]}),
+            ])
+        except Exception:
+            pass
+
         style.configure(_style_name,
             background=_bg, foreground=_fg,
             fieldbackground=_bg, borderwidth=0,
@@ -143,23 +178,6 @@ class PluginPanelIniMixin:
             background=_bg, foreground=_fg,
             font=(_theme.FONT_FAMILY, _theme.FS10, "bold"), relief="flat",
         )
-        # Remove the expand/collapse indicator (dark box) — flat list has no hierarchy
-        try:
-            style.configure(f"{_style_name}.Item", indent=0, indicatorsize=0)
-        except Exception:
-            pass
-        try:
-            style.layout(f"{_style_name}.Item", [
-                ("Treeitem.padding", {"sticky": "nsew", "children": [
-                    ("Treeitem.image", {"side": "left", "sticky": "nsew"}),
-                    ("Treeitem.focus", {"side": "left", "sticky": "nsew", "children": [
-                        ("Treeitem.text", {"side": "left", "sticky": "nsew"}),
-                    ]}),
-                ]}),
-            ])
-        except Exception:
-            pass
-
         self._ini_files_tree = ttk.Treeview(
             list_frame, columns=("mod",), style=_style_name,
             selectmode="browse", show="tree headings",
@@ -171,6 +189,11 @@ class PluginPanelIniMixin:
         self._ini_files_tree.tag_configure("mod_highlight", background=_theme.plugin_mod, foreground=TEXT_MAIN)
         self._ini_files_tree.tag_configure("game_folder", foreground=TEXT_OK)
         self._ini_files_tree.tag_configure("profile_folder", foreground=TAG_INI_PROFILE)
+        self._ini_files_tree.tag_configure("mygames_folder", foreground=ACCENT)
+        self._ini_files_tree.tag_configure(
+            "category", foreground=TEXT_MAIN,
+            font=(_theme.FONT_FAMILY, _theme.FS10, "bold"),
+        )
 
         # Combined scrollbar + marker strip — same pattern as modlist_panel /
         # plugins tab: one canvas paints trough, ticks, and thumb.
@@ -221,6 +244,8 @@ class PluginPanelIniMixin:
         self._ini_search_entry.bind("<Control-a>", _ini_select_all)
 
         self._ini_files_tree.bind("<<TreeviewSelect>>", self._on_ini_file_select)
+        self._ini_files_tree.bind("<<TreeviewOpen>>",  lambda _e: self._on_ini_marker_strip_resize())
+        self._ini_files_tree.bind("<<TreeviewClose>>", lambda _e: self._on_ini_marker_strip_resize())
         if not LEGACY_WHEEL_REDUNDANT:
             self._ini_files_tree.bind("<Button-4>", lambda e: self._ini_files_tree.yview_scroll(-3, "units"))
             self._ini_files_tree.bind("<Button-5>", lambda e: self._ini_files_tree.yview_scroll(3, "units"))
@@ -240,6 +265,9 @@ class PluginPanelIniMixin:
         self._ini_filter_sources: set[str] = set()
         self._ini_filter_sources_exclude: set[str] = set()
         self._ini_filter_panel_open: bool = False
+        # tree item iid → entry index into _ini_files_displayed (file rows only;
+        # category header rows are absent from this map).
+        self._ini_tree_item_entry: dict[str, int] = {}
 
     def _build_ini_filter_side_panel(self) -> None:
         """Build the Ini Files filter side panel — same pattern as the Data /
@@ -346,20 +374,37 @@ class PluginPanelIniMixin:
     def _ini_entry_source(mod_name: str) -> str:
         """Classify an ini entry's origin from its mod_name field.
 
-        Synthetic names "Game Folder" / "Profile" mark non-mod sources;
-        anything else is a real mod folder.
+        Synthetic names "Game Folder" / "Profile" / "My Games" mark non-mod
+        sources; anything else is a real mod folder.
         """
         if mod_name == "Game Folder":
             return "game"
         if mod_name == "Profile":
             return "profile"
+        if mod_name == "My Games":
+            return "mygames"
         return "mod"
 
     _INI_SOURCE_LABELS = (
         ("mod",     "Mod folders"),
         ("profile", "Profile"),
         ("game",    "Game folder"),
+        ("mygames", "My Games"),
     )
+    # Display ordering for the "location" grouping — entries are grouped by
+    # source in this order, then sorted alphabetically within each group.
+    _INI_SOURCE_ORDER = {key: i for i, (key, _label) in enumerate(_INI_SOURCE_LABELS)}
+
+    def _ini_sort_key(self, entry: "tuple[str, str, Path]") -> tuple:
+        """Sort key: group by source location first, then alphabetically by
+        file path then mod name within each location."""
+        rel_path, mod_name, _p = entry
+        src = self._ini_entry_source(mod_name)
+        return (
+            self._INI_SOURCE_ORDER.get(src, len(self._INI_SOURCE_ORDER)),
+            rel_path.lower(),
+            mod_name.lower(),
+        )
 
     def _get_ini_source_counts(self) -> "dict[str, int]":
         counts: dict[str, int] = {}
@@ -634,7 +679,12 @@ class PluginPanelIniMixin:
         for rel, fpath in self._collect_profile_ini_files(self._INI_JSON_EXTENSIONS):
             ini_entries.append((rel, "Profile", fpath))
 
-        self._ini_files_entries = sorted(ini_entries, key=lambda t: (t[0].lower(), t[1].lower()))
+        # Also include real files living in the prefix's My Games folder (Bethesda
+        # games) — INIs the game writes itself plus logs, handy for viewing.
+        for rel, fpath in self._collect_mygames_ini_files(self._INI_JSON_EXTENSIONS):
+            ini_entries.append((rel, "My Games", fpath))
+
+        self._ini_files_entries = sorted(ini_entries, key=self._ini_sort_key)
         self._apply_ini_search_filter()
 
     def _collect_profile_ini_files(self, extensions: "frozenset[str]") -> "list[tuple[str, Path]]":
@@ -658,6 +708,42 @@ class PluginPanelIniMixin:
             return []
         return results
 
+    def _collect_mygames_ini_files(self, extensions: "frozenset[str]") -> "list[tuple[str, Path]]":
+        """Return (rel_path, full_path) for config/log files in the game's My Games
+        folder(s) inside the Proton prefix (Bethesda games only).
+
+        rel_path is relative to the My Games root. Symlinks are skipped — those are
+        the profile INIs already shown under the "Profile" source. Returns [] when
+        the game has no ``_mygames_paths`` (non-Bethesda) or none exist yet.
+        """
+        mygames_fn = getattr(self._game, "_mygames_paths", None) if self._game else None
+        if not callable(mygames_fn):
+            return []
+        try:
+            mygames_dirs = mygames_fn()
+        except Exception:
+            return []
+        results: list[tuple[str, Path]] = []
+        seen_rel: set[str] = set()
+        for mygames in mygames_dirs:
+            mygames = Path(mygames)
+            if not mygames.is_dir():
+                continue
+            try:
+                for fpath in mygames.rglob("*"):
+                    if fpath.suffix.lower() not in extensions:
+                        continue
+                    if fpath.is_symlink() or not fpath.is_file():
+                        continue
+                    rel = fpath.relative_to(mygames).as_posix()
+                    if rel in seen_rel:
+                        continue
+                    seen_rel.add(rel)
+                    results.append((rel, fpath))
+            except OSError:
+                continue
+        return results
+
     def _on_ini_search_changed(self, *_):
         """Filter displayed ini files by search query (filename or mod name)."""
         self._apply_ini_search_filter()
@@ -671,7 +757,7 @@ class PluginPanelIniMixin:
             extra = getattr(self, "_ini_content_extra_entries", None) or []
             combined = list(entries) + list(extra)
             entries = [e for e in combined if (e[0], e[1]) in content_matches]
-            entries.sort(key=lambda t: (t[0].lower(), t[1].lower()))
+            entries.sort(key=self._ini_sort_key)
         ext_filter = self._ini_filter_extensions
         ext_exclude = self._ini_filter_extensions_exclude
         if ext_filter:
@@ -817,6 +903,13 @@ class PluginPanelIniMixin:
             seen.add(key)
             out.append((rel, "Profile", fpath))
 
+        for rel, fpath in self._collect_mygames_ini_files(self._INI_CONTENT_SEARCH_EXTENSIONS):
+            key = (rel, "My Games")
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((rel, "My Games", fpath))
+
         return out
 
     def _run_ini_content_search(self, keyword: str):
@@ -866,9 +959,26 @@ class PluginPanelIniMixin:
             except Exception:
                 pass
 
+    def _ini_row_tags(self, mod_name: str) -> tuple:
+        """Treeview tags for a file row, by its source/mod name."""
+        if self._highlighted_ini_mod and mod_name == self._highlighted_ini_mod:
+            return ("mod_highlight",)
+        if mod_name == "Game Folder":
+            return ("game_folder",)
+        if mod_name == "Profile":
+            return ("profile_folder",)
+        if mod_name == "My Games":
+            return ("mygames_folder",)
+        return ()
+
     def _build_ini_tree_from_displayed(self):
-        """Rebuild tree from _ini_files_displayed."""
+        """Rebuild tree from _ini_files_displayed, grouped by source location.
+
+        Each location ("Mod folders", "Profile", "Game folder", "My Games")
+        becomes an expandable top-level folder holding its file rows.
+        """
         self._ini_files_tree.delete(*self._ini_files_tree.get_children())
+        self._ini_tree_item_entry = {}
         status = getattr(self, "_ini_files_status", None)
         if status == "load":
             self._ini_files_tree.insert("", "end", text="(load a game first)", values=("",))
@@ -882,16 +992,23 @@ class PluginPanelIniMixin:
             else:
                 self._ini_files_tree.insert("", "end", text="(no ini/json files in filemap)", values=("",))
             return
-        for rel_path, mod_name, _ in self._ini_files_displayed:
-            if mod_name == self._highlighted_ini_mod:
-                tags = ("mod_highlight",)
-            elif mod_name == "Game Folder":
-                tags = ("game_folder",)
-            elif mod_name == "Profile":
-                tags = ("profile_folder",)
-            else:
-                tags = ()
-            self._ini_files_tree.insert("", "end", text=self._ini_display_name(rel_path), values=(mod_name,), tags=tags)
+
+        labels = dict(self._INI_SOURCE_LABELS)
+        category_nodes: dict[str, str] = {}
+        for idx, (rel_path, mod_name, _) in enumerate(self._ini_files_displayed):
+            src = self._ini_entry_source(mod_name)
+            parent = category_nodes.get(src)
+            if parent is None:
+                parent = self._ini_files_tree.insert(
+                    "", "end", text=labels.get(src, src),
+                    values=("",), tags=("category",), open=True,
+                )
+                category_nodes[src] = parent
+            iid = self._ini_files_tree.insert(
+                parent, "end", text=self._ini_display_name(rel_path),
+                values=(mod_name,), tags=self._ini_row_tags(mod_name),
+            )
+            self._ini_tree_item_entry[iid] = idx
         self._draw_ini_marker_strip()
 
     def _on_ini_marker_strip_resize(self, _event=None):
@@ -902,20 +1019,11 @@ class PluginPanelIniMixin:
     def _apply_ini_row_highlight(self):
         """Update row background (orange) for items belonging to the selected mod."""
         displayed = self._ini_files_displayed
-        children = self._ini_files_tree.get_children()
-        for i, iid in enumerate(children):
-            if i >= len(displayed):
-                break
-            _, mod_name, _ = displayed[i]
-            if self._highlighted_ini_mod and mod_name == self._highlighted_ini_mod:
-                tags = ("mod_highlight",)
-            elif mod_name == "Game Folder":
-                tags = ("game_folder",)
-            elif mod_name == "Profile":
-                tags = ("profile_folder",)
-            else:
-                tags = ()
-            self._ini_files_tree.item(iid, tags=tags)
+        for iid, idx in self._ini_tree_item_entry.items():
+            if idx >= len(displayed):
+                continue
+            _, mod_name, _ = displayed[idx]
+            self._ini_files_tree.item(iid, tags=self._ini_row_tags(mod_name))
 
     def _draw_ini_marker_strip(self):
         """Paint the combined scrollbar + marker strip for the Ini Files tab.
@@ -935,26 +1043,46 @@ class PluginPanelIniMixin:
 
         c.create_rectangle(0, 0, strip_w, strip_h, fill=BG_DEEP, outline="", tags="trough")
 
-        displayed = self._ini_files_displayed
-        n = len(displayed)
-        if n and self._highlighted_ini_mod:
-            highlighted_rows = [
-                i for i, (_, mod_name, _) in enumerate(displayed)
-                if mod_name == self._highlighted_ini_mod
-            ]
-            if highlighted_rows:
-                strip_max = strip_h - 4
-                inv_n = 1.0 / n
-                color = _theme.plugin_mod
-                for row_idx in highlighted_rows:
-                    y = int(row_idx * inv_n * strip_h)
-                    if y < 2:
-                        y = 2
-                    elif y > strip_max:
-                        y = strip_max
-                    c.create_rectangle(0, y, strip_w, y + 3, fill=color, outline="", tags="marker")
+        # Coarse position hint: walk the visible tree rows (category headers +
+        # expanded children) and place a tick at each highlighted-mod file row.
+        if self._highlighted_ini_mod:
+            visible = self._ini_visible_rows()
+            n = len(visible)
+            if n:
+                highlighted_rows = [
+                    i for i, iid in enumerate(visible)
+                    if self._ini_row_mod_name(iid) == self._highlighted_ini_mod
+                ]
+                if highlighted_rows:
+                    strip_max = strip_h - 4
+                    inv_n = 1.0 / n
+                    color = _theme.plugin_mod
+                    for row_idx in highlighted_rows:
+                        y = int(row_idx * inv_n * strip_h)
+                        if y < 2:
+                            y = 2
+                        elif y > strip_max:
+                            y = strip_max
+                        c.create_rectangle(0, y, strip_w, y + 3, fill=color, outline="", tags="marker")
 
         self._redraw_ini_thumb()
+
+    def _ini_visible_rows(self) -> "list[str]":
+        """Tree iids in display order, descending into expanded folders only —
+        matches what the user actually sees / what the scrollbar spans."""
+        out: list[str] = []
+        for cat in self._ini_files_tree.get_children(""):
+            out.append(cat)
+            if self._ini_files_tree.item(cat, "open"):
+                out.extend(self._ini_files_tree.get_children(cat))
+        return out
+
+    def _ini_row_mod_name(self, iid: str) -> "str | None":
+        """Mod name for a file-row iid (None for category headers)."""
+        idx = self._ini_tree_item_entry.get(iid)
+        if idx is None or idx >= len(self._ini_files_displayed):
+            return None
+        return self._ini_files_displayed[idx][1]
 
     def _redraw_ini_thumb(self) -> None:
         c = self._ini_marker_strip
@@ -1034,10 +1162,10 @@ class PluginPanelIniMixin:
         if not sel:
             return
         item = sel[0]
-        children = self._ini_files_tree.get_children()
-        try:
-            idx = children.index(item)
-        except ValueError:
+        idx = self._ini_tree_item_entry.get(item)
+        # Category header rows (and placeholder rows) aren't in the map — clicking
+        # one does nothing here; the native expand indicator handles open/close.
+        if idx is None:
             return
         if idx < 0 or idx >= len(self._ini_files_displayed):
             return
