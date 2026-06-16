@@ -200,7 +200,19 @@ _OBSOLETE_PRESET_EFFECTS: dict[str, str] = {
 }
 
 
-def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
+# ReShade's canonical core headers.  These ship with the base ``slim`` repo and
+# must always come from it: several packs vendor their own *stale* copy (e.g.
+# Matsilagi ships a ReShade 3.x ``ReShade.fxh`` that lacks ``BUFFER_PIXEL_SIZE``
+# / ``BUFFER_SCREEN_SIZE``).  If a pack's copy overwrites the base one, every
+# modern shader referencing those macros fails to compile (X3004 undeclared
+# identifier).  We extract the base repo first and refuse to let any later pack
+# overwrite these names.
+_CORE_HEADERS = frozenset({"reshade.fxh", "reshadeui.fxh"})
+
+
+def _extract_zip_into(
+    data: bytes, dest: Path, subfolder: "str | None", *, is_base: bool = False
+) -> None:
     """Extract the ``Shaders/`` and ``Textures/`` trees from a GitHub repo zip
     into *dest* (which is the ``reshade-shaders/`` output folder).
 
@@ -209,6 +221,10 @@ def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
     ``reshade-shaders/`` dir; qUINT keeps only a ``Shaders/`` dir).  Either
     way the result is merged as ``dest/Shaders/...`` and ``dest/Textures/...``
     so packs never end up double-nested under another ``reshade-shaders/``.
+
+    *is_base* — True only for the base ``slim`` repo (extracted first).  Packs
+    (is_base=False) are not allowed to overwrite :data:`_CORE_HEADERS`, so a
+    pack shipping a stale ``ReShade.fxh`` can't clobber the canonical one.
     """
     _KEEP = ("Shaders/", "Textures/")
 
@@ -250,6 +266,15 @@ def _extract_zip_into(data: bytes, dest: Path, subfolder: "str | None") -> None:
                 if member.endswith("/"):
                     target.mkdir(parents=True, exist_ok=True)
                 else:
+                    # Don't let a pack overwrite a canonical core header that
+                    # the base repo already provided — packs sometimes vendor a
+                    # stale copy that breaks every modern shader.
+                    if (
+                        not is_base
+                        and target.name.lower() in _CORE_HEADERS
+                        and target.exists()
+                    ):
+                        continue
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, open(target, "wb") as dst:
                         shutil.copyfileobj(src, dst)
@@ -377,10 +402,13 @@ def _download_and_extract_shaders(
     if errors:
         raise RuntimeError("Shader download failed:\n" + "\n".join(errors))
 
-    for entry in results:
+    # Index 0 is always the base repo (see to_fetch above).  Extract it first
+    # with is_base=True so its canonical core headers are laid down before any
+    # pack, and later packs can't overwrite them.
+    for idx, entry in enumerate(results):
         if entry is not None:
             data, subfolder = entry
-            _extract_zip_into(data, out, subfolder)
+            _extract_zip_into(data, out, subfolder, is_base=(idx == 0))
 
     return out
 
@@ -421,6 +449,14 @@ def parse_preset_effect_files(preset_path: Path) -> set[str]:
     The part after the ``@`` is the effect filename.  This mirrors the
     official ReShade installer's SelectEffectsPage logic.
 
+    Only ``Techniques=`` (the *enabled* effects) drives what gets installed.
+    A preset also carries a ``TechniqueSorting=`` key, but that lists every
+    effect ReShade has ever seen — its display/sort order, not a request to
+    install them.  Including it kept dozens of un-enabled effects (Layer.fx,
+    ASCII.fx, …) whose include closure the pruner never fully satisfied, so
+    they threw compile errors (e.g. undeclared ``BUFFER_SCREEN_SIZE``) at
+    startup even though the preset never used them.
+
     Returns an empty set if no ``Techniques`` key is found (caller should
     treat that as "install everything").
     """
@@ -430,8 +466,8 @@ def parse_preset_effect_files(preset_path: Path) -> set[str]:
     except OSError:
         return wanted
 
-    # Only the section-less Techniques / TechniqueSorting keys matter; both
-    # appear before the first "[Section]" header in a real preset.
+    # Only the section-less Techniques key matters; it appears before the
+    # first "[Section]" header in a real preset.
     for raw in text.splitlines():
         line = raw.strip()
         if line.startswith("[") and line.endswith("]"):
@@ -439,7 +475,7 @@ def parse_preset_effect_files(preset_path: Path) -> set[str]:
         key, sep, value = line.partition("=")
         if not sep:
             continue
-        if key.strip() not in ("Techniques", "TechniqueSorting"):
+        if key.strip() != "Techniques":
             continue
         for entry in value.split(","):
             entry = entry.strip()
@@ -1319,6 +1355,15 @@ class ReShadeWizard(ctk.CTkFrame):
                 # 1. Copy the ReShade DLL renamed to the game's override name
                 shutil.copy2(str(dll_src), str(dest_dir / self._reshade_dll))
                 self._log(f"ReShade wizard: copied {dll_src.name} → {self._reshade_dll}")
+
+                # 1b. For managed installs (mod / root_folder), seed an empty
+                #     ReShade.log next to the DLL.  ReShade writes this log at
+                #     runtime; seeding it in staging means it's a tracked,
+                #     deployed file and gets cleaned up properly on restore
+                #     instead of being left behind in the game folder.
+                if dest in ("mod", "root_folder"):
+                    (dest_dir / "ReShade.log").touch()
+                    self._log("ReShade wizard: created empty ReShade.log")
 
                 # 2. Copy bundled ReShade.ini and the preset (or a blank one).
                 #    A user-supplied preset keeps its own (Wine-safe) filename so

@@ -435,6 +435,11 @@ def _bootstrap_pandora_settings(
     except (OSError, ValueError):
         settings = {}
 
+    # Default to the dark theme (theme 2) on first setup; leave the user's
+    # choice alone if they've already picked one.
+    app = settings.setdefault("app", {})
+    app.setdefault("theme", 2)
+
     games = settings.setdefault("games", {})
     entry = games.setdefault(pandora_game_key, {})
     entry["outputPath"] = _to_wine_path(output_mod_dir, pfx)

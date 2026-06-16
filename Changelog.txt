@@ -13,6 +13,7 @@
 - The pg patcher wizard can now be launched wth the mo2 conflict resolution manager option
 - Added a wizard for ESLifier
 - Reworked the reshade wizard
+- The pandora wizard now auto applies the dark theme.
 
 - v1.3.9
 - Potential fix for ssl error causing nexus login to fail
