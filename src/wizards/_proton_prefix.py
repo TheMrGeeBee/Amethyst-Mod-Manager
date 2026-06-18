@@ -1,11 +1,21 @@
 """
 _proton_prefix.py
-Shared wizard support for running tools in their own isolated Proton prefix.
+Shared wizard support for running tools in a Proton prefix.
 
-The prefix lives at prefix_<ProtonName>/ next to the tool exe (created by
-gui.dialogs._get_tool_prefix_env) and the chosen Proton version persists as
-the per-exe override (__proton_override_<exe>) shared with the Mod Files
-exe launcher, so wizard and direct exe runs use the same prefix.
+Three prefix placements (chosen per-exe on the Choose-Proton step):
+
+  * isolated (default) — prefix_<ProtonName>/ next to the tool exe.
+  * shared              — wine_prefixes/shared_<ProtonName>/ in the app config,
+                          one per Proton version, reused by every wizard tool
+                          that ticks "Use shared prefix".
+  * game                — the game's own prefix (no new prefix created; the
+                          Proton version follows the game's Steam setting).
+
+The chosen Proton version persists as the per-exe override
+(__proton_override_<exe>) shared with the Mod Files exe launcher; the
+placement persists as __prefix_mode_<exe>. Both live in the game's
+exe_launch_mode.json. The isolated/shared prefixes are created and initialised
+by gui.dialogs._get_tool_prefix_env.
 """
 
 from __future__ import annotations
@@ -29,6 +39,52 @@ from gui.theme import (
 _LAUNCH_MODE_FILE = "exe_launch_mode.json"
 _LAUNCH_ENV_FILE = "launch_env.json"
 _ENV_VAR_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+# Prefix-placement modes persisted per-exe alongside the Proton override.
+PREFIX_MODE_ISOLATED = "isolated"  # prefix_<Proton>/ next to the exe (default)
+PREFIX_MODE_SHARED = "shared"      # wine_prefixes/shared_<Proton>/, one per Proton
+PREFIX_MODE_GAME = "game"          # reuse the game's own prefix
+
+
+def shared_prefix_dir(proton_dir_name: str) -> Path:
+    """Return the shared tool prefix dir for a Proton version (one per version).
+
+    Lives under the app config ``wine_prefixes/`` folder so it is shared by
+    every wizard tool that opts into the shared prefix and survives Clear Cache.
+    """
+    from Utils.config_paths import get_wine_prefixes_dir
+    return get_wine_prefixes_dir() / f"shared_{proton_dir_name}"
+
+
+def load_prefix_mode(game, exe_name: str) -> str:
+    """Return the saved prefix-placement mode for exe_name (isolated default)."""
+    from Utils.config_paths import get_game_config_dir
+    p = get_game_config_dir(game.name) / _LAUNCH_MODE_FILE
+    try:
+        val = json.loads(p.read_text(encoding="utf-8")).get(f"__prefix_mode_{exe_name}")
+    except (OSError, ValueError):
+        val = None
+    return val if val in (PREFIX_MODE_SHARED, PREFIX_MODE_GAME) else PREFIX_MODE_ISOLATED
+
+
+def save_prefix_mode(game, exe_name: str, mode: str) -> None:
+    """Persist the prefix-placement mode for exe_name."""
+    from Utils.config_paths import get_game_config_dir
+    p = get_game_config_dir(game.name) / _LAUNCH_MODE_FILE
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    key = f"__prefix_mode_{exe_name}"
+    if mode in (PREFIX_MODE_SHARED, PREFIX_MODE_GAME):
+        data[key] = mode
+    else:
+        data.pop(key, None)
+    try:
+        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def load_tool_launch_env(exe: "Path | None") -> str:
@@ -221,6 +277,11 @@ class ProtonPrefixStepMixin:
         "into it automatically on the next step."
     )
     _proton_name: str = ""
+    _prefix_mode: str = PREFIX_MODE_ISOLATED
+
+    # Set False on host wizards whose prefix is not anchored next to the game's
+    # exe (e.g. staged-exe tools) so the "Use game prefix" option is hidden.
+    _allow_game_prefix: bool = True
 
     def _proton_next_step(self):
         raise NotImplementedError
@@ -240,17 +301,73 @@ class ProtonPrefixStepMixin:
     def _get_tool_env(self):
         """Resolve (proton_script, env, compat_data) for the tool's own prefix.
 
-        Creates and initialises prefix_<ProtonName>/ next to the exe on first
-        use (synchronous wineboot) — only call from a worker thread.
+        Honours the chosen prefix mode:
+          * isolated — creates/initialises prefix_<ProtonName>/ next to the exe
+          * shared   — creates/initialises wine_prefixes/shared_<ProtonName>/
+          * game     — reuses the game's own prefix (no init)
+        First use of an isolated/shared prefix runs a synchronous wineboot —
+        only call from a worker thread.
         """
         if self._exe is None:
             return None, None, None
+
+        mode = self._prefix_mode
+        if mode == PREFIX_MODE_GAME:
+            return self._get_game_prefix_env()
+
         from gui.dialogs import _get_tool_prefix_env
         name = self._proton_name or load_saved_proton(self._game, self._tool_exe_name)
-        result = _get_tool_prefix_env(self._exe, name)
+        target = None
+        if mode == PREFIX_MODE_SHARED:
+            from Utils.steam_finder import find_any_installed_proton
+            proton_script = find_any_installed_proton(name)
+            if proton_script is None:
+                return None, None, None
+            target = shared_prefix_dir(proton_script.parent.name)
+        result = _get_tool_prefix_env(self._exe, name, prefix_dir=target)
         if result is None:
             return None, None, None
         proton_script, compat_data, env = result
+        extra = parse_env_overrides(load_tool_launch_env(self._exe))
+        if extra:
+            env.update(extra)
+            self._log(
+                f"{self._tool_display_name} Wizard: applying saved env vars: "
+                + " ".join(f"{k}={v}" for k, v in extra.items())
+            )
+        return proton_script, env, compat_data
+
+    def _get_game_prefix_env(self):
+        """Resolve (proton_script, env, compat_data) for the game's own prefix.
+
+        Reuses the existing game prefix (already initialised by the game), so no
+        wineboot is run. Picks the Proton version Steam assigns to the game.
+        """
+        from Utils.steam_finder import (
+            find_proton_for_game, game_steam_id, find_steam_root_for_proton_script,
+        )
+        pfx = self._game.get_prefix_path() if hasattr(self._game, "get_prefix_path") else None
+        if pfx is None or not Path(pfx).is_dir():
+            self._log(
+                f"{self._tool_display_name} Wizard: game prefix not found — "
+                "deploy/launch the game once, or pick a different prefix option."
+            )
+            return None, None, None
+        steam_id = game_steam_id(self._game)
+        proton_script = find_proton_for_game(steam_id) if steam_id else None
+        if proton_script is None:
+            self._log(
+                f"{self._tool_display_name} Wizard: could not resolve the game's "
+                "Proton version — pick a different prefix option."
+            )
+            return None, None, None
+        steam_root = find_steam_root_for_proton_script(proton_script)
+        if steam_root is None:
+            return None, None, None
+        compat_data = Path(pfx).parent
+        env = os.environ.copy()
+        env["STEAM_COMPAT_DATA_PATH"] = str(compat_data)
+        env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(steam_root)
         extra = parse_env_overrides(load_tool_launch_env(self._exe))
         if extra:
             env.update(extra)
@@ -327,7 +444,7 @@ class ProtonPrefixStepMixin:
                 + self._proton_deps_note
             ),
             font=FONT_NORMAL, text_color=TEXT_DIM, justify="center", wraplength=460,
-        ).pack(pady=(0, 20))
+        ).pack(pady=(0, 12))
 
         # Default: saved per-exe override, else the game's own Proton version.
         saved = load_saved_proton(self._game, self._tool_exe_name)
@@ -343,8 +460,56 @@ class ProtonPrefixStepMixin:
         if initial is None:
             initial = versions[0]
 
+        # ---- prefix mode checkboxes ----
+        mode = load_prefix_mode(self._game, self._tool_exe_name)
+        game_pfx_ok = self._game_prefix_available()
+        if mode == PREFIX_MODE_GAME and not (self._allow_game_prefix and game_pfx_ok):
+            mode = PREFIX_MODE_ISOLATED
+        self._prefix_mode = mode
+        self._shared_var = ctk.BooleanVar(value=(mode == PREFIX_MODE_SHARED))
+        self._game_pfx_var = ctk.BooleanVar(value=(mode == PREFIX_MODE_GAME))
+
+        opts = ctk.CTkFrame(self._body, fg_color="transparent")
+        opts.pack(pady=(0, 8))
+
+        self._shared_chk = ctk.CTkCheckBox(
+            opts, text="Use shared prefix",
+            font=FONT_NORMAL, text_color=TEXT_MAIN,
+            fg_color=ACCENT, hover_color=ACCENT_HOV,
+            variable=self._shared_var, command=self._on_shared_toggle,
+        )
+        self._shared_chk.pack(anchor="w", pady=(0, 2))
+        ctk.CTkLabel(
+            opts,
+            text=(
+                "Reuse one prefix (per Proton version) shared by every wizard "
+                "tool, kept in the app config folder instead of next to the exe."
+            ),
+            font=FONT_SMALL, text_color=TEXT_DIM, justify="left", wraplength=440,
+        ).pack(anchor="w", padx=(26, 0), pady=(0, 6))
+
+        if self._allow_game_prefix and game_pfx_ok:
+            self._game_chk = ctk.CTkCheckBox(
+                opts, text="Use game prefix",
+                font=FONT_NORMAL, text_color=TEXT_MAIN,
+                fg_color=ACCENT, hover_color=ACCENT_HOV,
+                variable=self._game_pfx_var, command=self._on_game_pfx_toggle,
+            )
+            self._game_chk.pack(anchor="w", pady=(0, 2))
+            ctk.CTkLabel(
+                opts,
+                text=(
+                    "Run inside the game's own prefix. No new prefix is created "
+                    "and the Proton version follows the game's Steam setting."
+                ),
+                font=FONT_SMALL, text_color=TEXT_DIM, justify="left", wraplength=440,
+            ).pack(anchor="w", padx=(26, 0), pady=(0, 0))
+        else:
+            self._game_chk = None
+
         row = ctk.CTkFrame(self._body, fg_color="transparent")
-        row.pack(pady=(0, 6))
+        row.pack(pady=(8, 6))
+        self._proton_row = row
 
         self._proton_menu = ctk.CTkOptionMenu(
             row, values=versions, width=280,
@@ -370,7 +535,7 @@ class ProtonPrefixStepMixin:
         )
         self._prefix_status.pack(pady=(0, 8))
 
-        self._update_prefix_delete_state()
+        self._update_proton_row_state()
 
         ctk.CTkLabel(
             self._body, text="Environment Variables (optional)",
@@ -406,17 +571,76 @@ class ProtonPrefixStepMixin:
             command=self._on_proton_chosen,
         ).pack(side="bottom", pady=(8, 0))
 
+    def _game_prefix_available(self) -> bool:
+        """True if the game exposes an existing on-disk prefix to reuse."""
+        try:
+            pfx = self._game.get_prefix_path() if hasattr(self._game, "get_prefix_path") else None
+            return pfx is not None and Path(pfx).is_dir()
+        except Exception:
+            return False
+
+    def _current_prefix_mode(self) -> str:
+        if getattr(self, "_game_chk", None) is not None and self._game_pfx_var.get():
+            return PREFIX_MODE_GAME
+        if self._shared_var.get():
+            return PREFIX_MODE_SHARED
+        return PREFIX_MODE_ISOLATED
+
+    def _on_shared_toggle(self):
+        if self._shared_var.get() and getattr(self, "_game_chk", None) is not None:
+            self._game_pfx_var.set(False)
+        self._update_proton_row_state()
+
+    def _on_game_pfx_toggle(self):
+        if self._game_pfx_var.get():
+            self._shared_var.set(False)
+        self._update_proton_row_state()
+
+    def _update_proton_row_state(self):
+        """The game prefix has its own fixed Proton; grey the picker out then."""
+        use_game = (
+            getattr(self, "_game_chk", None) is not None and self._game_pfx_var.get()
+        )
+        try:
+            self._proton_menu.configure(state="disabled" if use_game else "normal")
+        except Exception:
+            pass
+        if use_game:
+            try:
+                self._delete_prefix_btn.configure(state="disabled")
+            except Exception:
+                pass
+            self._set_label(
+                "_prefix_status",
+                "Using the game's existing prefix — Proton version follows the "
+                "game's Steam setting and no new prefix is created.",
+            )
+        else:
+            self._update_prefix_delete_state()
+
     def _on_proton_chosen(self):
+        self._prefix_mode = self._current_prefix_mode()
         self._proton_name = self._proton_menu.get()
         save_saved_proton(self._game, self._tool_exe_name, self._proton_name)
+        save_prefix_mode(self._game, self._tool_exe_name, self._prefix_mode)
         try:
             save_tool_launch_env(self._exe, self._env_entry.get().strip())
         except Exception:
             pass
-        self._log(
-            f"{self._tool_display_name} Wizard: using {self._proton_name} "
-            "with an isolated prefix next to the exe."
-        )
+        if self._prefix_mode == PREFIX_MODE_GAME:
+            self._log(
+                f"{self._tool_display_name} Wizard: using the game's own prefix."
+            )
+        elif self._prefix_mode == PREFIX_MODE_SHARED:
+            self._log(
+                f"{self._tool_display_name} Wizard: using {self._proton_name} "
+                "with a shared prefix in the app config folder."
+            )
+        else:
+            self._log(
+                f"{self._tool_display_name} Wizard: using {self._proton_name} "
+                "with an isolated prefix next to the exe."
+            )
         self._proton_next_step()
 
     # ------------------------------------------------------------------
@@ -429,6 +653,8 @@ class ProtonPrefixStepMixin:
         name = self._proton_menu.get().strip()
         if not name:
             return None
+        if self._shared_var.get():
+            return shared_prefix_dir(name)
         return self._exe.parent / f"prefix_{name}"
 
     def _update_prefix_delete_state(self):
@@ -469,7 +695,7 @@ class ProtonPrefixStepMixin:
     def _do_delete_prefix(self, d: Path):
         import shutil
         try:
-            if not d.name.startswith("prefix_"):
+            if not (d.name.startswith("prefix_") or d.name.startswith("shared_")):
                 raise RuntimeError(f"refusing to delete non-prefix dir: {d}")
             shutil.rmtree(d)
             self._log(f"{self._tool_display_name} Wizard: deleted prefix {d}")

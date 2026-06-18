@@ -191,7 +191,9 @@ def _enumerate_prefixes() -> list[PrefixEntry]:
     except Exception:
         pass
 
-    # 3) Shared wine_prefixes/<tool> dirs (VRAMr / Bendr / ParallaxR).
+    # 3) Shared wine_prefixes/<tool> dirs (VRAMr / Bendr / ParallaxR) and the
+    #    shared_<Proton> wizard-tool prefixes (one per Proton version, reused by
+    #    every wizard tool that opts into "Use shared prefix").
     wine_root = get_wine_prefixes_dir()
     if wine_root.is_dir():
         for sub, label in _WINE_PREFIX_TOOLS.items():
@@ -205,6 +207,22 @@ def _enumerate_prefixes() -> list[PrefixEntry]:
                     location="wine_prefixes",
                     proton="",
                 ))
+        try:
+            shared_dirs = [
+                d for d in wine_root.iterdir()
+                if d.is_dir() and d.name.startswith("shared_")
+            ]
+        except OSError:
+            shared_dirs = []
+        for d in shared_dirs:
+            _add(PrefixEntry(
+                key=str(d),
+                path=d,
+                tool="Wizard Tools (shared)",
+                game="Shared",
+                location="wine_prefixes",
+                proton=d.name[len("shared_"):],
+            ))
 
     out.sort(key=lambda e: (e.game.lower(), e.tool.lower(), e.proton.lower()))
     return out
@@ -606,13 +624,14 @@ class PrefixManagerOverlay(ctk.CTkFrame):
 
 
 def _is_deletable_prefix(path: Path) -> bool:
-    """True only for prefix_* dirs or a known shared wine_prefixes/<tool> dir."""
+    """True for prefix_* dirs, the shared_<Proton> wizard prefixes, or a known
+    shared wine_prefixes/<tool> dir."""
     if path.name.startswith("prefix_"):
         return True
     try:
         return (
             path.parent == get_wine_prefixes_dir()
-            and path.name in _WINE_PREFIX_TOOLS
+            and (path.name in _WINE_PREFIX_TOOLS or path.name.startswith("shared_"))
         )
     except Exception:
         return False

@@ -2494,13 +2494,19 @@ class _ParallaxRRunDialog(ctk.CTkToplevel):
 _PGPATCHER_DEFAULT_PROTON = ""  # empty string = "Game default"
 
 
-def _get_tool_prefix_env(exe_path: "Path", proton_name: str) -> "tuple[Path, Path, dict] | None":
+def _get_tool_prefix_env(
+    exe_path: "Path", proton_name: str, prefix_dir: "Path | None" = None,
+) -> "tuple[Path, Path, dict] | None":
     """Resolve (proton_script, prefix_dir, env) for a tool's isolated prefix.
 
     proton_name is the display name from the dropdown (e.g. "Proton 10.0").
     Returns None if the Proton version can't be found.
     The prefix directory is created if it doesn't exist.
     Runs wineboot to initialise the prefix if it's brand new.
+
+    By default the prefix lives at ``prefix_<ProtonName>/`` next to the exe.
+    Pass *prefix_dir* to place it elsewhere (e.g. a shared prefix under the
+    app config) — the same initialisation (wineboot + ShowDotFiles) applies.
     """
     from Utils.steam_finder import find_any_installed_proton, find_steam_root_for_proton_script
     proton_script = find_any_installed_proton(proton_name)
@@ -2511,7 +2517,8 @@ def _get_tool_prefix_env(exe_path: "Path", proton_name: str) -> "tuple[Path, Pat
     if steam_root is None:
         return None
 
-    prefix_dir = exe_path.parent / f"prefix_{proton_script.parent.name}"
+    if prefix_dir is None:
+        prefix_dir = exe_path.parent / f"prefix_{proton_script.parent.name}"
     is_new = not (prefix_dir / "pfx").is_dir()
     prefix_dir.mkdir(parents=True, exist_ok=True)
 

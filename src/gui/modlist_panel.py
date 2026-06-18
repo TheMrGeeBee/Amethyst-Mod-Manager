@@ -5472,6 +5472,18 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             menu.add_command(f"Endorse selected ({len(targets)})",
                 lambda t=targets: self._endorse_selected_mods(t))
 
+        # Missing Requirements (single)
+        if c.is_real_mod and not c.is_multi and mod_name in self._missing_reqs:
+            dep_names = self._missing_reqs_detail.get(mod_name, [])
+            menu.add_command("Missing Requirements",
+                lambda: self._show_missing_reqs(mod_name, dep_names))
+
+        # Missing Requirements (multi) — aggregate across selected mods
+        if c.is_multi and c.missing_reqs_multi_names:
+            names = list(c.missing_reqs_multi_names)
+            menu.add_command(f"Missing Requirements ({len(names)})",
+                lambda mns=names: self._show_missing_reqs_multi(mns))
+
         # Open on Nexus (single)
         if (c.is_real_mod and not c.is_multi and ctx_meta is not None and c.nexus_url):
             menu.add_command("Open on Nexus",
@@ -5558,18 +5570,6 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             names = list(c.note_multi_names)
             menu.add_command(f"Add note ({len(names)})",
                 lambda mns=names: self._open_note_editor_for_multi(mns))
-
-        # Missing Requirements
-        if c.is_real_mod and not c.is_multi and mod_name in self._missing_reqs:
-            dep_names = self._missing_reqs_detail.get(mod_name, [])
-            menu.add_command("Missing Requirements",
-                lambda: self._show_missing_reqs(mod_name, dep_names))
-
-        # Missing Requirements (multi) — aggregate across selected mods
-        if c.is_multi and c.missing_reqs_multi_names:
-            names = list(c.missing_reqs_multi_names)
-            menu.add_command(f"Missing Requirements ({len(names)})",
-                lambda mns=names: self._show_missing_reqs_multi(mns))
 
         # Remove note (multi)
         if c.is_multi and c.note_multi_remove_names:
