@@ -362,6 +362,106 @@ def install_d3dcompiler_47(
     return False
 
 
+_VCREDIST_URL = "https://aka.ms/vc14/vc_redist.x64.exe"
+
+
+def build_proton_env_for_game(game) -> "tuple[Path, dict] | tuple[None, None]":
+    """Resolve the Proton script + environment for running an installer in a
+    game's prefix, mirroring the Proton Tools menu (gui.dialogs._get_proton_env).
+
+    Returns (proton_script, env) on success or (None, None) when no usable
+    Proton install / prefix can be found. The env is suitable for
+    ``python3 <proton_script> run <installer.exe> …``.
+    """
+    from Utils.steam_finder import (
+        find_any_installed_proton,
+        find_proton_for_game,
+        find_steam_root_for_proton_script,
+        game_steam_id,
+    )
+
+    get_prefix = getattr(game, "get_prefix_path", None)
+    prefix_path = get_prefix() if callable(get_prefix) else None
+    if prefix_path is None or not prefix_path.is_dir():
+        return None, None
+
+    steam_id = game_steam_id(game)
+    proton_script = find_proton_for_game(steam_id) if steam_id else None
+
+    from gui.plugin_panel import _read_prefix_runner, _resolve_compat_data
+    compat_data = _resolve_compat_data(prefix_path)
+
+    if proton_script is None:
+        try:
+            from Utils.heroic_finder import find_heroic_proton_for_prefix
+            proton_script = find_heroic_proton_for_prefix(prefix_path)
+        except Exception:
+            proton_script = None
+
+    if proton_script is None:
+        proton_script = find_any_installed_proton(_read_prefix_runner(compat_data))
+        if proton_script is None:
+            return None, None
+
+    steam_root = find_steam_root_for_proton_script(proton_script)
+    if steam_root is None:
+        return None, None
+
+    env = os.environ.copy()
+    env["STEAM_COMPAT_DATA_PATH"] = str(compat_data)
+    env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(steam_root)
+    game_path = game.get_game_path() if hasattr(game, "get_game_path") else None
+    if game_path:
+        env["STEAM_COMPAT_INSTALL_PATH"] = str(game_path)
+    if steam_id:
+        env.setdefault("SteamAppId", steam_id)
+        env.setdefault("SteamGameId", steam_id)
+    return proton_script, env
+
+
+def install_vcredist(
+    proton_script: "Path",
+    env: dict,
+    log_fn: Callable[[str], None] | None = None,
+    prefix_path: "Path | None" = None,
+) -> bool:
+    """Install the VC++ Redistributable silently into the prefix via Proton.
+
+    Downloads (and caches) Microsoft's official ``vc_redist.x64.exe`` and runs
+    it with ``/install /quiet /norestart`` through ``proton run`` — the exact
+    mechanism the Proton Tools menu uses. Records success in the prefix's
+    amethyst_deps.json so other callers can skip a re-install.
+    """
+    _log = _safe_log(log_fn)
+    from Utils.config_paths import get_vcredist_cache_path
+
+    cache_path = get_vcredist_cache_path()
+    try:
+        if not cache_path.is_file():
+            _log("Downloading VC++ Redistributable …")
+            urllib.request.urlretrieve(_VCREDIST_URL, cache_path)
+            _log("Download complete.")
+        else:
+            _log("Using cached VC++ Redistributable installer.")
+        _log("Installing VC++ Redistributable in game prefix (silent) — please wait …")
+        proc = subprocess.run(
+            ["python3", str(proton_script), "run",
+             str(cache_path), "/install", "/quiet", "/norestart"],
+            env=env, cwd=cache_path.parent,
+        )
+        # 0 = success, 1638 = already installed, 3010 = reboot required, 1641 = reboot initiated
+        if proc.returncode in {0, 1638, 3010, 1641}:
+            _log(f"VC++ Redistributable installed (exit {proc.returncode}).")
+            if prefix_path and Path(prefix_path).is_dir():
+                mark_dep_installed(Path(prefix_path), VCREDIST_DEP_KEY)
+            return True
+        _log(f"VC++ Redistributable installer exited with code {proc.returncode}.")
+        return False
+    except Exception as exc:
+        _log(f"VC++ Redistributable install error: {exc}")
+        return False
+
+
 def protontricks_available() -> bool:
     """Return True if protontricks (native or flatpak) is available on this system."""
     if shutil.which("protontricks") is not None:

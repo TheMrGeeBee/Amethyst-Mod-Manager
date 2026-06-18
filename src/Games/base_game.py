@@ -863,6 +863,25 @@ class BaseGame(ABC):
         return []
 
     @property
+    def auto_install_deps(self) -> list[str]:
+        """
+        Prefix dependencies to install automatically when this game is first
+        added, using the *same installers the Proton Tools menu uses* (not
+        winetricks). Supported keys: ``"vcredist"`` (Microsoft's official
+        vc_redist.x64.exe, run silently via Proton) and ``"d3dcompiler_47"``
+        (the Mozilla fxc2 Win 8.1 DLL drop).
+
+        These run silently in the background and are skipped per-dep when the
+        prefix's amethyst_deps.json already records them, or when no Proton
+        prefix is available. Prefer this over ``winetricks_components`` — many
+        users lack a working winetricks/cabextract setup, and the winetricks
+        vcredist/d3dcompiler verbs are also less reliable for DLL mods.
+
+        Return an empty list (the default) to skip automatic installation.
+        """
+        return []
+
+    @property
     def custom_routing_rules(self) -> list:
         """
         A list of CustomRule objects (from Utils.deploy) that route specific

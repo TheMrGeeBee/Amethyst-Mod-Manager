@@ -73,7 +73,7 @@ from gui.theme import (
 )
 import gui.theme as _theme
 from gui.path_utils import _to_wine_path
-from Utils.config_paths import get_exe_args_path, get_profile_exe_args_path, get_custom_game_images_dir, get_vcredist_cache_path, get_dotnet_cache_dir, get_custom_games_dir, get_config_dir
+from Utils.config_paths import get_exe_args_path, get_profile_exe_args_path, get_custom_game_images_dir, get_dotnet_cache_dir, get_custom_games_dir, get_config_dir
 
 from gui.ctk_components import CTkAlert, CTkLoader, ICON_PATH
 from gui.tk_tooltip import TkTooltip
@@ -1441,38 +1441,11 @@ class ProtonToolsPanel(ctk.CTkFrame):
         proton_script, env = self._get_proton_env()
         if proton_script is None:
             return
-        cache_path = get_vcredist_cache_path()
         prefix_path = getattr(self._game, "_prefix_path", None)
-        vcredist_url = "https://aka.ms/vc14/vc_redist.x64.exe"
 
         def _worker(plog):
-            import urllib.request
-            from Utils.protontricks import VCREDIST_DEP_KEY, mark_dep_installed
-            try:
-                if not cache_path.is_file():
-                    plog("Downloading VC++ Redistributable …")
-                    urllib.request.urlretrieve(vcredist_url, cache_path)
-                    plog("Download complete.")
-                else:
-                    plog("Using cached VC++ Redistributable installer.")
-                plog("Installing VC++ Redistributable in game prefix (silent) — please wait …")
-                proc = subprocess.run(
-                    ["python3", str(proton_script), "run",
-                     str(cache_path), "/install", "/quiet", "/norestart"],
-                    env=env, cwd=cache_path.parent,
-                )
-                # 0 = success, 1638 = already installed, 3010 = reboot required, 1641 = reboot initiated
-                ok_codes = {0, 1638, 3010, 1641}
-                if proc.returncode in ok_codes:
-                    plog(f"VC++ Redistributable installed (exit {proc.returncode}).")
-                    if prefix_path and Path(prefix_path).is_dir():
-                        mark_dep_installed(Path(prefix_path), VCREDIST_DEP_KEY)
-                    return True
-                plog(f"Installer exited with code {proc.returncode}.")
-                return False
-            except Exception as e:
-                plog(f"Error: {e}")
-                return False
+            from Utils.protontricks import install_vcredist
+            return install_vcredist(proton_script, env, log_fn=plog, prefix_path=prefix_path)
 
         self._open_install_progress("Installing VC++ Redistributable", _worker)
 

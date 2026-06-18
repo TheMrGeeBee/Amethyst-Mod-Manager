@@ -10,7 +10,7 @@ Mod structure:
 import shutil
 from pathlib import Path
 
-from Games.Bethesda.Bethesda import Fallout_3
+from Games.Bethesda.Bethesda import Fallout_3, _MODERN_CREATION_ENGINE_DEPS
 from Games.base_game import WizardTool
 from Utils.deploy import LinkMode, deploy_core, deploy_custom_rules, deploy_filemap, load_per_mod_strip_prefixes, load_separator_deploy_paths, expand_separator_deploy_paths, expand_separator_link_modes, expand_separator_raw_deploy, cleanup_custom_deploy_dirs, restore_custom_rules, restore_data_core, move_to_core
 from Utils.modlist import read_modlist
@@ -124,6 +124,13 @@ class SkyrimSE(Fallout_3):
         for n in range(8):
             overrides[f"x3daudio1_{n}"] = "native,builtin"
         return overrides
+
+    # SKSE-plugin DLL mods need the VC++ runtime in the prefix or they fail to
+    # load silently (a common "the manager broke my DLL mods" report);
+    # d3dcompiler_47 (fxc2 build) is needed for Community Shaders / ENB. Both
+    # install silently on first add via the Proton-menu installers. Shared with
+    # the other modern Creation Engine games (FO4/4VR, SkyrimVR, Starfield, …).
+    auto_install_deps = _MODERN_CREATION_ENGINE_DEPS
 
     @property
     def frameworks(self) -> dict[str, str]:
