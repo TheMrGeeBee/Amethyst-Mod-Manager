@@ -570,6 +570,12 @@ class StatusBar(ctk.CTkFrame):
             self._progress_popup._update_geometry = self._reposition_popup
             self._progress_popup._configure_bid = root.bind("<Configure>", self._reposition_popup, add="+")
             self._reposition_popup()
+            # An overlay (e.g. Bundle Options) may own the bottom-right corner —
+            # keep a freshly-created popup hidden; resume_all_download_popups
+            # re-shows it when the overlay closes.
+            mp = getattr(root, "_mod_panel", None)
+            if getattr(mp, "_dl_popups_hidden", False):
+                self._progress_popup.set_force_hidden(True)
         if total > 0:
             pb = self._progress_popup.progressbar
             if pb.cget("mode") == "indeterminate":

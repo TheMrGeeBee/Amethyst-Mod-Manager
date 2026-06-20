@@ -18,7 +18,7 @@ from gui.theme import scaled
 
 
 class _DlSlot:
-    __slots__ = ("popup", "cancel", "bind_id", "suspended")
+    __slots__ = ("popup", "cancel", "bind_id", "suspended", "_overlay_hidden")
 
     def __init__(self, popup: CTkProgressPopup, cancel: threading.Event,
                  bind_id: str | None):
@@ -26,6 +26,9 @@ class _DlSlot:
         self.cancel = cancel
         self.bind_id = bind_id
         self.suspended = False
+        # Set when hidden by suspend_all_download_popups (an overlay owns the
+        # corner), so resume only re-shows these, not caller-suspended slots.
+        self._overlay_hidden = False
 
 
 class ModListDownloadBarMixin:
@@ -34,6 +37,10 @@ class ModListDownloadBarMixin:
     def _build_download_bar(self):
         self._dl_slots: list[_DlSlot] = []
         self._dl_cancel_locked: bool = False
+        # When True, every download popup (existing and newly created) is kept
+        # hidden — used while a modal-ish overlay (e.g. the Bundle Options panel)
+        # owns the bottom-right corner and would otherwise be blocked by popups.
+        self._dl_popups_hidden: bool = False
 
     def _reposition_all_dl_popups(self, *_) -> None:
         """Stack all live download popups upward from the bottom-right."""
@@ -84,8 +91,15 @@ class ModListDownloadBarMixin:
         self._dl_slots.append(slot)
         # Wire this popup's X button to cancel just this slot
         popup.cancel_btn.configure(command=lambda s=slot: self._cancel_dl_slot(s))
-        self._reposition_all_dl_popups()
-        self.after(100, self._reposition_all_dl_popups)
+        if self._dl_popups_hidden:
+            # An overlay owns the corner — keep this new popup hidden until the
+            # overlay closes (resume_all_download_popups re-shows it).
+            slot.suspended = True
+            slot._overlay_hidden = True
+            popup.set_force_hidden(True)
+        else:
+            self._reposition_all_dl_popups()
+            self.after(100, self._reposition_all_dl_popups)
         return cancel
 
     def _cancel_dl_slot(self, slot: _DlSlot) -> None:
@@ -189,3 +203,48 @@ class ModListDownloadBarMixin:
         slot = self._resolve_slot(cancel)
         if slot:
             self._close_dl_slot(slot)
+
+    def suspend_all_download_popups(self) -> None:
+        """Hide every download popup (and the deploy/extract status popup) while
+        an overlay owns the bottom-right corner.  Downloads keep running; only
+        their popups are hidden.  New downloads started while hidden also stay
+        hidden until :meth:`resume_all_download_popups`.  Idempotent."""
+        if self._dl_popups_hidden:
+            return
+        self._dl_popups_hidden = True
+        for slot in self._dl_slots:
+            if not slot.suspended and slot.popup.winfo_exists():
+                # Mark our own suspension so resume only re-shows these, leaving
+                # caller-suspended popups (suspend_download_progress) hidden.
+                slot.suspended = True
+                slot._overlay_hidden = True
+                slot.popup.set_force_hidden(True)
+        # Also tuck away the shared deploy/extract status popup.
+        status = getattr(self.winfo_toplevel(), "_status", None)
+        if status is not None:
+            p = getattr(status, "_progress_popup", None)
+            if p is not None and p.winfo_exists():
+                p.set_force_hidden(True)
+
+    def resume_all_download_popups(self) -> None:
+        """Undo :meth:`suspend_all_download_popups`: re-show popups we hid (not
+        ones suspended by their own caller) and the status popup.  Idempotent."""
+        if not self._dl_popups_hidden:
+            return
+        self._dl_popups_hidden = False
+        for slot in self._dl_slots:
+            if getattr(slot, "_overlay_hidden", False):
+                slot._overlay_hidden = False
+                slot.suspended = False
+                if slot.popup.winfo_exists():
+                    slot.popup.set_force_hidden(False)
+        status = getattr(self.winfo_toplevel(), "_status", None)
+        if status is not None:
+            p = getattr(status, "_progress_popup", None)
+            if p is not None and p.winfo_exists():
+                p.set_force_hidden(False)
+                try:
+                    status._reposition_popup()
+                except Exception:
+                    pass
+        self._reposition_all_dl_popups()

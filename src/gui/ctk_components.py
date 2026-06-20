@@ -1363,6 +1363,10 @@ class CTkProgressPopup(ctk.CTkToplevel):
         self.withdraw()
         self._update_geometry()
         self._was_shown = False  # tracks last known shown state
+        # When True, the visibility poll never deiconifies this popup — used to
+        # keep it hidden behind an overlay that owns its screen corner.  Survives
+        # focus changes, unlike a bare withdraw() (which the poll would undo).
+        self._force_hidden = False
         # Poll the root window state every 200 ms to show/hide the popup.
         # Event bindings (<FocusOut>, <Map>/<Unmap>) are unreliable with
         # overrideredirect windows on Linux — polling is simple and robust.
@@ -1386,7 +1390,7 @@ class CTkProgressPopup(ctk.CTkToplevel):
         """Periodically sync popup visibility with the root window's active state."""
         if not self.winfo_exists():
             return
-        should_show = self._root_is_active()
+        should_show = self._root_is_active() and not self._force_hidden
         if should_show and not self._was_shown:
             self._update_geometry()
             self.deiconify()
@@ -1423,6 +1427,22 @@ class CTkProgressPopup(ctk.CTkToplevel):
     def update_position(self, event=None):
         self._update_geometry()
         self.update_idletasks()
+
+    def set_force_hidden(self, hidden: bool) -> None:
+        """Keep this popup hidden (True) regardless of focus, or release it
+        (False).  The visibility poll re-shows a released popup on its next tick
+        if the app is active."""
+        self._force_hidden = bool(hidden)
+        try:
+            if hidden:
+                self.withdraw()
+                self._was_shown = False
+            elif self._root_is_active():
+                self._update_geometry()
+                self.deiconify()
+                self._was_shown = True
+        except Exception:
+            pass
 
     def update_progress(self, progress):
         if self.cancelled:

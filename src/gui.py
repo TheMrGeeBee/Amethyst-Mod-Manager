@@ -2075,11 +2075,18 @@ class App(ctk.CTk):
 
     def show_bundle_options_panel(self, mod_name, spec, on_done, lib_dir=None):
         self._ensure_plugin_panel_visible()
+        # Download/deploy popups share the bottom-right corner with this panel's
+        # Save/Cancel buttons — hide them while it's open so they can't block it.
+        mp = getattr(self, "_mod_panel", None)
+        if mp is not None:
+            mp.suspend_all_download_popups()
         from gui.dialogs import BundleOptionsPanel
         def _factory():
             def _done(panel):
                 self.hide_bundle_image_preview()  # close preview with the dialog
                 self._hide_plugin_overlay("_bundle_options_panel")
+                if mp is not None:
+                    mp.resume_all_download_popups()
                 on_done(panel)
             return BundleOptionsPanel(
                 self._plugin_panel_container,
@@ -2092,6 +2099,9 @@ class App(ctk.CTk):
 
     def hide_bundle_options_panel(self):
         self._hide_plugin_overlay("_bundle_options_panel")
+        mp = getattr(self, "_mod_panel", None)
+        if mp is not None:
+            mp.resume_all_download_popups()
 
     # -- Bundle option image preview (over the modlist panel) ----------------
 
