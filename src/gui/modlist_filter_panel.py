@@ -47,12 +47,12 @@ _FILTER_CHECKBOXES: tuple[tuple[str, str, str], ...] = (
     ("filter_fomod_only",           "FOMOD mods",                     "_filter_fomod_only"),
     ("filter_bain_only",            "BAIN mods",                      "_filter_bain_only"),
     ("filter_has_bsa",              "Mods with BSA archives",         "_filter_has_bsa"),
-    ("filter_has_pbr",              "Contains PBR textures",          "_filter_has_pbr"),
+    ("filter_has_pbr",              "PGPatcher mods",                 "_filter_has_pbr"),
 )
 
 # Filters that only apply to a specific game. Maps var_key → predicate on the
 # active game; the checkbox is hidden (and its state cleared) when the active
-# game doesn't match. PBR textures (textures/pbr) are only relevant to Skyrim SE.
+# game doesn't match. PGPatcher (parallax/complex material/PBR) is Skyrim SE only.
 _GAME_SPECIFIC_FILTERS = {
     "filter_has_pbr": lambda game: getattr(game, "nexus_game_domain", "") == "skyrimspecialedition",
 }

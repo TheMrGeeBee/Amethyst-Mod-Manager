@@ -4408,13 +4408,28 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             sep_idx, lambda e: e.name in mods_with_bsa,
         )
 
+    # Texture filename suffixes (before .dds) that PGPatcher acts on, mirroring
+    # PGPatcher's getTexSuffixMap(): parallax height maps (_p), complex-material
+    # env masks (_m/_em/_envmask) and TruePBR maps (_rmaos + PBR-only ancillaries).
+    _PGPATCHER_TEX_SUFFIXES = (
+        "_p",                         # parallax height
+        "_m", "_em", "_envmask",      # complex material env mask
+        "_rmaos", "_cnr", "_s",       # PBR
+        "_i", "_f",                   # PBR (inner layer, fuzz)
+    )
+
     def _get_mods_with_pbr(self) -> set[str]:
-        """Set of mod names that contain files under a textures/pbr folder."""
+        """Set of mod names with textures PGPatcher operates on (parallax,
+        complex material or PBR), detected by .dds filename suffix."""
+        suffixes = self._PGPATCHER_TEX_SUFFIXES
         result: set[str] = set()
         for mod, (normal, root) in self._read_mod_index_safe().items():
             for rel_key in (*normal, *root):
                 # rel_key is the normalized (lowercased) relative path.
-                if rel_key.startswith("textures/pbr/"):
+                if not rel_key.endswith(".dds"):
+                    continue
+                stem = rel_key[:-4]
+                if any(stem.endswith(suf) for suf in suffixes):
                     result.add(mod)
                     break
         return result
