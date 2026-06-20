@@ -37,7 +37,7 @@ from PIL import Image, ImageDraw, ImageTk
 from gui.theme import (
     font_sized_px, scaled, FONT_FAMILY,
     BG_PANEL, BG_DEEP, CTK_TEXT, CTK_FOOTER_FG, CTK_FOOTER_HOV, CTK_SEP, CTK_SEP_ALT,
-    CTK_BTN_HOVER, SCROLL_BG, SCROLL_TROUGH, SCROLL_ACTIVE, LINK_BLUE,
+    CTK_BTN_HOVER, SCROLL_BG, SCROLL_TROUGH, SCROLL_ACTIVE, LINK_BLUE, TEXT_MUTED,
 )
 
 try:
@@ -837,8 +837,12 @@ class CTkPopupMenu(ctk.CTkToplevel):
 
         self.withdraw()
 
-    def add_command(self, label: str, command=None, font=None):
-        """Add a menu item. command is called when the menu is dismissed."""
+    def add_command(self, label: str, command=None, font=None, accelerator=None):
+        """Add a menu item. command is called when the menu is dismissed.
+
+        accelerator: optional shortcut hint (e.g. "Del", "F2") shown dimmed and
+        right-aligned over the item.
+        """
         btn_kwargs = dict(
             fg_color="transparent", hover=True,
             text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
@@ -850,6 +854,20 @@ class CTkPopupMenu(ctk.CTkToplevel):
             btn_kwargs["font"] = font
         btn = ctk.CTkButton(self.frame, text=label, anchor="w", **btn_kwargs)
         btn.grid(row=self._item_row, column=0, sticky="ew", padx=6, pady=1)
+        if accelerator:
+            accel = ctk.CTkLabel(
+                self.frame, text=accelerator, anchor="e",
+                text_color=TEXT_MUTED, fg_color="transparent",
+            )
+            # Overlay in the same cell, floated to the right edge. Clicking the
+            # hint invokes the underlying button; hovering it drives the button's
+            # hover colour manually (the label sits on top of the right strip of
+            # the button, so the button's own <Enter>/<Leave> can't fire there).
+            accel.grid(row=self._item_row, column=0, sticky="e", padx=14, pady=1)
+            hover_color = ctk.ThemeManager.theme["CTkButton"]["hover_color"]
+            accel.bind("<Button-1>", lambda e: self._on_item_click(command))
+            accel.bind("<Enter>", lambda e, b=btn: b.configure(fg_color=hover_color))
+            accel.bind("<Leave>", lambda e, b=btn: b.configure(fg_color="transparent"))
         self._item_row += 1
         self._content_height += _MENU_ITEM_H + 2
         self._has_items = True

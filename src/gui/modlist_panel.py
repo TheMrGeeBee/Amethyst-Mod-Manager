@@ -5414,7 +5414,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         # Rename mod
         if (not c.is_separator and not c.is_locked
                 and not c.is_bundle_var and not c.is_multi):
-            menu.add_command("Rename mod", lambda: self._rename_mod(idx))
+            menu.add_command("Rename mod", lambda: self._rename_mod(idx),
+                             accelerator="F2")
 
         # ── Group 2: Files & install options ────────────────────────────
         _group_break()
@@ -5551,9 +5552,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         if c.toggleable:
             count = len(c.toggleable)
             menu.add_command(f"Disable selected ({count})",
-                lambda inds=list(c.toggleable): self._disable_selected_mods(inds))
+                lambda inds=list(c.toggleable): self._disable_selected_mods(inds),
+                accelerator="Enter")
             menu.add_command(f"Enable selected ({count})",
-                lambda inds=list(c.toggleable): self._enable_selected_mods(inds))
+                lambda inds=list(c.toggleable): self._enable_selected_mods(inds),
+                accelerator="Enter")
 
         # Move to separator
         if not c.is_separator and not c.is_locked and not c.is_bundle_var and c.sep_names:
@@ -5609,9 +5612,11 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         if not c.is_separator and not c.is_locked:
             if c.remove_multi and self._modlist_path is not None:
                 menu.add_command(f"Remove mod ({len(c.remove_multi)})",
-                    lambda rm=c.remove_multi: self._remove_selected_mods(rm))
+                    lambda rm=c.remove_multi: self._remove_selected_mods(rm),
+                    accelerator="Del")
             else:
-                menu.add_command("Remove mod", lambda: self._remove_mod(idx))
+                menu.add_command("Remove mod", lambda: self._remove_mod(idx),
+                                 accelerator="Del")
 
         # ── Separator-row entries (mutually exclusive with the mod groups) ─
         # A separator row sets is_separator; none of the above mod entries
@@ -5641,7 +5646,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             # Rename separator
             if not c.is_bundle_sep:
                 menu.add_command("Rename separator",
-                    lambda: self._rename_separator(idx))
+                    lambda: self._rename_separator(idx),
+                    accelerator="F2")
 
             # Separator settings…
             if not c.is_bundle_sep:
