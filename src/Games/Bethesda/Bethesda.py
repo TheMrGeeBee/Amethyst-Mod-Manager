@@ -1656,7 +1656,23 @@ class Fallout_4(Fallout_3):
 
     @property
     def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
+        from wizards.bodyslide import find_mod_exe
+        bodyslide_tools = []
+        if find_mod_exe(self, ("BodySlide.exe", "BodySlide x64.exe")) is not None:
+            bodyslide_tools.append(WizardTool(
+                id="run_bodyslide_fo4",
+                label="Run BodySlide",
+                description="Deploy mods and run BodySlide from the Data folder.",
+                dialog_class_path="wizards.bodyslide.BodySlideWizard",
+            ))
+        if find_mod_exe(self, ("OutfitStudio.exe", "OutfitStudio x64.exe")) is not None:
+            bodyslide_tools.append(WizardTool(
+                id="run_outfitstudio_fo4",
+                label="Run Outfit Studio",
+                description="Deploy mods and run Outfit Studio from the Data folder.",
+                dialog_class_path="wizards.bodyslide.OutfitStudioWizard",
+            ))
+        return self._base_wizard_tools() + bodyslide_tools + [
             WizardTool(
                 id="install_se_fo4",
                 label="Install Script Extender (F4SE)",
