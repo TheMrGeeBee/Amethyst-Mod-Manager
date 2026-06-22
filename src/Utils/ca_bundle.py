@@ -77,3 +77,71 @@ def resolve_ca_bundle() -> str | None:
         app_log(f"ca_bundle: using {reason} -> {chosen}")
     _cached = chosen
     return chosen
+
+
+_ssl_ctx = None
+
+
+def get_ssl_context():
+    """Return a cached ``ssl.SSLContext`` built from the resolved CA bundle.
+
+    Pass this as ``context=`` to ``urllib.request.urlopen`` so raw urllib
+    downloads honour the same certifi → system-store fallback as ``requests``
+    calls do via ``verify=resolve_ca_bundle()``. Without it, urllib uses
+    Python's default trust store, which fails with
+    ``CERTIFICATE_VERIFY_FAILED`` on machines with a broken/missing CA store
+    or a stale ``SSL_CERT_FILE``.
+    """
+    global _ssl_ctx
+    if _ssl_ctx is None:
+        import ssl
+        bundle = resolve_ca_bundle()
+        _ssl_ctx = ssl.create_default_context(cafile=bundle) if bundle \
+            else ssl.create_default_context()
+    return _ssl_ctx
+
+
+def download_file(url, dest, timeout=60, reporthook=None):
+    """Download ``url`` to ``dest`` over HTTPS using the resolved CA bundle.
+
+    Drop-in replacement for ``urllib.request.urlretrieve(url, dest,
+    reporthook=...)`` that routes through :func:`get_ssl_context` so the
+    download honours the same certifi → system-store fallback as ``requests``
+    calls. Plain ``urlretrieve`` uses Python's default trust store and fails
+    with ``CERTIFICATE_VERIFY_FAILED`` on machines with a broken/missing CA
+    store or a stale ``SSL_CERT_FILE``.
+
+    ``reporthook`` is called as ``reporthook(block_num, block_size,
+    total_size)`` exactly like ``urlretrieve``. Writes to a ``.part`` temp
+    file first so a partial download never leaves a corrupt file at ``dest``.
+    """
+    import shutil
+    import urllib.request
+    from pathlib import Path
+
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    block_size = 1024 * 64
+    try:
+        with urllib.request.urlopen(url, timeout=timeout,
+                                    context=get_ssl_context()) as resp, \
+                open(tmp, "wb") as out:
+            total = int(resp.headers.get("Content-Length", 0) or 0)
+            if reporthook is not None:
+                reporthook(0, block_size, total)
+            block_num = 0
+            while True:
+                chunk = resp.read(block_size)
+                if not chunk:
+                    break
+                out.write(chunk)
+                block_num += 1
+                if reporthook is not None:
+                    reporthook(block_num, block_size, total)
+        tmp.replace(dest)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass

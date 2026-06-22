@@ -192,7 +192,8 @@ class DtkitPatchWizard(ctk.CTkFrame):
                     except Exception:
                         pass
 
-            urllib.request.urlretrieve(url, dest, reporthook=_reporthook)
+            from Utils.ca_bundle import download_file
+            download_file(url, dest, reporthook=_reporthook)
             self._archive_path = dest
             self._log(f"dtkit-patch wizard: downloaded {filename}")
             self.after(0, lambda: self._dl_progress.stop())

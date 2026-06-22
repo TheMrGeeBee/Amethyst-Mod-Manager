@@ -224,7 +224,8 @@ class PGPatcherWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp_path = Path(tmp.name)
 
-            urllib.request.urlretrieve(dl_url, tmp_path)
+            from Utils.ca_bundle import download_file
+            download_file(dl_url, tmp_path)
 
             dest = _get_applications_dir(self._game)
             dest.mkdir(parents=True, exist_ok=True)
@@ -331,7 +332,8 @@ class PGPatcherWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             if not cache_path.is_file():
                 self._set_label("_net8_status", "Downloading .NET 8 runtime\u2026")
                 self._log("PGPatcher Wizard: downloading .NET 8 runtime \u2026")
-                urllib.request.urlretrieve(_NET8_URL, cache_path)
+                from Utils.ca_bundle import download_file
+                download_file(_NET8_URL, cache_path)
                 self._log("PGPatcher Wizard: .NET 8 download complete.")
             else:
                 self._log("PGPatcher Wizard: using cached .NET 8 installer.")

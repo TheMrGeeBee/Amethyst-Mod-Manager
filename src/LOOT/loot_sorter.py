@@ -135,7 +135,8 @@ def _head_ok(url: str, timeout: float = 5.0) -> bool:
     """True if a HEAD request to url returns 2xx."""
     try:
         req = urllib.request.Request(url, method="HEAD")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        from Utils.ca_bundle import get_ssl_context
+        with urllib.request.urlopen(req, timeout=timeout, context=get_ssl_context()) as resp:
             return 200 <= getattr(resp, "status", 200) < 300
     except urllib.error.HTTPError as e:
         return 200 <= e.code < 300
@@ -278,21 +279,19 @@ def _ensure_masterlist(
 
     # Try to download if a URL is provided
     if download_url:
-        tmp = dest.with_suffix(".tmp")
         if version_changed:
             _log(f"libloot version changed — refreshing {filename}...")
         else:
             _log(f"Fetching latest {filename}...")
         try:
-            urllib.request.urlretrieve(download_url, tmp)
-            tmp.replace(dest)
+            # download_file writes to a .part temp then atomically renames.
+            from Utils.ca_bundle import download_file
+            download_file(download_url, dest)
             _write_sidecar_version(dest)
             _log(f"Updated {filename}.")
             return
         except Exception as exc:
             _log(f"Could not fetch {filename}: {exc} — using cached copy.")
-            if tmp.exists():
-                tmp.unlink(missing_ok=True)
 
     # Fall through: use cached file if it exists
     if dest.is_file():

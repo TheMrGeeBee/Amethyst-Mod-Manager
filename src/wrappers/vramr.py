@@ -185,10 +185,10 @@ def _ensure_compressonator(log_fn: Callable[[str], None]) -> Path:
     log_fn("Downloading AMD CompressonatorCLI (one-time, ~19 MB)...")
     base.mkdir(parents=True, exist_ok=True)
 
-    import urllib.request
+    from Utils.ca_bundle import download_file
     tarball = base / "compressonatorcli.tar.gz"
     try:
-        urllib.request.urlretrieve(_COMPRESSONATOR_URL, tarball)
+        download_file(_COMPRESSONATOR_URL, tarball)
     except Exception as exc:
         raise RuntimeError(
             f"Failed to download CompressonatorCLI: {exc}\n"

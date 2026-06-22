@@ -340,7 +340,8 @@ class PandoraWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             if not cache_path.is_file():
                 self._set_label("_net10_status", "Downloading .NET 10 runtime\u2026")
                 self._log("Pandora Wizard: downloading .NET 10 runtime \u2026")
-                urllib.request.urlretrieve(_NET10_URL, cache_path)
+                from Utils.ca_bundle import download_file
+                download_file(_NET10_URL, cache_path)
                 self._log("Pandora Wizard: .NET 10 download complete.")
             else:
                 self._log("Pandora Wizard: using cached .NET 10 installer.")

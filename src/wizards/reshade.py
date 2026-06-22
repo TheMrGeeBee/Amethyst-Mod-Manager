@@ -68,7 +68,8 @@ def _fetch_latest_reshade_url() -> tuple[str, str]:
         _RESHADE_HOME_URL,
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    from Utils.ca_bundle import get_ssl_context
+    with urllib.request.urlopen(req, timeout=15, context=get_ssl_context()) as resp:
         html = resp.read().decode("utf-8", errors="replace")
 
     # Match e.g. "ReShade_Setup_6.7.3.exe" (not the _Addon variant)
@@ -102,7 +103,8 @@ def _download_and_extract_reshade_dll(dest_dir: Path, arch: int = 64) -> Path:
         url,
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    from Utils.ca_bundle import get_ssl_context
+    with urllib.request.urlopen(req, timeout=60, context=get_ssl_context()) as resp:
         data = resp.read()
 
     want = f"reshade{arch}.dll"
@@ -328,7 +330,8 @@ def _fetch_pack_zip(url: str, cache_dir: Path, timeout: float = 60.0) -> bytes:
 
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        from Utils.ca_bundle import get_ssl_context
+        with urllib.request.urlopen(req, timeout=timeout, context=get_ssl_context()) as resp:
             body = resp.read()
             try:
                 zip_path.write_bytes(body)

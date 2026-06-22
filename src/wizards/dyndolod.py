@@ -618,7 +618,8 @@ class xLODGenWizard(_DynDOLODBaseWizard):
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp_path = Path(tmp.name)
 
-            _urlreq.urlretrieve(dl_url, tmp_path)
+            from Utils.ca_bundle import download_file
+            download_file(dl_url, tmp_path)
             self._log(f"xLODGen Wizard: download complete, extracting\u2026")
             self._set_label("_dl_status", "Extracting\u2026")
 

@@ -53,7 +53,8 @@ def _fetch_latest_github_asset(api_url: str, archive_keywords: list[str]) -> tup
         api_url,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "ModManager/1.0"},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    from Utils.ca_bundle import get_ssl_context
+    with urllib.request.urlopen(req, timeout=15, context=get_ssl_context()) as resp:
         data = _json.loads(resp.read().decode())
     tag = data.get("tag_name", "unknown")
     for asset in data.get("assets", []):
@@ -386,7 +387,8 @@ class ScriptExtenderWizard(ctk.CTkFrame):
                         mode="determinate"
                     ) or self._dl_progress.set(p))
 
-            urllib.request.urlretrieve(url, dest, reporthook=_reporthook)
+            from Utils.ca_bundle import download_file
+            download_file(url, dest, reporthook=_reporthook)
             self._archive_path = dest
             self._log(f"Wizard: downloaded {filename}")
             self._dl_ui(self._dl_progress, lambda: self._dl_progress.stop())

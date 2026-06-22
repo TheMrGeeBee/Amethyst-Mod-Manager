@@ -1027,7 +1027,8 @@ class GamePickerPanel(tk.Frame):
         def _do():
             try:
                 req = _urllib.Request(download_url, headers={"User-Agent": "Amethyst-Mod-Manager"})
-                with _urllib.urlopen(req, timeout=15) as resp:
+                from Utils.ca_bundle import get_ssl_context
+                with _urllib.urlopen(req, timeout=15, context=get_ssl_context()) as resp:
                     data = resp.read().decode("utf-8", errors="replace")
                 _json.loads(data)  # validate
                 from Utils.config_paths import get_custom_games_dir as _gcgd

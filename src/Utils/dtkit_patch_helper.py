@@ -53,7 +53,8 @@ def _fetch_latest_linux_asset(api_url: str) -> tuple[str, str, str]:
         api_url,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "ModManager/1.0"},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    from Utils.ca_bundle import get_ssl_context
+    with urllib.request.urlopen(req, timeout=15, context=get_ssl_context()) as resp:
         data = json.loads(resp.read().decode())
     tag = data.get("tag_name", "unknown")
     for asset in data.get("assets", []):
@@ -168,7 +169,8 @@ def ensure_dtkit_binary(log_fn=None) -> Path:
     try:
         filename = url.split("/")[-1]
         dest_archive = tmp_dir / filename
-        urllib.request.urlretrieve(url, dest_archive)
+        from Utils.ca_bundle import download_file
+        download_file(url, dest_archive)
         _log(f"dtkit-patch: installing {filename}...")
         binary = _install_from_archive(dest_archive, _TOOLS_DIR)
     finally:

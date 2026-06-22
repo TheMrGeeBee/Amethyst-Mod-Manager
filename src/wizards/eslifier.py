@@ -208,7 +208,8 @@ class ESLifierWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
                     "User-Agent": "ModManager/1.0",
                 },
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            from Utils.ca_bundle import get_ssl_context
+            with urllib.request.urlopen(req, timeout=15, context=get_ssl_context()) as resp:
                 data = json.loads(resp.read().decode())
 
             tag = data.get("tag_name", "unknown")
@@ -228,7 +229,8 @@ class ESLifierWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
             tmp_dir = Path(tempfile.mkdtemp())
             archive = tmp_dir / "ESLifier.zip"
             try:
-                urllib.request.urlretrieve(url, archive)
+                from Utils.ca_bundle import download_file
+                download_file(url, archive)
 
                 dest = _get_applications_dir(self._game)
                 dest.mkdir(parents=True, exist_ok=True)

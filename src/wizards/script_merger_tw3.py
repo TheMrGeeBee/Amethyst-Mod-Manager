@@ -549,7 +549,8 @@ class ScriptMergerWizard(ctk.CTkFrame):
             if not cache_path.is_file():
                 self._set_label("_net8_status", "Downloading .NET 8 runtime\u2026")
                 self._log("Script Merger Wizard: downloading .NET 8 runtime \u2026")
-                urllib.request.urlretrieve(_NET8_URL, cache_path)
+                from Utils.ca_bundle import download_file
+                download_file(_NET8_URL, cache_path)
                 self._log("Script Merger Wizard: .NET 8 download complete.")
             else:
                 self._log("Script Merger Wizard: using cached .NET 8 installer.")

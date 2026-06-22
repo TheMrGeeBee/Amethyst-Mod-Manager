@@ -118,7 +118,8 @@ def install_cabextract(log_fn: Callable[[str], None] | None = None) -> bool:
             _CABEXTRACT_URL,
             headers={"User-Agent": "Mozilla/5.0"},
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        from Utils.ca_bundle import get_ssl_context
+        with urllib.request.urlopen(req, timeout=60, context=get_ssl_context()) as resp:
             pkg_bytes = resp.read()
         dctx = zstandard.ZstdDecompressor()
         raw = dctx.stream_reader(io.BytesIO(pkg_bytes))
@@ -154,7 +155,8 @@ def install_winetricks(log_fn: Callable[[str], None] | None = None) -> bool:
             _WINETRICKS_URL,
             headers={"User-Agent": "Mozilla/5.0"},
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        from Utils.ca_bundle import get_ssl_context
+        with urllib.request.urlopen(req, timeout=30, context=get_ssl_context()) as resp:
             data = resp.read()
         dest.write_bytes(data)
         dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -268,7 +270,8 @@ def _download_verified(url: str, sha256: str, log_fn: Callable[[str], None]) -> 
     """Download *url* and return its bytes if the SHA-256 matches, else None."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        from Utils.ca_bundle import get_ssl_context
+        with urllib.request.urlopen(req, timeout=60, context=get_ssl_context()) as resp:
             data = resp.read()
     except Exception as exc:
         log_fn(f"Download failed for {url}: {exc}")
@@ -439,7 +442,8 @@ def install_vcredist(
     try:
         if not cache_path.is_file():
             _log("Downloading VC++ Redistributable …")
-            urllib.request.urlretrieve(_VCREDIST_URL, cache_path)
+            from Utils.ca_bundle import download_file
+            download_file(_VCREDIST_URL, cache_path)
             _log("Download complete.")
         else:
             _log("Using cached VC++ Redistributable installer.")
