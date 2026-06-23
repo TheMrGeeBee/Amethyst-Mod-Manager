@@ -3,7 +3,7 @@
 - Priority numbers are now shown in collapsed separators
 - Potential fix for users who get ssl cert errors when using proton tools
 - Running an application via the Run exe button will now open the applications wizard tool if it has one
-
+- Added a wizard for Creation kit
 
 - v1.3.11
 - Reworked RE engine bundle style mods to be detected and presented better, an interface can now be opened for these mods to change the options.
