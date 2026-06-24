@@ -279,7 +279,7 @@ from gui.theme import BG_DEEP
 from gui.fomod_dialog import FomodDialog
 from gui.bain_dialog import BainDialog
 from gui.mod_name_utils import _strip_title_metadata, _suggest_mod_names, sanitize_mod_folder_name
-from Utils.fomod_parser import detect_fomod, parse_module_config, parse_mod_info
+from Utils.fomod_parser import detect_fomod, detect_scripted_fomod, parse_module_config, parse_mod_info
 from Utils.fomod_installer import resolve_files, check_module_dependencies
 from Utils.bain_installer import detect_bain, resolve_bain_files, bain_unwrap_single_folder
 from Utils.ui_config import load_dev_mode, load_rename_mod_after_install
@@ -1700,6 +1700,26 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
         is_fomod_install = False
         is_bain_install = False
         fomod_result = detect_fomod(extract_dir)
+        if not fomod_result and detect_scripted_fomod(extract_dir):
+            # C#-scripted FOMOD (fomod/script.cs, no ModuleConfig.xml). The
+            # XML installer dialog can't run these, so the mod is installed as
+            # a plain full-file copy with no option prompts. Warn the user so
+            # they know to look for an XML/manual version if they need choices.
+            _scripted_warn = (
+                "This is a scripted (C#) FOMOD installer, which this manager "
+                "cannot run. All files have been installed without showing any "
+                "install options.\n\nIf you need to choose optional components, "
+                "look for an XML-based or manually-packaged version of this mod "
+                "on Nexus.")
+            log_fn("WARNING: " + _scripted_warn.replace("\n\n", " "))
+            if parent_window is not None:
+                try:
+                    from gui.dialogs import show_warning
+                    parent_window.after(0, lambda: show_warning(
+                        "Scripted FOMOD", _scripted_warn,
+                        parent=parent_window, height=260))
+                except Exception:
+                    pass  # log warning above is the fallback
         if fomod_result:
             mod_root, config_path = fomod_result
             config = parse_module_config(config_path)

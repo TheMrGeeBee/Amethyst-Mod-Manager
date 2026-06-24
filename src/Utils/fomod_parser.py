@@ -464,6 +464,67 @@ def detect_fomod(extracted_root: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def detect_scripted_fomod(extracted_root: str) -> Optional[str]:
+    """Return the path to a ``fomod/`` folder that is a *scripted* (C#) FOMOD
+    installer, i.e. it has a ``script.cs`` / ``script.dll`` (or only ``info.xml``)
+    but NO ``ModuleConfig.xml``.
+
+    The XML-based installer dialog cannot run these — the install proceeds as a
+    plain full-file copy.  Callers use this to warn the user that no install
+    options were shown and an XML version of the mod may exist.
+
+    Uses the same wrapper-peel + BFS search as :func:`detect_fomod` so it finds
+    the fomod/ folder wherever it sits.  Returns the fomod/ dir path, or None.
+    """
+    root = Path(extracted_root)
+
+    def _check(d: Path) -> Optional[str]:
+        try:
+            for child in d.iterdir():
+                if child.is_dir() and child.name.lower() == "fomod":
+                    names = {f.name.lower() for f in child.iterdir() if f.is_file()}
+                    if "moduleconfig.xml" in names:
+                        return None  # XML installer — handled by detect_fomod
+                    if names & {"script.cs", "script.dll", "info.xml"}:
+                        return str(child)
+        except PermissionError:
+            pass
+        return None
+
+    cur = root
+    for _ in range(20):
+        hit = _check(cur)
+        if hit:
+            return hit
+        try:
+            entries = [c for c in cur.iterdir()]
+        except PermissionError:
+            break
+        if len(entries) == 1 and entries[0].is_dir():
+            cur = entries[0]
+            continue
+        break
+
+    candidates: list[Path] = [root]
+    seen: set[Path] = {root}
+    for _ in range(6):
+        next_level: list[Path] = []
+        for d in candidates:
+            hit = _check(d)
+            if hit:
+                return hit
+            try:
+                for child in sorted(d.iterdir()):
+                    if child.is_dir() and child not in seen:
+                        seen.add(child)
+                        next_level.append(child)
+            except PermissionError:
+                continue
+        candidates = next_level
+
+    return None
+
+
 def _parse_xml_tolerant(xml_path: str) -> ET.Element:
     """Parse an XML file, tolerating incorrect encoding declarations."""
     import re as _re

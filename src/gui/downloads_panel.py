@@ -73,7 +73,7 @@ _POOL_SIZE = 40  # pre-allocated canvas slots (covers ~40 visible rows)
 # .dazip / .override are Dragon Age package formats (renamed zips) — listed so
 # they show up in the Downloads tab and can be installed like any other archive.
 _ARCHIVE_EXTS = {".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz",
-                 ".dazip", ".override"}
+                 ".dazip", ".override", ".fomod"}
 
 from gui.text_utils import truncate_text_tk_call as _truncate_text_cached
 
