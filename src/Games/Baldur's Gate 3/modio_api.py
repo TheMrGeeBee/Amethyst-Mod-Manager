@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 
@@ -54,6 +53,30 @@ class ModioFile:
         )
 
 
+@dataclass
+class ModioModSummary:
+    """A mod's live file + page URL, from the batched mods endpoint."""
+
+    mod_id: int = 0
+    name: str = ""
+    profile_url: str = ""
+    latest_file_id: int = 0
+    latest_version: str = ""
+    latest_date_added: int = 0
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ModioModSummary":
+        mf = d.get("modfile") or {}
+        return cls(
+            mod_id=int(d.get("id") or 0),
+            name=str(d.get("name") or ""),
+            profile_url=str(d.get("profile_url") or ""),
+            latest_file_id=int(mf.get("id") or 0),
+            latest_version=str(mf.get("version") or ""),
+            latest_date_added=int(mf.get("date_added") or 0),
+        )
+
+
 class ModioAPIError(Exception):
     """Raised on a failed mod.io API request (network or HTTP error)."""
 
@@ -72,6 +95,28 @@ class ModioAPI:
             "Accept": "application/json",
             "User-Agent": "AmethystModManager",
         })
+
+    def _get(self, url: str, params: dict, *, retries: int = 3):
+        """GET with retry on 429 (honouring ``retry-after``) and transient 403.
+
+        Under bulk checking mod.io occasionally throttles with 429 or returns a
+        spurious 403; both clear on retry, so we back off rather than fail the
+        mod.  Returns the final ``requests.Response`` (caller checks status).
+        """
+        delay = 1.0
+        for attempt in range(retries + 1):
+            resp = self._session.get(url, params=params, timeout=self._timeout)
+            if resp.status_code in (429, 403) and attempt < retries:
+                wait = delay
+                if resp.status_code == 429:
+                    try:
+                        wait = max(wait, float(resp.headers.get("retry-after", 0)))
+                    except (TypeError, ValueError):
+                        pass
+                time.sleep(min(wait, 10.0))
+                delay *= 2
+                continue
+            return resp
 
     def get_mod_files(self, mod_id: int, *, use_cache: bool = True) -> "list[ModioFile]":
         """Return all released files for *mod_id*, newest first.
@@ -93,14 +138,14 @@ class ModioAPI:
             "_limit": 100,
         }
         try:
-            resp = self._session.get(url, params=params, timeout=self._timeout)
+            resp = self._get(url, params)
         except requests.RequestException as e:
             raise ModioAPIError(f"network error: {e}") from e
 
         if resp.status_code == 401:
             raise ModioAPIError("invalid or missing mod.io API key (HTTP 401)")
-        if resp.status_code == 404:
-            raise ModioAPIError(f"mod {mod_id} not found on mod.io (HTTP 404)")
+        if resp.status_code in (403, 404):
+            raise ModioAPIError(f"mod {mod_id} not found on mod.io (HTTP {resp.status_code})")
         if resp.status_code != 200:
             raise ModioAPIError(f"HTTP {resp.status_code}: {resp.text[:200]}")
 
@@ -115,10 +160,40 @@ class ModioAPI:
         _FILES_CACHE[mod_id] = (time.time(), files)
         return files
 
-    def get_latest_file(self, mod_id: int, *, use_cache: bool = True) -> Optional[ModioFile]:
-        """Return the newest released file for *mod_id*, or None if none."""
-        files = self.get_mod_files(mod_id, use_cache=use_cache)
-        return files[0] if files else None
+    def get_mods_latest_batch(self, mod_ids: "list[int]") -> "dict[int, ModioModSummary]":
+        """Fetch the live file + page URL for many mods in one request.
+
+        Uses the ``id-in`` filter on the mods endpoint (which embeds the live
+        ``modfile``), so N mods cost one HTTP call instead of N.  Splits into
+        pages of 100.  Raises :class:`ModioAPIError` on failure.
+        """
+        ids = sorted({i for i in mod_ids if i > 0})
+        out: dict[int, ModioModSummary] = {}
+        for start in range(0, len(ids), 100):
+            chunk = ids[start:start + 100]
+            url = f"{_API_ROOT}/games/{_GAME}/mods"
+            params = {
+                "api_key": self._api_key,
+                "id-in": ",".join(str(i) for i in chunk),
+                "_limit": 100,
+            }
+            try:
+                resp = self._get(url, params)
+            except requests.RequestException as e:
+                raise ModioAPIError(f"network error: {e}") from e
+            if resp.status_code == 401:
+                raise ModioAPIError("invalid or missing mod.io API key (HTTP 401)")
+            if resp.status_code != 200:
+                raise ModioAPIError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            try:
+                data = resp.json().get("data", [])
+            except ValueError as e:
+                raise ModioAPIError(f"invalid JSON response: {e}") from e
+            for d in data:
+                s = ModioModSummary.from_json(d)
+                if s.mod_id:
+                    out[s.mod_id] = s
+        return out
 
     def get_mod_profile_url(self, mod_id: int) -> str:
         """Return the mod's public mod.io page URL (its ``profile_url``).
@@ -131,8 +206,7 @@ class ModioAPI:
             return ""
         url = f"{_API_ROOT}/games/{_GAME}/mods/{mod_id}"
         try:
-            resp = self._session.get(url, params={"api_key": self._api_key},
-                                     timeout=self._timeout)
+            resp = self._get(url, {"api_key": self._api_key})
             if resp.status_code != 200:
                 return ""
             return str(resp.json().get("profile_url") or "")

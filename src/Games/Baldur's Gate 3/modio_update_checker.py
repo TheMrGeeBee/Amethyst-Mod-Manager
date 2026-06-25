@@ -88,6 +88,10 @@ def check_for_updates(
         _log(f"mod.io: cannot init API — {e}")
         return results
 
+    # Phase 1: gather each mod.io folder's meta, resolving any that lack an id.
+    # Resolve-on-demand (per-mod /files for the size/md5 match) is unavoidably
+    # individual, but it only runs for mods installed before a key was entered.
+    targets: list[tuple[Path, Path, "object"]] = []  # (folder, meta_path, ModioMeta)
     for folder in sorted(p for p in staging_root.iterdir() if p.is_dir()):
         if only_names is not None and folder.name not in only_names:
             continue
@@ -95,10 +99,6 @@ def check_for_updates(
         meta = (modio_meta.read_modio_meta(meta_path)
                 if meta_path.is_file() else modio_meta.ModioMeta())
 
-        # Resolve metadata on demand for mods that don't have it yet — e.g.
-        # installed before a mod.io key was entered.  The install zip is gone
-        # by now, but the pak's PublishHandle + uncompressed-size match still
-        # identifies the mod and its version.
         if meta.mod_id <= 0:
             mod_id, _name, _pak = modio_meta.read_publish_handle_from_staging(folder)
             if mod_id <= 0:
@@ -107,9 +107,7 @@ def check_for_updates(
             try:
                 resolved = modio_meta.resolve_modio_meta(
                     archive_path=(_pak if _pak is not None else folder),
-                    staging_dir=folder,
-                    api_key=api_key,
-                    log_fn=_log,
+                    staging_dir=folder, api_key=api_key, log_fn=_log,
                 )
             except Exception as e:
                 _log(f"mod.io: resolve failed for '{folder.name}' — {e}")
@@ -121,50 +119,46 @@ def check_for_updates(
             except OSError as e:
                 app_log(f"mod.io: could not write meta.ini for '{folder.name}': {e}")
             meta = resolved
+        targets.append((folder, meta_path, meta))
 
-        _log(f"mod.io: checking '{folder.name}' (mod {meta.mod_id})...")
-        try:
-            latest = api.get_latest_file(meta.mod_id)
-        except Exception as e:
-            _log(f"mod.io: lookup failed for '{folder.name}' — {e}")
-            continue
-        if latest is None:
+    if not targets:
+        _log("mod.io: no mod.io mods to check.")
+        return results
+
+    # Phase 2: one batched request for every mod's latest file + page URL.
+    _log(f"mod.io: checking {len(targets)} mod(s)...")
+    try:
+        summaries = api.get_mods_latest_batch([m.mod_id for _, _, m in targets])
+    except Exception as e:
+        _log(f"mod.io: batch lookup failed — {e}")
+        return results
+
+    for folder, meta_path, meta in targets:
+        s = summaries.get(meta.mod_id)
+        if s is None or s.latest_file_id <= 0:
             continue
 
         info = ModioUpdateInfo(
-            mod_name=folder.name,
-            mod_id=meta.mod_id,
-            installed_file_id=meta.file_id,
-            installed_version=meta.version,
-            latest_file_id=latest.file_id,
-            latest_version=latest.version,
+            mod_name=folder.name, mod_id=meta.mod_id,
+            installed_file_id=meta.file_id, installed_version=meta.version,
+            latest_file_id=s.latest_file_id, latest_version=s.latest_version,
         )
-
         if meta.file_id <= 0:
-            # We never pinned our own version → can't say for sure.
             info.unknown = True
             results.append(info)
-        elif latest.file_id != meta.file_id:
+        elif s.latest_file_id != meta.file_id:
             info.has_update = True
             results.append(info)
 
-        # Backfill the page URL for mods installed before it was captured, so
-        # clicking the update flag can open the mod.io page.
-        url_changed = False
-        if not meta.profile_url:
-            try:
-                meta.profile_url = api.get_mod_profile_url(meta.mod_id)
-                url_changed = bool(meta.profile_url)
-            except Exception:
-                pass
-
-        # Refresh the cached "latest" fields regardless, so the GUI can show
-        # the available version even when up to date.
-        if (url_changed
-                or meta.latest_file_id != latest.file_id
-                or meta.latest_version != latest.version):
-            meta.latest_file_id = latest.file_id
-            meta.latest_version = latest.version
+        # Persist refreshed latest-file fields + backfill the page URL (the
+        # batch already fetched it, so this is free).
+        url = meta.profile_url or s.profile_url
+        if (meta.latest_file_id != s.latest_file_id
+                or meta.latest_version != s.latest_version
+                or meta.profile_url != url):
+            meta.latest_file_id = s.latest_file_id
+            meta.latest_version = s.latest_version
+            meta.profile_url = url
             try:
                 modio_meta.write_modio_meta(meta_path, meta)
             except OSError as e:

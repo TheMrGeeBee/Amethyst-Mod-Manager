@@ -944,6 +944,24 @@ class ModListNexusActionsMixin:
         def _worker():
             try:
                 _have_nexus = app._nexus_api is not None
+
+                # Run the mod.io check (BG3) in parallel with the Nexus check —
+                # they hit different APIs and write disjoint meta.ini keys.  A
+                # mod on both sites could in theory race on the same meta.ini,
+                # but both writers preserve unknown keys, so the worst case is a
+                # one-check-stale cached "latest" value that self-heals on the
+                # next run — never corruption.  Both log via the thread-safe wrapper.
+                _modio_box = {"results": []}
+
+                def _modio_work():
+                    _modio_box["results"] = _check_modio_updates(
+                        game, staging,
+                        lambda m: app.after(0, lambda msg=m: log_fn(msg)),
+                        only_names=target_names)
+
+                _modio_thread = threading.Thread(target=_modio_work, daemon=True)
+                _modio_thread.start()
+
                 if _have_nexus:
                     results, missing = check_for_updates(
                         app._nexus_api, staging,
@@ -954,12 +972,8 @@ class ModListNexusActionsMixin:
                 else:
                     results, missing = [], []
 
-                # BG3-only: also check mod.io-tracked mods (manually installed
-                # from mod.io, identified at install time via PublishHandle).
-                modio_results = _check_modio_updates(
-                    game, staging,
-                    lambda m: app.after(0, lambda msg=m: log_fn(msg)),
-                    only_names=target_names)
+                _modio_thread.join()
+                modio_results = _modio_box["results"]
 
                 def _done():
                     _close_notif()
