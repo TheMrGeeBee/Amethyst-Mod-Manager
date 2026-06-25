@@ -68,6 +68,15 @@ _NEW_NEXUS_NO_SLUG_RE = re.compile(
     r"^(?P<name>.+?)_(?P<ver>\d+(?:\.\d+)*[A-Za-z]*)$"
 )
 
+# mod.io download names append a truncated-UUID tail: an underscore, the first
+# two hex groups of the mod's UUID (``<8hex>-<4hex>``), then one or more short
+# trailing groups (1-4 chars each) ending in a random token — e.g.
+# ``bettercontainers_cb42bc3a-f1d2-afwl``, ``wingsunlocked_3d7eabb4-81bf-d9-bwww``,
+# ``weightlessgold_81117bd5-de2f-a-du9y`` (note the 1-char ``a`` group).  The
+# ``_<8hex>-<4hex>`` anchor is distinct from any Nexus tail, so matching is
+# unambiguous and never touches Nexus names.
+_MODIO_TAIL_RE = re.compile(r"_[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-z]{1,4})+$")
+
 
 def _slug_like(token: str) -> bool:
     """True if *token* resembles a random Nexus upload slug (base62 noise)
@@ -173,6 +182,18 @@ def _suggest_mod_names(filename_stem: str) -> list[str]:
     """
     # Step 1: strip duplicate-download suffix added by browsers/OS (e.g. " (1)", " (2)")
     stem = re.sub(r"\s*\(\d+\)\s*$", "", filename_stem).strip()
+
+    # Step 1b: strip the mod.io UUID-fragment tail (distinct from any Nexus
+    # tail).  The cleaned name is the default; the raw stem stays as a fallback.
+    modio_clean = _MODIO_TAIL_RE.sub("", stem)
+    if modio_clean != stem:
+        seen = set()
+        result = []
+        for candidate in (modio_clean, filename_stem):
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                result.append(candidate)
+        return result
 
     # Step 2: handle the post-2026-06-11 Nexus underscore format
     #   "<mod name>_<version>[_<slug>]".  When it matches, the decoded name is

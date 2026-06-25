@@ -3,6 +3,7 @@ Mod list panel: canvas-based virtual list, toolbar, filters, Nexus update/endors
 Used by App. Imports theme, game_helpers, dialogs, install_mod.
 """
 
+import configparser
 import json
 import os
 import shutil
@@ -216,12 +217,14 @@ def _format_size(num_bytes: int) -> str:
     return f"{mb / 1024:.2f} GB"
 
 
-def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = False) -> dict:
+def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = False,
+                          is_bg3: bool = False) -> dict:
     """Pure scan over meta.ini; returns dict of results. Safe to run in thread.
 
     Folder sizes are only walked when compute_sizes is set (Size column visible),
     since walking every mod tree is expensive and fires on many GUI events."""
     update_mods: set[str] = set()
+    update_modio_mods: set[str] = set()
     missing_reqs: set[str] = set()
     missing_reqs_detail: dict[str, list[str]] = {}
     endorsed_mods: set[str] = set()
@@ -258,6 +261,21 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
                 meta = read_meta(meta_path)
             if meta.has_update and not meta.ignore_update:
                 update_mods.add(entry.name)
+            # mod.io (BG3 only): update flag when the installed file id differs
+            # from the latest one; also capture the mod.io version so it can
+            # stand in for a missing Nexus version below.
+            _modio_version = ""
+            if is_bg3:
+                try:
+                    _cp = configparser.ConfigParser(interpolation=None)
+                    _cp.read(str(meta_path), encoding="utf-8")
+                    _fid = int(_cp.get("General", "modioFileId", fallback="0") or "0")
+                    _lfid = int(_cp.get("General", "modioLatestFileId", fallback="0") or "0")
+                    if _fid > 0 and _lfid > 0 and _fid != _lfid:
+                        update_modio_mods.add(entry.name)
+                    _modio_version = _cp.get("General", "modioVersion", fallback="")
+                except Exception:
+                    pass
             if meta.missing_requirements:
                 missing_reqs.add(entry.name)
                 names = []
@@ -281,6 +299,8 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
                 category_names[entry.name] = meta.category_name
             if meta.version:
                 mod_versions[entry.name] = meta.version
+            elif _modio_version:
+                mod_versions[entry.name] = _modio_version
             if meta.is_fomod:
                 fomod_mods.add(entry.name)
             if meta.is_bain:
@@ -302,6 +322,7 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
             pass
     return {
         "update_mods": update_mods,
+        "update_modio_mods": update_modio_mods,
         "missing_reqs": missing_reqs,
         "missing_reqs_detail": missing_reqs_detail,
         "endorsed_mods": endorsed_mods,
@@ -413,6 +434,13 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._icon_update = ImageTk.PhotoImage(
                 PilImage.open(_update_path).convert("RGBA").resize((_icon_sz, _icon_sz), PilImage.LANCZOS))
 
+        # mod.io update-available icon (BG3 mods identified via PublishHandle)
+        self._icon_update_modio: ImageTk.PhotoImage | None = None
+        _update_modio_path = _ICONS_DIR / "update_modio.png"
+        if _update_modio_path.is_file():
+            self._icon_update_modio = ImageTk.PhotoImage(
+                PilImage.open(_update_modio_path).convert("RGBA").resize((_icon_sz, _icon_sz), PilImage.LANCZOS))
+
         # Missing-requirements warning icon
         self._icon_warning: ImageTk.PhotoImage | None = None
         _warning_path = _ICONS_DIR / "warning.png"
@@ -491,6 +519,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
         # Set of mod names that have a Nexus update available
         self._update_mods: set[str] = set()
+        self._update_modio_mods: set[str] = set()
 
         # Lazy cache of mod_name → description (Nexus summary), loaded from meta.ini
         # on first hover. Cleared whenever update info is recomputed (since the
@@ -1576,7 +1605,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
     def _scan_meta_flags(self):
         """Single pass over meta.ini: update, missing_reqs, endorsed, install_dates (sync)."""
         results = _scan_meta_flags_impl(self._entries, self._staging_root,
-                                        compute_sizes=8 not in self._col_hidden)
+                                        compute_sizes=8 not in self._col_hidden,
+                                        is_bg3=self._is_bg3())
         self._apply_meta_results(results)
 
     def _scan_meta_flags_async(self):
@@ -1588,6 +1618,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         """
         if self._modlist_path is None or not self._staging_root.is_dir():
             self._update_mods.clear()
+            self._update_modio_mods.clear()
             self._missing_reqs.clear()
             self._missing_reqs_detail.clear()
             self._endorsed_mods.clear()
@@ -1611,9 +1642,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         modlist_path = self._modlist_path
         call_threadsafe = self._call_threadsafe
         compute_sizes = 8 not in self._col_hidden
+        is_bg3 = self._is_bg3()
 
         def _worker():
-            results = _scan_meta_flags_impl(entries, mods_dir, compute_sizes)
+            results = _scan_meta_flags_impl(entries, mods_dir, compute_sizes, is_bg3)
             results["_modlist_path"] = modlist_path
             call_threadsafe(lambda: self._apply_meta_results(results))
 
@@ -1626,6 +1658,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         if "_modlist_path" in results and results["_modlist_path"] != self._modlist_path:
             return  # Stale: user switched game before scan finished
         self._update_mods = results["update_mods"]
+        self._update_modio_mods = results.get("update_modio_mods", set())
         self._description_cache.clear()
         self._missing_reqs = results["missing_reqs"]
         self._missing_reqs_detail = results["missing_reqs_detail"]
@@ -2608,6 +2641,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                             if _be.name in self._update_mods and self._icon_update and "update" not in _seen_flag:
                                 _agg_flags.append(("img", self._icon_update))
                                 _seen_flag.add("update")
+                            if (_be.name in self._update_modio_mods and self._icon_update_modio
+                                    and "update_modio" not in _seen_flag):
+                                _agg_flags.append(("img", self._icon_update_modio))
+                                _seen_flag.add("update_modio")
                             if _be.name in self._endorsed_mods and self._icon_endorsed and "endorsed" not in _seen_flag:
                                 _agg_flags.append(("img", self._icon_endorsed))
                                 _seen_flag.add("endorsed")
@@ -2814,6 +2851,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                         _flags.append(("star",))
                     if entry.name in self._update_mods and self._icon_update:
                         _flags.append(("img", self._icon_update))
+                    if entry.name in self._update_modio_mods and self._icon_update_modio:
+                        _flags.append(("img", self._icon_update_modio))
                     if entry.name in self._endorsed_mods and self._icon_endorsed:
                         _flags.append(("img", self._icon_endorsed))
                     if entry.name in self._prertx_mods and self._icon_info:
@@ -3345,7 +3384,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
          lambda s, _ms: (lambda e: s._mod_is_modified_in_mf(e.name)),
          lambda s, _ms: s._sep_block_has_disabled_files),
         ("_filter_has_updates", None,
-         lambda s, _ms: (lambda e: e.name in s._update_mods),
+         lambda s, _ms: (lambda e: e.name in s._update_mods
+                         or e.name in s._update_modio_mods),
          lambda s, _ms: s._sep_block_has_updates),
         ("_filter_fomod_only", None,
          lambda s, _ms: (lambda e: e.name in s._fomod_mods),
@@ -3601,7 +3641,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 has_warning  = (name in self._missing_reqs
                                and name not in self._ignored_missing_reqs)
                 is_locked    = self._entries[i].locked
-                has_update   = name in self._update_mods
+                has_update   = (name in self._update_mods
+                                or name in self._update_modio_mods)
                 has_root     = (name in self._root_folder_mods
                                 or name in self._root_rule_mods)
                 has_disabled = self._mod_is_modified_in_mf(name)
@@ -3851,6 +3892,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                     _items.append("star")
                 if entry.name in self._update_mods:
                     _items.append("update")
+                if entry.name in self._update_modio_mods:
+                    _items.append("update_modio")
                 if entry.name in self._endorsed_mods:
                     _items.append("endorsed")
                 if entry.name in self._prertx_mods:
@@ -3884,6 +3927,9 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                                 return
                             elif _kind == "update":
                                 self._update_nexus_mod(entry.name)
+                                return
+                            elif _kind == "update_modio":
+                                self._open_modio_mod_page(entry.name)
                                 return
                             break
 
@@ -4403,7 +4449,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
     def _sep_block_has_updates(self, sep_idx: int) -> bool:
         return self._sep_block_has_any(
-            sep_idx, lambda e: e.name in self._update_mods,
+            sep_idx, lambda e: (e.name in self._update_mods
+                                or e.name in self._update_modio_mods),
         )
 
     def _sep_block_has_fomod(self, sep_idx: int) -> bool:
@@ -4970,6 +5017,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             _items.append("star")
         if entry.name in self._update_mods:
             _items.append("update")
+        if entry.name in self._update_modio_mods:
+            _items.append("update_modio")
         if entry.name in self._endorsed_mods:
             _items.append("endorsed")
         if entry.name in self._prertx_mods:
@@ -5006,6 +5055,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                            if missing else "Missing requirements")
                 elif _kind == "update":
                     tip = "Update available on Nexus Mods"
+                elif _kind == "update_modio":
+                    tip = "Update available on mod.io"
                 elif _kind == "endorsed":
                     tip = "Endorsed"
                 elif _kind == "prertx":
@@ -5414,6 +5465,37 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             is_premium=is_premium, quick_update_names=quick_update_names,
         )
 
+    def _is_bg3(self) -> bool:
+        """True if the current game is Baldur's Gate 3 (mod.io features only)."""
+        return getattr(self._game, "game_id", "") == "baldurs_gate_3"
+
+    def _modio_mod_id(self, mod_name: str) -> int:
+        """Return the stored mod.io mod id for *mod_name* (0 if none/non-BG3)."""
+        if not self._is_bg3():
+            return 0
+        meta_path = self._staging_root / mod_name / "meta.ini"
+        if not meta_path.is_file():
+            return 0
+        try:
+            cp = configparser.ConfigParser(interpolation=None)
+            cp.read(str(meta_path), encoding="utf-8")
+            return int(cp.get("General", "modioModId", fallback="0") or "0")
+        except Exception:
+            return 0
+
+    def _is_modio_trackable(self, mod_name: str) -> bool:
+        """True if *mod_name* can be mod.io update-checked: a stored mod.io id,
+        or a .pak the checker can resolve from on demand (BG3 only)."""
+        if not self._is_bg3():
+            return False
+        if self._modio_mod_id(mod_name) > 0:
+            return True
+        folder = self._staging_root / mod_name
+        try:
+            return folder.is_dir() and any(folder.rglob("*.pak"))
+        except OSError:
+            return False
+
     def _resolve_nexus_domain(self, meta) -> str:
         """Best-effort game-domain resolution: meta.game_domain, then the
         domain segment of nexus_page_url, then the configured game default."""
@@ -5547,17 +5629,20 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             menu.add_command("Change Version",
                 lambda mn=mod_name: self._update_nexus_mod(mn))
 
-        # Check Updates (single)
+        # Check Updates (single) — Nexus mod, or a mod.io-trackable BG3 mod.
         if (c.is_real_mod and not c.is_multi
-                and ctx_meta is not None and ctx_meta.mod_id > 0):
+                and ((ctx_meta is not None and ctx_meta.mod_id > 0)
+                     or self._is_modio_trackable(mod_name))):
             menu.add_command("Check Updates",
                 lambda mn=mod_name: self._on_check_updates_for_mods([mn]))
 
         # Check Updates (multi)
-        if c.is_multi and c.nexus_urls:
+        if c.is_multi:
             check_names = [self._entries[i].name for i in c.toggleable]
-            menu.add_command(f"Check Updates ({len(check_names)})",
-                lambda mns=check_names: self._on_check_updates_for_mods(mns))
+            # Show when any selected mod is Nexus- or mod.io-trackable.
+            if c.nexus_urls or any(self._is_modio_trackable(n) for n in check_names):
+                menu.add_command(f"Check Updates ({len(check_names)})",
+                    lambda mns=check_names: self._on_check_updates_for_mods(mns))
 
         # Endorse Mod (single)
         if (c.is_real_mod and not c.is_multi
@@ -5583,7 +5668,12 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             menu.add_command(f"Missing Requirements ({len(names)})",
                 lambda mns=names: self._show_missing_reqs_multi(mns))
 
-        # Open on Nexus (single)
+        # Open on mod.io / Nexus (single) — a mod can be on both sites, so
+        # show whichever entries apply (mod.io listed first).
+        if (c.is_real_mod and not c.is_multi
+                and self._modio_mod_id(mod_name) > 0):
+            menu.add_command("Open on mod.io",
+                lambda mn=mod_name: self._open_modio_mod_page(mn))
         if (c.is_real_mod and not c.is_multi and ctx_meta is not None and c.nexus_url):
             menu.add_command("Open on Nexus",
                 lambda u=c.nexus_url: self._open_nexus_page(u))
@@ -6423,7 +6513,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
         # 2. Transient in-memory flags (no disk representation of their own;
         # rebuilt on reload, so just migrate the current snapshot).
-        for s in (self._update_mods, self._missing_reqs, self._ignored_missing_reqs,
+        for s in (self._update_mods, self._update_modio_mods,
+                  self._missing_reqs, self._ignored_missing_reqs,
                   self._endorsed_mods, self._prertx_mods, self._fomod_mods,
                   self._bain_mods,
                   self._collection_bundled_mods, self._collection_patched_mods):
@@ -7252,13 +7343,20 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._log(f"Could not open folder: {e}")
 
     def _on_middle_click(self, event) -> None:
-        """Middle-click: open the hovered mod's Nexus page in the browser."""
+        """Middle-click: open the hovered mod's page in the browser.
+
+        mod.io takes precedence when the mod carries mod.io metadata (BG3 mods
+        installed from mod.io); otherwise the Nexus page is opened."""
         if not self._entries or self._modlist_path is None:
             return
         cy = self._event_canvas_y(event)
         idx = self._canvas_y_to_index(cy)
         entry = self._entries[idx]
         if entry.is_separator:
+            return
+        # mod.io mods first (replaces the Nexus open, mirroring the right-click).
+        if self._modio_mod_id(entry.name) > 0:
+            self._open_modio_mod_page(entry.name)
             return
         staging_root = self._staging_root
         meta_path = staging_root / entry.name / "meta.ini"

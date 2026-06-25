@@ -31,6 +31,54 @@ from Nexus.nexus_meta import build_meta_from_download, read_meta, write_meta
 from Nexus.nexus_update_checker import check_for_updates
 
 
+def _load_bg3_modio(stem):
+    """Load a Games/Baldur's Gate 3/<stem>.py module by file path (the folder
+    name has spaces, so it isn't importable by dotted path)."""
+    import importlib.util
+    import sys as _sys
+    from pathlib import Path as _Path
+    mn = f"{stem}_bg3"
+    cached = _sys.modules.get(mn)
+    if cached is not None:
+        return cached
+    bg3_dir = _Path(__file__).resolve().parent.parent / "Games" / "Baldur's Gate 3"
+    spec = importlib.util.spec_from_file_location(mn, str(bg3_dir / f"{stem}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules[mn] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _modio_key_present(game) -> bool:
+    """True if this is BG3 and a mod.io API key is configured."""
+    try:
+        if getattr(game, "game_id", "") != "baldurs_gate_3":
+            return False
+        return bool(_load_bg3_modio("modio_key").load_modio_key())
+    except Exception:
+        return False
+
+
+def _check_modio_updates(game, staging, log_fn, only_names=None):
+    """BG3-only mod.io update check. Returns a list of ModioUpdateInfo (mods
+    with a newer file, or unknown installed version), or [] for other games /
+    when no mod.io key is configured.  *only_names* restricts the check to
+    those staging folder names.  Never raises."""
+    try:
+        if getattr(game, "game_id", "") != "baldurs_gate_3":
+            return []
+        from pathlib import Path as _Path
+        api_key = _load_bg3_modio("modio_key").load_modio_key()
+        if not api_key:
+            return []
+        checker = _load_bg3_modio("modio_update_checker")
+        return checker.check_for_updates(
+            _Path(staging), api_key, progress_cb=log_fn, only_names=only_names)
+    except Exception as e:
+        log_fn(f"mod.io: update check failed — {e}")
+        return []
+
+
 class ModListNexusActionsMixin:
     """Endorse/abstain, update install, reinstall, and update-check flows."""
 
@@ -227,6 +275,53 @@ class ModListNexusActionsMixin:
             self._sel_set.clear()
         self._compute_bundle_groups()
         self._invalidate_derived_caches()
+
+    def _open_modio_mod_page(self, mod_name: str) -> None:
+        """Open the mod.io page for a mod.io-tracked mod (BG3).
+
+        The page is slug-based (.../m/<name_id>); the numeric id does NOT
+        resolve in a browser.  We use the ``modioProfileUrl`` captured at
+        install/update time, fetching it on the fly if it's missing.
+        """
+        import configparser
+        import webbrowser
+        meta_path = self._staging_root / mod_name / "meta.ini"
+        if not meta_path.is_file():
+            self._log(f"mod.io: No metadata for {mod_name}")
+            return
+        try:
+            cp = configparser.ConfigParser(interpolation=None)
+            cp.read(str(meta_path), encoding="utf-8")
+            url = (cp.get("General", "modioProfileUrl", fallback="") or "").strip()
+            mod_id = int(cp.get("General", "modioModId", fallback="0") or "0")
+        except Exception as exc:
+            self._log(f"mod.io: Could not read metadata — {exc}")
+            return
+
+        # Backfill the slug URL via the API if we don't have it stored yet.
+        if not url and mod_id > 0:
+            api_key = _load_bg3_modio("modio_key").load_modio_key() \
+                if _modio_key_present(self._game) else ""
+            if api_key:
+                try:
+                    api = _load_bg3_modio("modio_api").ModioAPI(api_key)
+                    url = api.get_mod_profile_url(mod_id)
+                    if url:
+                        cp.set("General", "modioProfileUrl", url)
+                        with open(meta_path, "w", encoding="utf-8") as f:
+                            cp.write(f)
+                except Exception as exc:
+                    self._log(f"mod.io: Could not fetch page URL — {exc}")
+
+        if not url:
+            self._log(f"mod.io: No page URL for {mod_name} "
+                      f"(run Check Updates with a mod.io key set).")
+            return
+        self._log(f"mod.io: Opening {url}")
+        try:
+            webbrowser.open(url)
+        except Exception as exc:
+            self._log(f"mod.io: Could not open browser — {exc}")
 
     def _update_nexus_mod(self, mod_name: str) -> None:
         """Show the mod files overlay so the user can pick which file to install."""
@@ -819,12 +914,15 @@ class ModListNexusActionsMixin:
         the "All mod requirements satisfied" line is emitted on a clean run
         (only the all-mods variant logs it)."""
         app = self.winfo_toplevel()
-        if app._nexus_api is None:
-            self._warn_nexus_login_required()
-            return
         game = self._game
         if game is None or not game.is_configured():
             self._log("No configured game selected.")
+            return
+        # mod.io (BG3) can run without a Nexus login.  Only bail for "needs
+        # Nexus login" when there's also no mod.io key to fall back on.
+        _has_modio = _modio_key_present(game)
+        if app._nexus_api is None and not _has_modio:
+            self._warn_nexus_login_required()
             return
 
         staging = game.get_effective_mod_staging_path()
@@ -845,29 +943,51 @@ class ModListNexusActionsMixin:
 
         def _worker():
             try:
-                results, missing = check_for_updates(
-                    app._nexus_api, staging,
-                    game_domain=game.nexus_game_domain,
-                    progress_cb=lambda m: app.after(0, lambda msg=m: log_fn(msg)),
-                    enabled_only=target_names,
-                )
+                _have_nexus = app._nexus_api is not None
+                if _have_nexus:
+                    results, missing = check_for_updates(
+                        app._nexus_api, staging,
+                        game_domain=game.nexus_game_domain,
+                        progress_cb=lambda m: app.after(0, lambda msg=m: log_fn(msg)),
+                        enabled_only=target_names,
+                    )
+                else:
+                    results, missing = [], []
+
+                # BG3-only: also check mod.io-tracked mods (manually installed
+                # from mod.io, identified at install time via PublishHandle).
+                modio_results = _check_modio_updates(
+                    game, staging,
+                    lambda m: app.after(0, lambda msg=m: log_fn(msg)),
+                    only_names=target_names)
 
                 def _done():
                     _close_notif()
                     self._update_btn.configure(text="Check Updates", state="normal")
-                    if results:
-                        log_fn(f"Nexus: {len(results)} update(s) available!")
-                        for u in results:
-                            log_fn(f"  ↑ {u.mod_name}: {u.installed_version} → {u.latest_version}")
-                    else:
-                        log_fn(up_to_date_msg)
+                    if _have_nexus:
+                        if results:
+                            log_fn(f"Nexus: {len(results)} update(s) available!")
+                            for u in results:
+                                log_fn(f"  ↑ {u.mod_name}: {u.installed_version} → {u.latest_version}")
+                        else:
+                            log_fn(up_to_date_msg)
+                    if modio_results:
+                        log_fn(f"mod.io: {len(modio_results)} update(s) available!")
+                        for u in modio_results:
+                            if u.unknown:
+                                log_fn(f"  ? {u.mod_name}: installed version unknown "
+                                       f"(latest {u.latest_version})")
+                            else:
+                                log_fn(f"  ↑ {u.mod_name}: {u.installed_version} → {u.latest_version}")
+                    elif not _have_nexus:
+                        log_fn("mod.io: All tracked mods are up to date.")
                     if missing:
                         log_fn(f"Nexus: {len(missing)} mod(s) have missing requirements!")
                         for m in missing:
                             names = ", ".join(r.mod_name for r in m.missing[:3])
                             suffix = f" (+{len(m.missing) - 3} more)" if len(m.missing) > 3 else ""
                             log_fn(f"  ⚠ {m.mod_name}: needs {names}{suffix}")
-                    elif log_clean_reqs:
+                    elif log_clean_reqs and _have_nexus:
                         log_fn("Nexus: All mod requirements satisfied.")
                     self._scan_meta_flags_async()
 

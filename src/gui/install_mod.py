@@ -298,6 +298,56 @@ from Nexus.nexus_meta import write_meta, read_meta, resolve_nexus_meta_for_archi
 from gui.ctk_components import CTkNotification
 
 
+def _try_modio_resolve(game, archive_path, meta_path, log_fn) -> bool:
+    """BG3-only: identify a mod on mod.io and stamp its meta.ini keys.
+
+    Runs independently of the Nexus lookup (a mod can be on both sites, often
+    with identical md5s, and the user may prefer to update via mod.io).  Writes
+    are non-destructive, so any Nexus keys already present are preserved.  The
+    mod.io modules live in the (space-named) BG3 folder and aren't importable,
+    so they're loaded by file path.  Returns True if mod.io metadata was written.
+    """
+    try:
+        if getattr(game, "game_id", "") != "baldurs_gate_3":
+            return False
+
+        import importlib.util
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        bg3_dir = _Path(__file__).resolve().parent.parent / "Games" / "Baldur's Gate 3"
+
+        def _load(stem):
+            mn = f"{stem}_bg3"
+            cached = _sys.modules.get(mn)
+            if cached is not None:
+                return cached
+            spec = importlib.util.spec_from_file_location(mn, str(bg3_dir / f"{stem}.py"))
+            mod = importlib.util.module_from_spec(spec)
+            _sys.modules[mn] = mod
+            spec.loader.exec_module(mod)
+            return mod
+
+        api_key = _load("modio_key").load_modio_key()
+        if not api_key:
+            log_fn("mod.io: no API key configured (set one in the mod.io wizard) — skipping.")
+            return False
+
+        modio_meta = _load("modio_meta")
+        meta = modio_meta.resolve_modio_meta(
+            archive_path=_Path(archive_path),
+            staging_dir=_Path(meta_path).parent,
+            api_key=api_key,
+            log_fn=log_fn,
+        )
+        if meta and meta.mod_id > 0:
+            modio_meta.write_modio_meta(_Path(meta_path), meta)
+            return True
+    except Exception as e:
+        log_fn(f"mod.io: fallback failed — {e}")
+    return False
+
+
 def _run_dialog_on_main(parent_window, factory, result_holder: list,
                         done_event: threading.Event, result_attr: str | None = None) -> None:
     """Run on main thread via after(0, ...). Creates dialog via factory(parent), waits, stores result."""
@@ -1221,6 +1271,12 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                             msg = f"Nexus: Saved metadata for '{mod_name}' (mod {meta.mod_id})"
                             if app:
                                 app.after(0, lambda: log_fn(msg))
+                        # Always also try mod.io (a mod can be on both sites).
+                        _try_modio_resolve(
+                            game, _ne_archive, _ne_meta_path,
+                            lambda m: (app.after(0, lambda msg=m: log_fn(msg))
+                                       if app else None),
+                        )
                     except Exception:
                         pass
                 threading.Thread(target=_detect_meta_no_extract, daemon=True).start()
@@ -2186,6 +2242,12 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                             msg = f"Nexus: Saved metadata for '{_mn}' (mod {meta.mod_id})"
                             if app:
                                 app.after(0, lambda: log_fn(msg))
+                        # Always also try mod.io (a mod can be on both sites).
+                        _try_modio_resolve(
+                            game, _archive, _mp,
+                            lambda m: (app.after(0, lambda msg=m: log_fn(msg))
+                                       if app else None),
+                        )
                     except Exception:
                         pass
                 threading.Thread(target=_detect_bundle_meta, daemon=True).start()
@@ -2680,6 +2742,12 @@ def install_mod_from_archive(archive_path: str, parent_window, log_fn,
                         msg = f"Nexus: Saved metadata for '{mod_name}' (mod {meta.mod_id})"
                         if app:
                             app.after(0, lambda: log_fn(msg))
+                    # Always also try mod.io (a mod can be on both sites).
+                    _try_modio_resolve(
+                        game, _archive, meta_path,
+                        lambda m: (app.after(0, lambda msg=m: log_fn(msg))
+                                   if app else None),
+                    )
                 except Exception:
                     pass
             threading.Thread(target=_detect_meta, daemon=True).start()

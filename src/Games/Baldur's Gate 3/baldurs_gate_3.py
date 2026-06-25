@@ -29,7 +29,7 @@ Mod structure:
 import json
 from pathlib import Path
 
-from Games.base_game import BaseGame
+from Games.base_game import BaseGame, WizardTool
 from Utils.deploy import (
     CustomRule, LinkMode, deploy_filemap, deploy_core, move_to_core, restore_data_core,
     deploy_custom_rules, load_per_mod_strip_prefixes,
@@ -127,7 +127,20 @@ class BaldursGate3(BaseGame):
     @property
     def nexus_game_domain(self) -> str:
         return "baldursgate3"
-    
+
+    @property
+    def wizard_tools(self) -> list[WizardTool]:
+        return self._base_wizard_tools() + [
+            WizardTool(
+                id="modio_api_key",
+                label="mod.io API Key",
+                description="Enter a mod.io key to enable update checks for "
+                            "manually-installed mod.io mods.",
+                dialog_class_path="wizards.modio_settings.ModioSettingsWizard",
+                category="Update tracking",
+            ),
+        ]
+
     @property
     def mod_required_top_level_folders(self) -> set[str]:
         return {"data","bin","generated","public","video","mods"}
