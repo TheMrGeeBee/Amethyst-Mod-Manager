@@ -14,6 +14,7 @@ Host (PluginPanel) owns: ``self._game``, ``self._tabs``, ``self._log``,
 initialised in ``PluginPanel.__init__`` (``_ini_files_tab_dirty``).
 """
 
+import os
 import tkinter as tk
 import tkinter.ttk as ttk
 from pathlib import Path
@@ -687,25 +688,48 @@ class PluginPanelIniMixin:
         self._ini_files_entries = sorted(ini_entries, key=self._ini_sort_key)
         self._apply_ini_search_filter()
 
+    # Top-level subfolders of a profile dir that are already surfaced by other
+    # sources (per-mod staging, the Overwrite mod, root-folder staging) or hold
+    # backups — walking them here would dump thousands of duplicate mod files
+    # under the synthetic "Profile" source.
+    _PROFILE_SCAN_SKIP_DIRS = frozenset({
+        "mods", "overwrite", "root_folder", "backups", "fomod",
+    })
+
     def _collect_profile_ini_files(self, extensions: "frozenset[str]") -> "list[tuple[str, Path]]":
-        """Return (rel_path, full_path) for config files in the active profile's
-        'ini files' folder (the ones that get symlinked into My Games).
-        rel_path is just the filename. Returns [] if no profile dir is known."""
+        """Return (rel_path, full_path) for config/text files anywhere in the
+        active profile folder (recursive), e.g. modlist.txt, filemap.txt,
+        data_deployed.txt, collection.json, loot.json, and the Bethesda
+        'ini files' subdir that gets symlinked into My Games.
+
+        rel_path is relative to the profile folder (POSIX). Mod staging,
+        overwrite, root-folder and backup subfolders are skipped — those files
+        already appear under their own sources. Returns [] if no profile dir is
+        known."""
         profile_dir = getattr(self._game, "_active_profile_dir", None) if self._game else None
         if not profile_dir:
             return []
-        subdir = getattr(self._game, "_PROFILE_INI_SUBDIR", "ini files")
-        ini_dir = Path(profile_dir) / subdir
-        if not ini_dir.is_dir():
+        profile_root = Path(profile_dir)
+        if not profile_root.is_dir():
             return []
         results: list[tuple[str, Path]] = []
         try:
-            for fpath in ini_dir.iterdir():
-                if not fpath.is_file():
-                    continue
-                if fpath.suffix.lower() not in extensions:
-                    continue
-                results.append((fpath.name, fpath))
+            for dirpath, dirnames, filenames in os.walk(profile_root):
+                # Prune skipped subtrees at the top level only (so a mod named
+                # e.g. "logs" deeper in the tree isn't accidentally excluded).
+                if Path(dirpath) == profile_root:
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if d.lower() not in self._PROFILE_SCAN_SKIP_DIRS
+                    ]
+                for name in filenames:
+                    fpath = Path(dirpath) / name
+                    if fpath.suffix.lower() not in extensions:
+                        continue
+                    if not fpath.is_file() or fpath.is_symlink():
+                        continue
+                    rel = fpath.relative_to(profile_root).as_posix()
+                    results.append((rel, fpath))
         except OSError:
             return []
         return results
@@ -996,6 +1020,11 @@ class PluginPanelIniMixin:
             return
 
         labels = dict(self._INI_SOURCE_LABELS)
+        # Start categories collapsed so the tab opens tidy; auto-expand only when
+        # a search/content filter is active so matches stay visible.
+        open_categories = bool(
+            self._ini_search_var.get().strip() or self._ini_content_matches is not None
+        )
         category_nodes: dict[str, str] = {}
         for idx, (rel_path, mod_name, _) in enumerate(self._ini_files_displayed):
             src = self._ini_entry_source(mod_name)
@@ -1003,7 +1032,7 @@ class PluginPanelIniMixin:
             if parent is None:
                 parent = self._ini_files_tree.insert(
                     "", "end", text=labels.get(src, src),
-                    values=("",), tags=("category",), open=True,
+                    values=("",), tags=("category",), open=open_categories,
                 )
                 category_nodes[src] = parent
             iid = self._ini_files_tree.insert(
