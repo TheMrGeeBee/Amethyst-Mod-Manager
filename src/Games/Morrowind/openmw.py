@@ -109,16 +109,19 @@ class OpenMW(BaseGame):
     def mod_required_top_level_folders(self) -> set[str]:
         return {
             "bookart",
+            "distantlod",
             "fonts",
             "icons",
+            "iwy",
+            "kw",
             "meshes",
             "music",
+            "mwse",
             "shaders",
             "sound",
             "splash",
             "textures",
             "video",
-            "mwse",
         }
 
     @property

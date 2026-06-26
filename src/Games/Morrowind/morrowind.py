@@ -83,21 +83,23 @@ class Morrowind(BaseGame):
     def mod_folder_strip_prefixes(self) -> set[str]:
         return {"Data Files"}
 
-    # TODO: confirm the full set of top-level folders Morrowind mods use
     @property
     def mod_required_top_level_folders(self) -> set[str]:
         return {
             "bookart",
+            "distantlod",
             "fonts",
             "icons",
+            "iwy",
+            "kw",
             "meshes",
             "music",
+            "mwse",
             "shaders",
             "sound",
             "splash",
             "textures",
             "video",
-            "mwse",
         }
 
     @property
