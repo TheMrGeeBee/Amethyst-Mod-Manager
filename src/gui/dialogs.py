@@ -1948,9 +1948,18 @@ class OverwritesPanel(ctk.CTkFrame):
                  files_win: list[tuple[str, str]],
                  files_lose: list[tuple[str, str]],
                  files_no_conflict: list[str] | None = None,
-                 on_done=None):
+                 on_done=None,
+                 on_rehost=None,
+                 is_popped_out: bool = False):
         super().__init__(parent, fg_color=BG_DEEP, corner_radius=0)
         self._on_done = on_done or (lambda p: None)
+        # Called when the popout/dock toggle is clicked. The launcher rebuilds
+        # the panel in the other host (Tk can't reparent across toplevels), so
+        # we ship the conflict data back. Signature: on_rehost(going_to_popout).
+        self._on_rehost = on_rehost
+        self._is_popped_out = is_popped_out
+        # Stashed so the launcher can rebuild us in the other host.
+        self._rehost_data = (mod_name, files_win, files_lose, files_no_conflict)
         files_no_conflict = files_no_conflict or []
 
         # Title bar
@@ -1966,6 +1975,24 @@ class OverwritesPanel(ctk.CTkFrame):
             fg_color=BG_PANEL, hover_color=BG_HOVER, text_color=TEXT_MAIN,
             command=self._on_close,
         ).pack(side="right", padx=4)
+        # Popout / dock toggle. Hidden when no re-host handler is wired up.
+        if self._on_rehost is not None:
+            popout_btn = ctk.CTkButton(
+                title_bar, text=("\u2921" if self._is_popped_out else "\u2922"),
+                width=32, height=32, font=FONT_BOLD,
+                fg_color=BG_PANEL, hover_color=BG_HOVER, text_color=TEXT_MAIN,
+                command=self._on_popout_toggle,
+            )
+            popout_btn.pack(side="right", padx=(4, 0))
+            try:
+                from gui.ctk_tooltip import CTkToolTip
+                CTkToolTip(
+                    popout_btn,
+                    message="Dock back to main window" if self._is_popped_out
+                    else "Open in a separate window",
+                )
+            except Exception:
+                pass
         ctk.CTkFrame(self, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x")
 
         # Body — left column has win+lose stacked, right column has no-conflicts
@@ -2146,6 +2173,16 @@ class OverwritesPanel(ctk.CTkFrame):
 
     def _on_close(self):
         self._on_done(self)
+
+    def _on_popout_toggle(self):
+        """Hand off to the launcher, which rebuilds this panel in the other host
+        (docked overlay vs. separate window). Tk can't reparent a live widget
+        across toplevels, so we ship our conflict data and let the launcher
+        construct a fresh OverwritesPanel in the new host."""
+        if self._on_rehost is None:
+            return
+        going_to_popout = not self._is_popped_out
+        self._on_rehost(going_to_popout)
 
 
 # VRAMr preset panel — overlay on plugin panel

@@ -76,7 +76,7 @@ from gui.dialogs import (
     _RenameDialog,
     _SeparatorNameDialog,
     _ModNameDialog,
-    _OverwritesDialog,
+    OverwritesPanel,
     _PriorityDialog,
     _DisablePluginsDialog,
     _ReplaceModDialog,
@@ -7867,17 +7867,8 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
             # Dispatch results back to the main thread
             def _show():
-                app = self.winfo_toplevel()
-                show_fn = getattr(app, "show_conflicts_panel", None)
-                if show_fn:
-                    show_fn(mod_name, files_i_win_final, files_i_lose, files_no_conflict)
-                else:
-                    _OverwritesDialog(
-                        app,
-                        mod_name=mod_name,
-                        files_win=files_i_win_final,
-                        files_lose=files_i_lose,
-                    )
+                self._open_overwrites_panel(
+                    mod_name, files_i_win_final, files_i_lose, files_no_conflict)
 
             if call_threadsafe:
                 call_threadsafe(_show)
@@ -7885,6 +7876,89 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
                 self.after(0, _show)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _open_overwrites_panel(self, mod_name, files_win, files_lose,
+                               files_no_conflict):
+        """Show the conflict-detail overlay over the modlist panel.
+
+        A popout toggle re-hosts the panel in a separate window. Tk can't
+        reparent a live widget across toplevels, so the toggle tears down the
+        current panel and builds a fresh one in the other host, carrying the
+        already-computed conflict data."""
+        app = self.winfo_toplevel()
+        self._close_overwrites_panel()
+
+        def _build(popped_out: bool):
+            self._close_overwrites_panel()
+
+            def _on_rehost(going_to_popout):
+                _build(going_to_popout)
+
+            common = dict(
+                mod_name=mod_name,
+                files_win=files_win,
+                files_lose=files_lose,
+                files_no_conflict=files_no_conflict,
+                on_done=lambda p: self._close_overwrites_panel(),
+                on_rehost=_on_rehost,
+                is_popped_out=popped_out,
+            )
+
+            if popped_out:
+                host = ctk.CTkToplevel(app, fg_color=BG_DEEP)
+                host.title(f"Conflicts: {mod_name}")
+                try:
+                    root = app.winfo_toplevel()
+                    root.update_idletasks()
+                    w = max(int(root.winfo_width() * 0.85), 860)
+                    h = max(int(root.winfo_height() * 0.85), 580)
+                    x = root.winfo_rootx() + (root.winfo_width() - w) // 2
+                    y = root.winfo_rooty() + (root.winfo_height() - h) // 2
+                    host.geometry(f"{w}x{h}+{max(x, 0)}+{max(y, 0)}")
+                except Exception:
+                    host.geometry("900x620")
+                host.minsize(600, 380)
+                host.grid_rowconfigure(0, weight=1)
+                host.grid_columnconfigure(0, weight=1)
+                host.protocol("WM_DELETE_WINDOW", self._close_overwrites_panel)
+                self._overwrites_window = host
+
+                panel = OverwritesPanel(host, **common)
+                panel.grid(row=0, column=0, sticky="nsew")
+                self._overwrites_panel = panel
+                try:
+                    host.attributes("-topmost", False)
+                    host.lift()
+                    host.focus_force()
+                except Exception:
+                    pass
+            else:
+                panel = OverwritesPanel(self, **common)
+                panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+                panel.lift()
+                self._overwrites_panel = panel
+
+        _build(popped_out=False)
+
+    def _close_overwrites_panel(self):
+        panel = getattr(self, "_overwrites_panel", None)
+        if panel is not None:
+            self._overwrites_panel = None
+            try:
+                panel.place_forget()
+            except Exception:
+                pass
+            try:
+                panel.destroy()
+            except Exception:
+                pass
+        win = getattr(self, "_overwrites_window", None)
+        if win is not None:
+            self._overwrites_window = None
+            try:
+                win.destroy()
+            except Exception:
+                pass
 
     def _add_separator(self, ref_idx: int, above: bool):
         """Prompt for a separator name and insert it above or below ref_idx."""

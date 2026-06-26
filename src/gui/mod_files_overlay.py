@@ -50,6 +50,9 @@ class ModFilesOverlay(tk.Frame):
     on_install(file_id, file_name)  — called when user clicks Install for a file
     on_ignore(state: bool)          — called when the Ignore Update checkbox changes
     on_close()                      — called when user closes the overlay
+    on_rehost(going_to_popout)      — called when the popout/dock toggle is clicked;
+                                      the launcher rebuilds the overlay in the other
+                                      host (Tk can't reparent widgets across toplevels)
     """
 
     def __init__(
@@ -64,6 +67,8 @@ class ModFilesOverlay(tk.Frame):
         on_ignore: Callable[[bool], None],
         on_close: Callable[[], None],
         fetch_files_fn: Callable[[], list],
+        on_rehost: Callable[[bool], None] | None = None,
+        is_popped_out: bool = False,
     ):
         super().__init__(parent, bg=BG_DEEP)
         self._mod_name = mod_name
@@ -74,6 +79,8 @@ class ModFilesOverlay(tk.Frame):
         self._on_ignore = on_ignore
         self._on_close = on_close
         self._fetch_files_fn = fetch_files_fn
+        self._on_rehost = on_rehost
+        self._is_popped_out = is_popped_out
         self._files: list = []
         self._ignore_var = tk.BooleanVar(value=ignore_update)
         self._build()
@@ -98,6 +105,26 @@ class ModFilesOverlay(tk.Frame):
             fg_color="#6b3333", hover_color="#8c4444", text_color="white",
             font=FONT_BOLD, command=self._do_close,
         ).pack(side="right", padx=(6, 12), pady=5)
+
+        # Popout / dock toggle. Hidden when no re-host handler is wired up.
+        if self._on_rehost is not None:
+            popout_btn = ctk.CTkButton(
+                toolbar, text=("⤡" if self._is_popped_out else "⤢"),
+                width=32, height=30, font=FONT_BOLD,
+                fg_color=BG_HEADER, hover_color="#555",
+                text_color=TEXT_MAIN, corner_radius=4,
+                command=self._do_popout_toggle,
+            )
+            popout_btn.pack(side="right", padx=(0, 6), pady=5)
+            try:
+                from gui.ctk_tooltip import CTkToolTip
+                CTkToolTip(
+                    popout_btn,
+                    message="Dock back to main window" if self._is_popped_out
+                    else "Open in a separate window",
+                )
+            except Exception:
+                pass
 
         ctk.CTkCheckBox(
             toolbar,
@@ -220,6 +247,16 @@ class ModFilesOverlay(tk.Frame):
     def _do_close(self):
         self.cleanup()
         self._on_close()
+
+    def _do_popout_toggle(self):
+        """Hand off to the launcher, which rebuilds the overlay in the other
+        host (docked overlay vs. separate window). The file list reloads on
+        show, so a fresh overlay is built in the new host."""
+        if self._on_rehost is None:
+            return
+        going_to_popout = not self._is_popped_out
+        self.cleanup()
+        self._on_rehost(going_to_popout)
 
     # ------------------------------------------------------------------
     # File loading

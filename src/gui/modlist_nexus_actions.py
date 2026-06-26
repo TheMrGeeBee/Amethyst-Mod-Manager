@@ -20,6 +20,9 @@ import json
 import threading
 from pathlib import Path
 
+import customtkinter as ctk
+
+from gui.theme import BG_DEEP
 from Utils.config_paths import get_download_cache_dir_for_game
 from Utils.xdg import open_url
 from gui.ctk_components import CTkAlert, CTkNotification
@@ -385,28 +388,84 @@ class ModListNexusActionsMixin:
             app.after(0, mod_panel._redraw)
 
         self._close_mod_files_overlay()
-        panel = ModFilesOverlay(
-            parent=self,
-            mod_name=mod_name,
-            game_domain=game_domain,
-            mod_id=meta.mod_id,
-            installed_file_id=meta.file_id,
-            ignore_update=meta.ignore_update,
-            on_install=_on_install,
-            on_ignore=_on_ignore,
-            on_close=self._close_mod_files_overlay,
-            fetch_files_fn=_fetch_files,
-        )
-        panel.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self._mod_files_panel = panel
+
+        def _build(popped_out: bool):
+            # Always clear any existing host first (when docking, the overlay
+            # inside the popout window was already cleaned up by the toggle).
+            self._close_mod_files_overlay()
+
+            def _on_rehost(going_to_popout):
+                _build(going_to_popout)
+
+            common = dict(
+                mod_name=mod_name,
+                game_domain=game_domain,
+                mod_id=meta.mod_id,
+                installed_file_id=meta.file_id,
+                ignore_update=meta.ignore_update,
+                on_install=_on_install,
+                on_ignore=_on_ignore,
+                on_close=self._close_mod_files_overlay,
+                fetch_files_fn=_fetch_files,
+                on_rehost=_on_rehost,
+                is_popped_out=popped_out,
+            )
+
+            if popped_out:
+                host = ctk.CTkToplevel(app, fg_color=BG_DEEP)
+                host.title(f"Change Version — {mod_name}")
+                try:
+                    root = app.winfo_toplevel()
+                    root.update_idletasks()
+                    w = max(int(root.winfo_width() * 0.85), 820)
+                    h = max(int(root.winfo_height() * 0.85), 560)
+                    x = root.winfo_rootx() + (root.winfo_width() - w) // 2
+                    y = root.winfo_rooty() + (root.winfo_height() - h) // 2
+                    host.geometry(f"{w}x{h}+{max(x, 0)}+{max(y, 0)}")
+                except Exception:
+                    host.geometry("900x620")
+                host.minsize(640, 420)
+                host.grid_rowconfigure(0, weight=1)
+                host.grid_columnconfigure(0, weight=1)
+                # Closing the popout window closes the overlay entirely.
+                host.protocol("WM_DELETE_WINDOW", self._close_mod_files_overlay)
+                self._mod_files_window = host
+
+                panel = ModFilesOverlay(parent=host, **common)
+                panel.grid(row=0, column=0, sticky="nsew")
+                self._mod_files_panel = panel
+                try:
+                    # Independent window (not transient/topmost) so the manager
+                    # underneath stays usable.
+                    host.attributes("-topmost", False)
+                    host.lift()
+                    host.focus_force()
+                except Exception:
+                    pass
+            else:
+                panel = ModFilesOverlay(parent=self, **common)
+                panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+                self._mod_files_panel = panel
+
+        _build(popped_out=False)
 
     def _close_mod_files_overlay(self):
         panel = getattr(self, "_mod_files_panel", None)
         if panel is not None:
             panel.cleanup()
-            panel.place_forget()
+            try:
+                panel.place_forget()
+            except Exception:
+                pass
             panel.destroy()
             self._mod_files_panel = None
+        win = getattr(self, "_mod_files_window", None)
+        if win is not None:
+            self._mod_files_window = None
+            try:
+                win.destroy()
+            except Exception:
+                pass
 
     def _download_and_install_nexus_file(
         self,
