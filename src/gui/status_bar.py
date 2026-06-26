@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import threading
-import webbrowser
 import tkinter as tk
 import customtkinter as ctk
 
@@ -20,7 +19,7 @@ from Utils.config_paths import (
     get_profiles_dir,
     get_config_dir,
 )
-from Utils.xdg import xdg_open
+from Utils.xdg import open_url, xdg_open
 from Utils.ui_config import (
     load_ui_scale, save_ui_scale, detect_hidpi_scale,
     load_collection_settings, save_collection_settings,
@@ -234,14 +233,14 @@ class StatusBar(ctk.CTkFrame):
             label_bar, text="Ko-Fi", width=55, height=16,
             fg_color="#7b2d8b", hover_color="#9a3aae",
             text_color="#ffffff", font=FONT_SMALL,
-            command=lambda: webbrowser.open("https://ko-fi.com/chrisdkn"),
+            command=lambda: open_url("https://ko-fi.com/chrisdkn"),
         ).pack(side="right", padx=(0, 2), pady=2)
 
         ctk.CTkButton(
             label_bar, text="Github", width=60, height=16,
             fg_color="#24292e", hover_color="#3a3f44",
             text_color="#ffffff", font=FONT_SMALL,
-            command=lambda: webbrowser.open("https://github.com/ChrisDKN/Amethyst-Mod-Manager"),
+            command=lambda: open_url("https://github.com/ChrisDKN/Amethyst-Mod-Manager"),
         ).pack(side="right", padx=(0, 2), pady=2)
 
         ctk.CTkButton(
@@ -370,7 +369,7 @@ class StatusBar(ctk.CTkFrame):
         app = self.winfo_toplevel()
         api = getattr(app, "_nexus_api", None)
         if api is None:
-            webbrowser.open(_AMM_URL)
+            open_url(_AMM_URL)
             return
 
         def _notify(state, message):

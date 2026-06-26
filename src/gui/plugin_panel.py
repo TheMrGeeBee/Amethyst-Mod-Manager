@@ -10,7 +10,6 @@ import re
 import subprocess
 import threading
 import tkinter as tk
-import webbrowser
 import tkinter.ttk as ttk
 from pathlib import Path
 
@@ -4871,7 +4870,7 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
                     continue
                 label_name = loc.get("name") or url
                 items.append((f"Open: {label_name}",
-                               lambda u=url: webbrowser.open(u)))
+                               lambda u=url: open_url(u)))
         else:
             items.append((f"Enable selected ({count})",
                            lambda idxs=toggleable: self._enable_selected_plugins(idxs)))

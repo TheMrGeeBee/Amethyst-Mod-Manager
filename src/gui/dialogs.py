@@ -15,7 +15,6 @@ import threading
 import tkinter as tk
 import tkinter.messagebox
 import tkinter.ttk as ttk
-import webbrowser
 from pathlib import Path
 from types import SimpleNamespace
 

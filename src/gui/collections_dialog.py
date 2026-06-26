@@ -16,7 +16,6 @@ import threading
 import tkinter as tk
 import tkinter.messagebox
 import tkinter.ttk as ttk
-import webbrowser
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -6582,7 +6581,7 @@ class CollectionDetailDialog(tk.Frame):
         url = f"https://www.nexusmods.com/games/{self._game_domain}/collections/{slug}"
         if self._revision_number:
             url += f"/revisions/{self._revision_number}"
-        webbrowser.open(url)
+        open_url(url)
 
     def _on_open_missing_on_nexus(self):
         """Open Nexus pages for all mods in the collection that are not installed."""
