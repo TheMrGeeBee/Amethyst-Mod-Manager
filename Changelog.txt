@@ -13,6 +13,8 @@
 - Added a search bar to the add game menu
 - Clicking a conflict flag now opens the "Show conflicts" window
 - Profiles can now use their own game install path and prefix path as well as config options
+- Moved the fonts folder to ./local/share instead of being created in the home folder
+- Added a Tales of Two Wastelands installer and setup wizard
 
 - v1.3.11
 - Reworked RE engine bundle style mods to be detected and presented better, an interface can now be opened for these mods to change the options.

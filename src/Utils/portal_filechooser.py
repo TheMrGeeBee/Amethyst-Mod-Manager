@@ -410,12 +410,19 @@ def _zenity_folder(title: str) -> Path | object | None:
     return None
 
 
-def _zenity_file(title: str) -> Path | object | None:
+def _zenity_file(
+    title: str, filters: "list[tuple[str, list[str]]] | None" = None
+) -> Path | object | None:
+    if filters is None:
+        filters = _MOD_ARCHIVE_FILTERS
+    filter_args = [
+        f"--file-filter={label} | {' '.join(globs)}"
+        for label, globs in filters
+    ]
     result = _run_zenity([
         "--file-selection",
         f"--title={title}",
-        "--file-filter=Mod Archives (*.zip, *.7z, *.rar, *.tar.gz, *.tar, *.dazip, *.override, *.fomod) | *.zip *.7z *.rar *.tar.gz *.tar *.dazip *.override *.fomod",
-        "--file-filter=All files | *",
+        *filter_args,
     ])
     if result is None:
         return None  # zenity not found
@@ -451,15 +458,23 @@ def _kdialog_folder(title: str) -> Path | object | None:
     return None
 
 
-def _kdialog_file(title: str) -> Path | object | None:
+def _kdialog_file(
+    title: str, filters: "list[tuple[str, list[str]]] | None" = None
+) -> Path | object | None:
     """File picker via kdialog (KDE). Returns None if kdialog is unavailable."""
     if shutil.which("kdialog") is None:
         return None
+    if filters is None:
+        filters = _MOD_ARCHIVE_FILTERS
+    # kdialog filter format: "<globs>|<label>" groups joined by newlines.
+    kdialog_filter = "\n".join(
+        f"{' '.join(globs)}|{label}" for label, globs in filters
+    )
     try:
         result = subprocess.run(
             [
                 "kdialog", "--getopenfilename", str(Path.home()),
-                "*.zip *.7z *.rar *.tar.gz *.tar *.dazip *.override *.fomod|Mod Archives (*.zip, *.7z, *.rar, *.tar.gz, *.tar, *.dazip, *.override, *.fomod)",
+                kdialog_filter,
                 "--title", title,
             ],
             capture_output=True, text=True,
@@ -517,17 +532,20 @@ def _tkinter_folder(title: str) -> Path | None:
     return _tkinter_dispatch(_fn, "folder", None)
 
 
-def _tkinter_file(title: str) -> Path | None:
+def _tkinter_file(
+    title: str, filters: "list[tuple[str, list[str]]] | None" = None
+) -> Path | None:
     """Last-resort file picker using tkinter.filedialog."""
     import tkinter.filedialog as fd
+
+    if filters is None:
+        filters = _MOD_ARCHIVE_FILTERS
+    filetypes = [(label, " ".join(globs)) for label, globs in filters]
 
     def _fn() -> Path | None:
         chosen = fd.askopenfilename(
             title=title,
-            filetypes=[
-                ("Mod Archives", "*.zip *.7z *.rar *.tar.gz *.tar *.dazip *.override *.fomod"),
-                ("All files", "*"),
-            ],
+            filetypes=filetypes,
         )
         if chosen:
             p = Path(chosen)
@@ -602,23 +620,32 @@ def _run_file_picker_worker(title: str, filters: list[tuple[str, list[str]]], cb
     chosen = _run_waterfall(
         [
             ("XDG portal (jeepney/gi)", lambda: _run_portal_file_impl(title, "", filters)),
-            ("zenity", lambda: _zenity_file(title)),
-            ("kdialog", lambda: _kdialog_file(title)),
-            ("tkinter", lambda: _tkinter_file(title)),
+            ("zenity", lambda: _zenity_file(title, filters)),
+            ("kdialog", lambda: _kdialog_file(title, filters)),
+            ("tkinter", lambda: _tkinter_file(title, filters)),
         ],
         Path, None, "File",
     )
     cb(chosen)
 
 
-def pick_file(title: str, callback: Callable[[Path | None], None]) -> None:
+def pick_file(
+    title: str,
+    callback: Callable[[Path | None], None],
+    filters: "list[tuple[str, list[str]]] | None" = None,
+) -> None:
     """
     Open a native file picker via XDG portal (or zenity fallback).
     Runs in a background thread; callback is invoked with the selected Path or None.
     Caller should schedule callback on main thread if doing Tkinter operations, e.g.:
         pick_file(title, lambda p: self.after(0, lambda: self._on_file_picked(p)))
+
+    *filters* is an optional list of ``(label, [glob, ...])`` tuples controlling
+    which file types the picker shows. Defaults to the mod-archive filters when
+    omitted, so existing callers are unaffected.
     """
-    filters = _MOD_ARCHIVE_FILTERS
+    if filters is None:
+        filters = _MOD_ARCHIVE_FILTERS
     threading.Thread(
         target=_run_file_picker_worker,
         args=(title, filters, callback),

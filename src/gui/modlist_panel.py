@@ -244,6 +244,10 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
     bundle_mods: set[str] = set()  # RE/Fluffy single-mod bundles (have a [Bundle] spec)
     from Utils.re_bundle import read_bundle_spec as _read_bundle_spec
     today = datetime.now().date()
+    # Collected during the loop so a second pass can hide seeded requirements
+    # that are actually installed (and re-show them if the mod is later removed).
+    _installed_ids: set[int] = set()
+    _raw_missing_pairs: dict[str, list[tuple[int, str]]] = {}
     for entry in entries:
         if entry.is_separator:
             continue
@@ -277,16 +281,23 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
                     _modio_version = _cp.get("General", "modioVersion", fallback="")
                 except Exception:
                     pass
+            if meta.mod_id > 0:
+                _installed_ids.add(meta.mod_id)
             if meta.missing_requirements:
-                missing_reqs.add(entry.name)
-                names = []
+                pairs: list[tuple[int, str]] = []
                 for pair in meta.missing_requirements.split(";"):
-                    parts = pair.split(":", 1)
-                    if len(parts) == 2:
-                        names.append(parts[1])
-                    elif parts[0]:
-                        names.append(parts[0])
-                missing_reqs_detail[entry.name] = names
+                    raw_id, _, name = pair.partition(":")
+                    raw_id = raw_id.strip()
+                    if not raw_id:
+                        continue
+                    try:
+                        pairs.append((int(raw_id), name.strip()))
+                    except ValueError:
+                        pass
+                if pairs:
+                    # Finalized in a post-loop pass once every installed mod_id
+                    # is known, so satisfied requirements are filtered out.
+                    _raw_missing_pairs[entry.name] = pairs
             if meta.endorsed:
                 endorsed_mods.add(entry.name)
             if meta.installed:
@@ -321,6 +332,19 @@ def _scan_meta_flags_impl(entries: list, mods_dir: Path, compute_sizes: bool = F
                 bundle_mods.add(entry.name)
         except Exception:
             pass
+
+    # Second pass: now that every installed mod_id is known, hide requirements
+    # that are actually present. The full seeded list stays in meta.ini, so a
+    # requirement reappears here automatically if its mod is later removed.
+    for name, pairs in _raw_missing_pairs.items():
+        unmet = [(mid, nm) for (mid, nm) in pairs if mid not in _installed_ids]
+        if not unmet:
+            continue
+        missing_reqs.add(name)
+        # Prefer the stored name; fall back to the id when blank (locally-seeded
+        # requirements store "modId:" with no name).
+        missing_reqs_detail[name] = [nm or str(mid) for mid, nm in unmet]
+
     return {
         "update_mods": update_mods,
         "update_modio_mods": update_modio_mods,
@@ -7570,11 +7594,32 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._log(f"Removed note from {removed} mod(s).")
         self._redraw()
 
-    def _build_missing_req_spec(self, mod_name: str, default_domain: str):
+    def _scan_installed_mod_ids(self) -> set[int]:
+        """Return the set of Nexus mod ids currently installed in staging
+        (read from every mod's meta.ini)."""
+        installed: set[int] = set()
+        try:
+            for sub in self._staging_root.iterdir():
+                mp = sub / "meta.ini"
+                if not mp.is_file():
+                    continue
+                try:
+                    m = read_meta(mp)
+                    if m.mod_id > 0:
+                        installed.add(m.mod_id)
+                except Exception:
+                    pass
+        except OSError:
+            pass
+        return installed
+
+    def _build_missing_req_spec(self, mod_name: str, default_domain: str,
+                                installed_ids: "set[int] | None" = None):
         """Resolve (mod_id, domain, missing_ids) for one mod, or None on failure.
 
-        Logs the reason and returns None when the mod has no usable meta.ini /
-        Nexus mod-id / game domain.
+        Filters the seeded requirements against what's installed (non-destructive
+        — meta.ini keeps the full list, so a requirement reappears if its mod is
+        removed). Pass *installed_ids* to skip a per-call staging rescan.
         """
         meta_path = self._staging_root / mod_name / "meta.ini"
         if not meta_path.is_file():
@@ -7585,9 +7630,6 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         except Exception:
             self._log(f"{mod_name}: Could not read meta.ini.")
             return None
-        if meta.mod_id <= 0:
-            self._log(f"{mod_name}: No Nexus mod ID.")
-            return None
         domain = default_domain
         if not domain and "/mods/" in meta.nexus_page_url:
             domain = meta.nexus_page_url.split("/mods/")[0].rsplit("/", 1)[-1]
@@ -7595,16 +7637,23 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             self._log(f"{mod_name}: Could not determine game domain.")
             return None
 
-        missing_ids: set[int] = set()
+        seeded_ids: set[int] = set()
         for pair in (meta.missing_requirements or "").split(";"):
             part = pair.split(":", 1)[0].strip()
             if part:
                 try:
-                    missing_ids.add(int(part))
+                    seeded_ids.add(int(part))
                 except ValueError:
                     pass
+
+        if installed_ids is None:
+            installed_ids = self._scan_installed_mod_ids()
+
+        missing_ids = {mid for mid in seeded_ids if mid not in installed_ids}
+        # mod_id 0 (locally-built mods like TTW) is allowed: the panel resolves
+        # each requirement id on its own page (MissingRequirementsDialog._worker).
         return SimpleNamespace(
-            mod_name=mod_name, mod_id=meta.mod_id,
+            mod_name=mod_name, mod_id=max(meta.mod_id, 0),
             domain=domain, missing_ids=missing_ids,
         )
 
@@ -7635,6 +7684,12 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
 
         spec = self._build_missing_req_spec(mod_name, domain)
         if spec is None:
+            return
+        if not spec.missing_ids:
+            # The re-check found every requirement is now installed — nothing to
+            # show. Refresh so the (now-cleared) marker disappears.
+            self._log(f"{mod_name}: all requirements are installed.")
+            self._redraw()
             return
 
         if hasattr(app, "show_missing_reqs_panel"):
@@ -7668,9 +7723,10 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         game = _GAMES.get(topbar._game_var.get()) if topbar else None
         domain = (game.nexus_game_domain if game and game.is_configured() else "") or ""
 
+        installed_ids = self._scan_installed_mod_ids()
         specs = []
         for mn in mod_names:
-            spec = self._build_missing_req_spec(mn, domain)
+            spec = self._build_missing_req_spec(mn, domain, installed_ids=installed_ids)
             if spec is not None and spec.missing_ids:
                 specs.append(spec)
         if not specs:

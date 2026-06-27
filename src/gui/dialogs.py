@@ -5952,15 +5952,9 @@ class MissingReqsPanel(ctk.CTkFrame):
         threading.Thread(target=self._worker, daemon=True).start()
 
     def _resolve_ids_directly(self, domain, ids, seen):
-        """Resolve requirement *ids* by fetching each mod's own Nexus page.
-
-        Used when the parent mod has no Nexus mod_id of its own (mod_id == 0),
-        e.g. the locally-built Tale of Two Wastelands mod whose requirements
-        were seeded straight into meta.ini. Returns a list of
-        ``NexusModRequirement`` (built from each mod's get_mod details), skipping
-        ids already in *seen*. Individual fetch failures fall back to a minimal
-        requirement entry so the mod is still listed and installable by id.
-        """
+        """Resolve requirement *ids* by fetching each mod's own Nexus page — used
+        when the parent has no mod_id (e.g. the locally-built TTW mod). Skips ids
+        in *seen*; falls back to a minimal entry if a fetch fails."""
         from Nexus.nexus_api import NexusModRequirement
         out = []
         for rid in sorted(ids):
