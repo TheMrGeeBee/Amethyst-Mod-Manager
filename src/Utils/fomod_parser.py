@@ -466,12 +466,17 @@ def detect_fomod(extracted_root: str) -> Optional[tuple[str, str]]:
 
 def detect_scripted_fomod(extracted_root: str) -> Optional[str]:
     """Return the path to a ``fomod/`` folder that is a *scripted* (C#) FOMOD
-    installer, i.e. it has a ``script.cs`` / ``script.dll`` (or only ``info.xml``)
-    but NO ``ModuleConfig.xml``.
+    installer, i.e. it has a ``script.cs`` / ``script.dll`` but NO
+    ``ModuleConfig.xml``.
 
     The XML-based installer dialog cannot run these — the install proceeds as a
     plain full-file copy.  Callers use this to warn the user that no install
     options were shown and an XML version of the mod may exist.
+
+    NOTE: ``info.xml`` alone is NOT a scripted installer — it is optional
+    metadata (name/author/version) that plain mods (e.g. BodySlide) ship in a
+    ``fomod/`` folder with no ModuleConfig and no script. Only a real script
+    file counts.
 
     Uses the same wrapper-peel + BFS search as :func:`detect_fomod` so it finds
     the fomod/ folder wherever it sits.  Returns the fomod/ dir path, or None.
@@ -485,7 +490,7 @@ def detect_scripted_fomod(extracted_root: str) -> Optional[str]:
                     names = {f.name.lower() for f in child.iterdir() if f.is_file()}
                     if "moduleconfig.xml" in names:
                         return None  # XML installer — handled by detect_fomod
-                    if names & {"script.cs", "script.dll", "info.xml"}:
+                    if names & {"script.cs", "script.dll"}:
                         return str(child)
         except PermissionError:
             pass
