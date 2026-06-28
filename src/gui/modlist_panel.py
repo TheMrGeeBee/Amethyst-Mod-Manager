@@ -8353,15 +8353,24 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             return
         sep_name = self._unique_separator_name(dialog.result.strip() + "_separator")
         inverted = (self._sort_column == "priority" and self._sort_ascending)
+        entry = ModEntry(name=sep_name, enabled=True, locked=True, is_separator=True)
         ref_is_sep = self._entries[ref_idx].is_separator
 
+        if inverted and not ref_is_sep:
+            # Inverted display reverses group/mod order, so a natural-order insert
+            # mis-anchors and relocates the mod's own separator. Resolve in display
+            # space and uninvert (see _add_separator_inverted).
+            self._add_separator_inverted(ref_idx, above, entry)
+            self._invalidate_derived_caches()
+            self._save_modlist()
+            self._rebuild_filemap()
+            self._redraw()
+            self._update_info()
+            return
+
         if ref_is_sep:
-            # A separator is a group header that owns the mod block following it
-            # in natural order. Inserting between the header and its mods would
-            # transfer those mods to the new separator, so we must anchor to the
-            # whole group block — and account for inverted display where group
-            # order is reversed (visual-above == natural-after-block, and
-            # visual-below == natural-before-header).
+            # A separator owns the mod block following it, so anchor to the whole
+            # block (not between header and mods). Inverted flips above/below.
             block_end = ref_idx + 1
             while (block_end < len(self._entries)
                    and not self._entries[block_end].is_separator):
@@ -8371,11 +8380,7 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
             else:
                 insert_at = ref_idx if above else block_end
         else:
-            # Under inverted priority sort, visual above/below is flipped in
-            # natural order for mod rows (mods within a group are reversed).
-            visually_above = (not above) if inverted else above
-            insert_at = ref_idx if visually_above else ref_idx + 1
-        entry = ModEntry(name=sep_name, enabled=True, locked=True, is_separator=True)
+            insert_at = ref_idx if above else ref_idx + 1
         self._entries.insert(insert_at, entry)
         # Keep check_vars aligned (None for separators)
         self._check_vars.insert(insert_at, None)
@@ -8386,6 +8391,62 @@ class ModListPanel(ModListFilterPanelMixin, ModListDownloadBarMixin,
         self._rebuild_filemap()
         self._redraw()
         self._update_info()
+
+    def _add_separator_inverted(self, ref_idx: int, above: bool,
+                                entry: "ModEntry") -> None:
+        """Insert a new separator next to a mod row in reverse-priority mode.
+
+        _entries is the inverse of what's shown, so place the separator in display
+        space (above/below literal) and uninvert back to natural order, reusing the
+        drag path's group-reversal math.
+        """
+        # Full inverted display order. _apply_column_sort marks the float divider
+        # with BOUNDARY_ROW (-2); _uninvert_entries_order only recovers the float
+        # via a real BOUNDARY_NAME separator, so materialise the sentinel below.
+        disp = self._apply_column_sort(list(range(len(self._entries))))
+
+        try:
+            vis_pos = disp.index(ref_idx)
+        except ValueError:
+            # ref not visible (shouldn't happen) — plain natural insert.
+            insert_at = ref_idx if above else ref_idx + 1
+            self._entries.insert(insert_at, entry)
+            self._check_vars.insert(insert_at, None)
+            if self._sel_idx >= insert_at:
+                self._sel_idx += 1
+            return
+
+        slot = vis_pos if above else vis_pos + 1
+
+        # Stage _entries/_check_vars in inverted order with the separator spliced
+        # in at the visual slot, then uninvert. _uninvert_entries_order works on
+        # the current _entries contents (treated as inverted).
+        old_entries = list(self._entries)
+        old_vars = list(self._check_vars)
+        disp_entries: list = []
+        disp_vars: list = []
+        for pos, ei in enumerate(disp):
+            if pos == slot:
+                disp_entries.append(entry)
+                disp_vars.append(None)
+            if ei == BOUNDARY_ROW:
+                disp_entries.append(ModEntry(
+                    name=BOUNDARY_NAME, enabled=True, locked=True,
+                    is_separator=True,
+                ))
+                disp_vars.append(None)
+            else:
+                disp_entries.append(old_entries[ei])
+                disp_vars.append(old_vars[ei])
+        if slot >= len(disp):          # inserting at the very bottom
+            disp_entries.append(entry)
+            disp_vars.append(None)
+        self._entries[:] = disp_entries
+        self._check_vars[:] = disp_vars
+        self._uninvert_entries_order()
+        # The reorder invalidates index-based selection.
+        self._sel_idx = -1
+        self._sel_set = set()
 
     def _generate_separators(self) -> None:
         """Button handler: ensure conflict data is fresh, then generate separators.
