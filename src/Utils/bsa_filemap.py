@@ -28,8 +28,12 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import msgpack
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 from Utils.atomic_write import atomic_writer
 from Utils.bsa_reader import read_bsa_file_list

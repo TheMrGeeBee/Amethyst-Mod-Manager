@@ -39,8 +39,12 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 from pathlib import Path
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import msgpack
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 from Utils.atomic_write import atomic_writer
 from Utils.modlist import read_modlist
