@@ -115,7 +115,6 @@ def download_file(url, dest, timeout=60, reporthook=None):
     total_size)`` exactly like ``urlretrieve``. Writes to a ``.part`` temp
     file first so a partial download never leaves a corrupt file at ``dest``.
     """
-    import shutil
     import urllib.request
     from pathlib import Path
 

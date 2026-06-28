@@ -22,7 +22,7 @@ from Utils.deploy import LinkMode
 from Utils.steam_finder import find_prefix as _find_steam_prefix
 
 if TYPE_CHECKING:
-    from typing import Any, Callable
+    from typing import Callable
 
 
 # Shared auto_install_deps preset for modern DirectX/x64-runtime games (modern

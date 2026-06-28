@@ -48,7 +48,6 @@ Restore:
 from __future__ import annotations
 
 import fnmatch
-import json
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path

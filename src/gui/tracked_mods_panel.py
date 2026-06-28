@@ -19,7 +19,6 @@ from Utils.xdg import open_url
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-import customtkinter as ctk
 
 from gui.nexus_mod_list_panel_base import _NexusModListPanel
 

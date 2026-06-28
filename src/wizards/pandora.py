@@ -253,7 +253,6 @@ class PandoraWizard(ProtonPrefixStepMixin, ctk.CTkFrame):
         threading.Thread(target=self._do_install_deps, daemon=True).start()
 
     def _do_install_deps(self):
-        import urllib.request
         from Utils.config_paths import get_dotnet_cache_dir
         from Utils.protontricks import (
             is_dep_installed as _is_dep_installed,

@@ -21,8 +21,6 @@ from gui.ctk_components import CTkPopupMenu
 from gui.theme import (
     ACCENT,
     BG_HEADER, BG_SELECT_BAR,
-    BORDER_FAINT,
-    TEXT_SEP,
     scaled,
 )
 import gui.theme as _theme

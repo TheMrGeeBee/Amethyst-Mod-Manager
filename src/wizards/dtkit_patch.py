@@ -23,7 +23,6 @@ Re-run after every game update (updates revert the patch).
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk

@@ -4,17 +4,14 @@ Used by App. Imports theme, game_helpers, dialogs, install_mod.
 """
 
 import configparser
-import json
 import os
 import shutil
-import subprocess
 import threading
 
-from Utils.xdg import xdg_open, open_url
+from Utils.xdg import xdg_open
 import tkinter as tk
 import tkinter.font as tkfont
 import tkinter.messagebox
-import tkinter.ttk as ttk
 from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
@@ -34,11 +31,9 @@ from gui.theme import (
     BG_ROW,
     BG_ROW_ALT,
     BG_SELECT,
-    BG_SEP,
     BG_OVERLAY_ERR,
     BG_ENTRY,
     BG_BTN_SAVE,
-    BG_SELECT_BAR,
     BORDER,
     BORDER_FAINT,
     TEXT_DIM,
@@ -47,7 +42,6 @@ from gui.theme import (
     TEXT_WHITE,
     TONE_FLAG,
     TONE_BLUE_SOFT,
-    TONE_GREEN,
     STATUS_ERR_BRIGHT,
     BG_DARK_GREEN,
     BG_DARK_BLUE,
@@ -61,16 +55,10 @@ import gui.theme as _theme
 from gui.theme import scaled
 from gui.wheel_compat import LEGACY_WHEEL_REDUNDANT
 from gui.mod_card import destroy_widget_tree
-from gui.ctk_components import CTkAlert, CTkNotification, CTkPopupMenu, CTkProgressPopup
+from gui.ctk_components import CTkAlert, CTkPopupMenu, CTkProgressPopup
 from gui.game_helpers import (
     _GAMES,
-    _load_games,
     _profiles_for_game,
-    _create_profile,
-    _save_last_game,
-    _load_last_game,
-    _handle_missing_profile_root,
-    _vanilla_plugins_for_game,
 )
 from gui.dialogs import (
     _RenameDialog,
@@ -83,9 +71,8 @@ from gui.dialogs import (
     ask_yes_no,
     show_error,
 )
-from gui.install_mod import install_mod_from_archive, _show_mod_notification
-from gui.add_game_dialog import AddGameDialog, sync_modlist_with_mods_folder
-from gui.modlist_filters_dialog import ModlistFiltersDialog
+from gui.install_mod import _show_mod_notification
+from gui.add_game_dialog import sync_modlist_with_mods_folder
 from gui.backup_restore_dialog import BackupRestoreDialog
 
 from Utils.filemap import (
@@ -109,20 +96,16 @@ from Utils.bsa_filemap import (
     rebuild_bsa_index,
     remove_from_bsa_index,
 )
-from Utils.deploy import deploy_root_folder, restore_root_folder, LinkMode, load_per_mod_strip_prefixes, undeploy_mod_files, restore_custom_deploy_backup_for_path, OVERWRITE_LOG_NAME
+from Utils.deploy import load_per_mod_strip_prefixes, undeploy_mod_files, restore_custom_deploy_backup_for_path, OVERWRITE_LOG_NAME
 from Utils.modlist import (
     ModEntry,
     read_modlist,
     write_modlist,
-    prepend_mod,
-    ensure_mod_preserving_position,
 )
-from Utils.plugin_parser import check_missing_masters
 from Utils.plugins import (
     read_plugins, write_plugins, PluginEntry,
     read_loadorder, write_loadorder,
 )
-from Utils.profile_backup import create_backup
 from Utils.profile_state import (
     read_profile_state,
     read_collapsed_seps,
@@ -146,13 +129,12 @@ from Utils.profile_state import (
     write_mod_notes,
     write_ignored_missing_requirements,
 )
-from Nexus.nexus_api import NexusAPI, NexusAPIError, NexusModRequirement
 from gui.collections_dialog import CollectionsDialog
 from gui.workshop_dialog import WorkshopDialog
 from gui.nexus_browser_overlay import NexusBrowserOverlay
 from gui.changelog_overlay import ChangelogOverlay
 from Nexus.nexus_meta import ensure_installed_stamp, read_meta, write_meta
-from Utils.config_paths import get_download_cache_dir, list_all_cache_dirs
+from Utils.config_paths import list_all_cache_dirs
 from Utils.ui_config import load_column_widths, load_column_order, load_normalize_folder_case, load_sort_state, save_sort_state, load_column_hidden, load_show_summary_tooltips, load_hide_bsa_conflicts
 from Utils import perftrace
 

@@ -19,7 +19,6 @@ import gui.theme as _theme
 from gui.wheel_compat import LEGACY_WHEEL_REDUNDANT
 from gui.theme import (
     ACCENT,
-    ACCENT_HOV,
     BG_DEEP,
     BG_HEADER,
     BG_HOVER,
@@ -33,7 +32,8 @@ from gui.theme import (
     font_sized_px,
     TEXT_DIM,
     TEXT_MAIN,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
 )
 
 

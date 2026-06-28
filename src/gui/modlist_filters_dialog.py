@@ -21,12 +21,10 @@ import tkinter as tk
 
 from gui.theme import (
     BG_DEEP,
-    BG_PANEL,
     BG_HEADER,
     TEXT_MAIN,
     TEXT_DIM,
     BORDER,
-    FONT_NORMAL,
     FONT_BOLD,
     FONT_SMALL,
 )

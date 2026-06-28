@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import errno
-import json
 import os
 import shutil
 import time as _time

@@ -14,7 +14,6 @@ import json
 import zipfile
 import tkinter as tk
 import tkinter.font as tkfont
-import tkinter.messagebox as messagebox
 from pathlib import Path
 from threading import Thread
 from typing import Callable, Optional
@@ -23,7 +22,6 @@ import customtkinter as ctk
 
 from Nexus.nexus_meta import read_meta
 from Utils.config_paths import get_fomod_selections_path, get_bain_selections_path
-from Utils.plugins import read_plugins
 from Utils.portal_filechooser import pick_save_file
 from gui.ctk_components import CTkAlert
 import gui.theme as _theme
@@ -45,10 +43,10 @@ from gui.theme import (
     FONT_SMALL,
     FS11,
     scaled,
-    font_sized,
     font_sized_px,
     FONT_FAMILY,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
 )
 
 _ROW_H   = scaled(26)

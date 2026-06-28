@@ -12,7 +12,6 @@ persisted via the `default_disabled` flag in the config file.
 from __future__ import annotations
 
 import json
-import os
 import tkinter as tk
 from pathlib import Path
 from typing import Callable, Optional
@@ -29,13 +28,12 @@ from gui.theme import (
     BG_HEADER,
     BG_PANEL,
     ACCENT,
-    ACCENT_HOV,
     TEXT_MAIN,
     TEXT_DIM,
     FONT_BOLD,
     FONT_SMALL,
-    TK_FONT_BOLD, TK_FONT_SMALL,
-    scaled,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL, scaled,
 )
 
 

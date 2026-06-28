@@ -4,10 +4,8 @@ Used by App. Imports theme, game_helpers, dialogs, install_mod, subpanels.
 Browse/Tracked/Endorsed are shown in the Nexus overlay on the modlist panel.
 """
 
-import json
 import os
 import re
-import subprocess
 import threading
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -24,7 +22,6 @@ from gui.theme import (
     BG_HEADER,
     BG_HOVER,
     BG_HOVER_ROW,
-    BG_LIST,
     BG_PANEL,
     BG_ROW,
     BG_ROW_ALT,
@@ -32,25 +29,12 @@ from gui.theme import (
     BORDER,
     TEXT_DIM,
     TEXT_MAIN,
-    TEXT_OK,
     TEXT_SEP,
-    SCROLL_BG,
-    SCROLL_TROUGH,
-    SCROLL_ACTIVE,
-    TAG_INI_PROFILE,
-    TAG_BSA,
-    TAG_FOLDER,
-    BTN_SUCCESS,
-    BTN_SUCCESS_HOV,
     BTN_SUCCESS_ALT,
     BTN_SUCCESS_ALT_HOV,
     BTN_INFO,
-    BTN_INFO_DEEP,
-    BTN_INFO_DEEP_HOV,
     BTN_INFO_HOV,
     BTN_CANCEL,
-    RED_BTN,
-    RED_HOV,
     TONE_CYAN,
     STATUS_BADGE_RED,
     STATUS_BADGE_GREEN,
@@ -72,44 +56,25 @@ from gui.theme import (
 )
 import gui.theme as _theme
 from gui.wheel_compat import LEGACY_WHEEL_REDUNDANT
-from gui.game_helpers import _GAMES, _vanilla_plugins_for_game, foreign_deployed_plugin_basenames
-from gui.dialogs import _PriorityDialog, _ExeConfigDialog, _ExeFilterDialog, confirm_deploy_appdata
-from gui.install_mod import install_mod_from_archive
-from gui.mod_name_utils import _suggest_mod_names as suggest_mod_names
-from gui.loot_groups_overlay import LootGroupsOverlay
-from gui.loot_plugin_rules_overlay import LootPluginRulesOverlay
-from gui.plugin_cycle_overlay import PluginCycleOverlay
+from gui.game_helpers import _GAMES, foreign_deployed_plugin_basenames
 
-from Utils.config_paths import get_exe_args_path, get_game_config_dir, get_game_config_path
 from Utils.profile_state import (
     read_plugin_locks,
     write_plugin_locks,
     read_excluded_mod_files,
     write_excluded_mod_files,
-    read_mod_strip_prefixes,
-    write_mod_strip_prefixes,
 )
-from Utils.filemap import OVERWRITE_NAME as _OVERWRITE_NAME, build_filemap
+from Utils.filemap import OVERWRITE_NAME as _OVERWRITE_NAME
 from Utils.xdg import xdg_open, open_url
 from Utils import perftrace
 from Utils.plugins import (
     PluginEntry,
     read_plugins,
     write_plugins,
-    append_plugin,
     read_loadorder,
     write_loadorder,
-    sync_plugins_from_filemap,
-    prune_plugins_from_filemap,
 )
 from Utils.plugin_parser import check_missing_masters, check_late_masters, check_version_mismatched_masters, read_masters, is_esl_flagged, is_master_flagged, set_esl_flag, check_esl_eligible
-from LOOT.loot_sorter import (
-    sort_plugins as loot_sort,
-    is_available as loot_available,
-    write_loot_info as loot_write_info,
-    read_loot_info as loot_read_info,
-)
-from Nexus.nexus_meta import write_meta, read_meta
 
 # Bump this whenever check_esl_eligible() changes its verdict criteria so that
 # cached results from older algorithm versions are invalidated on next scan.
@@ -4052,7 +4017,6 @@ class PluginPanel(PluginPanelExeLauncherMixin, PluginPanelLOOTMixin,
         """Search mod_dir recursively (one level deep) for a file matching filename
         case-insensitively. Used when the filemap strips a prefix (e.g. 'Data Files')
         so the staging file lives in a subdirectory not reflected in rel_path."""
-        from pathlib import Path as _Path
         name_lower = filename.lower()
         if not mod_dir.is_dir():
             return None

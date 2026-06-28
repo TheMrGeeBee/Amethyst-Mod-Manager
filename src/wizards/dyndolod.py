@@ -603,7 +603,6 @@ class xLODGenWizard(_DynDOLODBaseWizard):
         threading.Thread(target=self._do_auto_download, daemon=True).start()
 
     def _do_auto_download(self):
-        import urllib.request as _urlreq
         import tempfile
         from wizards.script_extender import _fetch_latest_github_asset, _extract_archive
 

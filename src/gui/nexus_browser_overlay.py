@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 from Utils.xdg import open_url
-from Utils.config_paths import get_download_cache_dir, get_download_cache_dir_for_game
+from Utils.config_paths import get_download_cache_dir_for_game
 
 from gui.tracked_mods_panel import TrackedModsPanel
 from gui.endorsed_mods_panel import EndorsedModsPanel
@@ -40,10 +40,10 @@ from gui.theme import (
     TEXT_DIM,
     FONT_BOLD,
     FONT_NORMAL,
-    FONT_SMALL,
     load_icon,
     scaled,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
 )
 
 

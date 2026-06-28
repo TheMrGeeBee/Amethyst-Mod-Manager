@@ -38,7 +38,6 @@ from gui.theme import (
     RED_HOV,
     TEXT_DIM,
     TEXT_MAIN,
-    TEXT_OK,
     scaled,
 )
 from Utils.wine_dll_config import (

@@ -285,8 +285,7 @@ from Utils.bain_installer import detect_bain, resolve_bain_files, bain_unwrap_si
 from Utils.ui_config import load_dev_mode, load_rename_mod_after_install
 from Utils.config_paths import get_fomod_selections_path, get_bain_selections_path
 from Utils.plugins import read_plugins, append_plugin, read_loadorder, write_loadorder, PluginEntry
-from Utils.modlist import prepend_mod, ensure_mod_preserving_position, read_modlist, write_modlist, ModEntry
-from Utils.profile_state import read_separator_locks, write_separator_locks
+from Utils.modlist import prepend_mod, ensure_mod_preserving_position
 from Utils.re_bundle import (
     detect_re_bundle, detect_multi_mod, BundleLayout,
     layout_to_spec, merge_bundle_spec, read_bundle_spec, write_bundle_spec,

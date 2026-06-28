@@ -33,10 +33,10 @@ if TYPE_CHECKING:
     from Games.base_game import BaseGame
 
 from gui.theme import (
-    ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL, BORDER,
-    TEXT_ON_ACCENT,
-    TEXT_DIM, TEXT_MAIN,
-    FONT_NORMAL, FONT_BOLD, FONT_SMALL,
+    ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL, TEXT_ON_ACCENT,
+    TEXT_DIM,
+    TEXT_MAIN, FONT_NORMAL,
+    FONT_BOLD, FONT_SMALL,
 )
 from wizards._install_as_mod import derive_mod_name, register_as_mod
 

@@ -7,8 +7,7 @@ No UI, no file I/O. All functions are pure.
 from __future__ import annotations
 
 from Utils.fomod_parser import (
-    ConditionalInstallPattern, Dependency, FileInstall, Group, InstallStep,
-    ModuleConfig, Plugin, TypeDescriptor,
+    Dependency, InstallStep, ModuleConfig, Plugin,
 )
 
 

@@ -23,7 +23,6 @@ import subprocess
 from Utils.steam_finder import proton_run_command
 import tempfile
 import threading
-import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 

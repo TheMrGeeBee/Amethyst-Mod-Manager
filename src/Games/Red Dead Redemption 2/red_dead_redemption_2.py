@@ -11,7 +11,6 @@ Mod structure:
   the game install root via custom routing rules.
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

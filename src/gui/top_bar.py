@@ -20,9 +20,7 @@ from gui.theme import (
     BORDER,
     FONT_BOLD,
     FONT_NORMAL,
-    FONT_SMALL,
     TEXT_MAIN,
-    TEXT_DIM,
     load_icon,
 )
 from gui import game_helpers as _gh
@@ -40,12 +38,11 @@ from gui.dialogs import (
     _ProtonToolsDialog,
     _MewgenicsDeployChoiceDialog,
     _MewgenicsLaunchCommandDialog,
-    ask_yes_no,
     confirm_deploy_appdata,
     confirm_cet_symlink,
 )
 from gui.ctk_components import CTkAlert
-from gui.path_utils import pick_file_mod_archive, pick_files_mod_archive
+from gui.path_utils import pick_files_mod_archive
 from gui.install_mod import install_mod_from_archive, _show_mod_notification
 from gui.add_game_dialog import AddGameDialog
 from gui.wizard_dialog import WizardDialog

@@ -17,7 +17,6 @@ The form is seeded, in order of preference, from:
 from __future__ import annotations
 
 import re
-import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 

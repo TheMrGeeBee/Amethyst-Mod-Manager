@@ -126,7 +126,7 @@ def _load_tokens_file() -> Optional[OAuthTokens]:
     try:
         if not os.path.isfile(p):
             return None
-        from cryptography.fernet import Fernet, InvalidToken
+        from cryptography.fernet import Fernet
         cipher = Fernet(_derive_key())
         with open(p, "rb") as f:
             data = json.loads(cipher.decrypt(f.read()))

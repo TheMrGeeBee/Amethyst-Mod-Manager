@@ -5,7 +5,6 @@ Used by App. No dependency on other gui modules.
 
 import os
 import re
-import urllib.request
 
 from Utils.gh_cache import fetch_text as _gh_fetch_text
 

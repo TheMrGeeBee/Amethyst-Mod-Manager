@@ -44,7 +44,7 @@ from gui.theme import (
     ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL,
     TEXT_ON_ACCENT,
     TEXT_DIM, TEXT_MAIN,
-    FONT_NORMAL, FONT_BOLD, FONT_SMALL,
+    FONT_NORMAL, FONT_BOLD,
 )
 
 _NEXUS_URL             = "https://www.nexusmods.com/morrowind/mods/41102?tab=files&file_id=1000048202"

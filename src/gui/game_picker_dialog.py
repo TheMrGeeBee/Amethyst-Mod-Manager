@@ -31,7 +31,6 @@ from gui.theme import (
 )
 import gui.theme as _theme
 from gui.ctk_components import CTkAlert, CTkLoader
-from Utils.config_paths import get_custom_game_images_dir, get_custom_games_dir
 
 
 _CUSTOM_HANDLERS_API_URL = (
@@ -1141,7 +1140,7 @@ class GamePickerPanel(tk.Frame):
                     w.configure(state="normal", text="Add")
             return
         # Reload games so the new handler is registered, then select it
-        from gui.game_helpers import _load_games, _GAMES
+        from gui.game_helpers import _load_games
         _load_games()
         self._on_game_selected(display_name, False)
 

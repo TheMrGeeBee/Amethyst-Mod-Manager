@@ -28,13 +28,13 @@ from gui.theme import (
     BG_ROW_ALT,
     BORDER,
     FONT_BOLD,
-    FONT_NORMAL,
     FONT_FAMILY,
     FONT_SMALL,
     font_sized_px,
     TEXT_DIM,
     TEXT_MAIN,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
 )
 
 

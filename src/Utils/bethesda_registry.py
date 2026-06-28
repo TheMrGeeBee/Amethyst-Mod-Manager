@@ -15,7 +15,6 @@ all. Registering ourselves covers both cases.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from Utils.steam_finder import proton_run_command
 from pathlib import Path

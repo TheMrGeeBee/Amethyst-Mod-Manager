@@ -25,8 +25,6 @@ UE5      — uses the Unreal Engine 5 manifest deploy; everything lands in
 from __future__ import annotations
 
 import threading
-from pathlib import Path
-from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 import tkinter as tk

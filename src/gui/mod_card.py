@@ -12,7 +12,6 @@ import threading
 from collections import OrderedDict
 from typing import Callable, Any
 
-import tkinter as tk
 import tkinter.font as tkfont
 
 import customtkinter as ctk

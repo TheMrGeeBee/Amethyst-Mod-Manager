@@ -19,7 +19,7 @@ from typing import Callable, Optional
 import customtkinter as ctk
 
 from gui.nexus_mod_list_panel_base import _NexusModListPanel
-from gui.theme import ACCENT, ACCENT_HOV, BG_HEADER, TEXT_DIM, FONT_HEADER, FONT_SMALL
+from gui.theme import FONT_HEADER
 
 # Mods per page when browsing trending
 PAGE_SIZE = 20

@@ -14,7 +14,6 @@ Mod structure:
   (mod_staging_requires_subdir + mod_staging_wrap_signals).
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

@@ -16,7 +16,6 @@ Workflow
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from Utils.steam_finder import proton_run_command
@@ -36,7 +35,7 @@ from gui.theme import (
     ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL,
     TEXT_ON_ACCENT,
     TEXT_DIM, TEXT_MAIN,
-    FONT_NORMAL, FONT_BOLD, FONT_SMALL,
+    FONT_NORMAL, FONT_BOLD,
 )
 
 from Utils.protontricks import (
@@ -460,7 +459,6 @@ class ScriptMergerWizard(ctk.CTkFrame):
         threading.Thread(target=self._do_install_net8, daemon=True).start()
 
     def _do_install_net8(self):
-        import urllib.request
         from Utils.config_paths import get_dotnet_cache_dir
 
         proton_script, env, prefix_path = self._get_proton_env()

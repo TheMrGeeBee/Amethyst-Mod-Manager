@@ -28,7 +28,6 @@ Mod structure:
   so the patcher version always matches the user's DML install.
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame, WizardTool

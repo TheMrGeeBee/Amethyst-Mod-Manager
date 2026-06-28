@@ -40,7 +40,6 @@ from pathlib import Path
 from Games.base_game import BaseGame
 from Utils.deploy import (
     LinkMode,
-    apply_wine_dll_overrides,
     cleanup_custom_deploy_dirs,
     deploy_filemap_to_root,
     load_per_mod_strip_prefixes,

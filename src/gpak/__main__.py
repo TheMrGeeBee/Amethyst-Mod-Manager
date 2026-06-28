@@ -16,7 +16,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gpak.reader import GpakReader, list_gpak, extract_gpak
+from gpak.reader import list_gpak, extract_gpak
 from gpak.writer import pack_gpak
 
 

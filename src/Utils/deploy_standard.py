@@ -21,10 +21,8 @@ from Utils.path_utils import has_path_traversal as _has_traversal
 from Utils.deploy_shared import (
     LinkMode,
     _OVERWRITE_NAME,
-    _build_mod_index,
     _default_core,
     _deploy_workers,
-    _do_link,
     _do_link_ex,
     _get_staging_source_path,
     _append_overwrite_log,

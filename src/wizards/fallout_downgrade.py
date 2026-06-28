@@ -11,11 +11,9 @@ Multi-step dialog that walks the user through:
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from Utils.steam_finder import proton_run_command
 import tarfile
-import tempfile
 import threading
 from Utils.xdg import open_url
 from Utils.portal_filechooser import pick_file
@@ -43,10 +41,10 @@ _ARCHIVE_KEYWORDS = ["fallout", "anniversary", "patcher"]
 _ARCHIVE_EXTS = {".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz"}
 
 from gui.theme import (
-    ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL, BORDER,
-    TEXT_ON_ACCENT,
-    TEXT_DIM, TEXT_MAIN,
-    FONT_NORMAL, FONT_BOLD, FONT_SMALL,
+    ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_PANEL, TEXT_ON_ACCENT,
+    TEXT_DIM,
+    TEXT_MAIN, FONT_NORMAL,
+    FONT_BOLD,
 )
 
 

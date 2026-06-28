@@ -21,7 +21,6 @@ from gui.theme import (
     BG_DEEP,
     BG_PANEL,
     BG_HEADER,
-    BG_ROW,
     BORDER,
     ACCENT,
     ACCENT_HOV,
@@ -34,7 +33,8 @@ from gui.theme import (
     FONT_NORMAL,
     FONT_SMALL,
     scaled,
-    TK_FONT_HEADER, TK_FONT_SMALL,
+    TK_FONT_HEADER,
+    TK_FONT_SMALL,
 )
 
 
@@ -165,7 +165,6 @@ class _NexusModListPanel:
 
     def _build_toolbar(self, toolbar: tk.Frame) -> None:
         """Override to pack additional widgets into the toolbar (after the Refresh button)."""
-        pass
 
     # ------------------------------------------------------------------
     # Canvas / scroll helpers

@@ -28,16 +28,15 @@ from gui.theme import (
     ACCENT_HOV,
     BG_DEEP,
     BG_HEADER,
-    BG_HOVER,
     BG_PANEL,
     BORDER,
     FONT_BOLD,
-    FONT_NORMAL,
-    FONT_SMALL,
     TEXT_DIM,
     TEXT_MAIN,
     TEXT_ON_ACCENT,
-    TK_FONT_BOLD, TK_FONT_NORMAL, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_NORMAL,
+    TK_FONT_SMALL,
 )
 from Utils.bsa_reader import read_bsa_file_list
 

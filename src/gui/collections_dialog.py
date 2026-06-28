@@ -55,7 +55,7 @@ from Utils.ui_config import get_ui_scale
 from gui.mod_name_utils import _suggest_mod_names
 from Utils.modlist import write_modlist, read_modlist, ModEntry
 from Utils.filemap import rebuild_mod_index
-from Utils.config_paths import get_download_cache_dir, get_download_cache_dir_for_game, list_all_cache_dirs
+from Utils.config_paths import get_download_cache_dir_for_game, list_all_cache_dirs
 from Nexus.nexus_download import delete_archive_and_sidecar, DownloadResult, _find_cached_archive, _get_downloads_dir
 from gui.download_locations_overlay import (
     is_default_downloads_disabled,
@@ -126,7 +126,6 @@ from gui.theme import (
     BTN_SUCCESS_DEEP,
     BTN_SUCCESS_DEEP_HOV,
     BTN_GREY,
-    BTN_GREY_HOV,
     BTN_GREY_ALT,
     BTN_GREY_ALT_HOV,
     TAG_INSTALLED_BG,
@@ -143,7 +142,8 @@ from gui.theme import (
     font_sized_px,
     FONT_FAMILY,
     scaled,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
 )
 
 PAGE_SIZE    = 20
@@ -3810,7 +3810,6 @@ class CollectionDetailDialog(tk.Frame):
                         keep_archive_at=str(_cached_archive) if _slug else None,
                     )
                 if cj_full:
-                    import os as _os
                     from pathlib import Path as _Path
                     _bundled_meta_map = self._installed_bundled_meta_map(
                         staging_path, (self._collection.slug or "").strip())

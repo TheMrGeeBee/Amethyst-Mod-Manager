@@ -9,7 +9,6 @@ import json
 import os
 import re
 import sys
-import shutil
 import subprocess
 import threading
 import tkinter as tk
@@ -33,7 +32,6 @@ from gui.theme import (
     BG_ROW,
     BORDER,
     FONT_BOLD,
-    FONT_HEADER,
     FONT_MONO,
     FONT_NORMAL,
     FONT_SMALL,
@@ -64,17 +62,17 @@ from gui.theme import (
     TONE_GREEN,
     TONE_RED,
     TONE_BLUE,
-    BG_GREEN_TEXT,
     BG_RED_TEXT,
     TAG_BSA_ALT,
-    FONT_FAMILY,
-    TK_FONT_BOLD, TK_FONT_NORMAL, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_NORMAL,
+    TK_FONT_SMALL,
 )
 import gui.theme as _theme
 from gui.path_utils import _to_wine_path
-from Utils.config_paths import get_exe_args_path, get_profile_exe_args_path, get_custom_game_images_dir, get_dotnet_cache_dir, get_custom_games_dir, get_config_dir
+from Utils.config_paths import get_exe_args_path, get_profile_exe_args_path, get_dotnet_cache_dir, get_custom_games_dir, get_config_dir
 
-from gui.ctk_components import CTkAlert, CTkLoader, ICON_PATH
+from gui.ctk_components import CTkAlert, ICON_PATH
 from gui.tk_tooltip import TkTooltip
 from gui.wheel_compat import LEGACY_WHEEL_REDUNDANT, bind_scrollable_wheel
 from Utils.xdg import xdg_open, open_url
@@ -1477,7 +1475,6 @@ class ProtonToolsPanel(ctk.CTkFrame):
                 return
 
             def _worker(plog):
-                import urllib.request
                 from Utils.protontricks import dotnet_dep_key, mark_dep_installed
                 try:
                     if not cache_path.is_file():

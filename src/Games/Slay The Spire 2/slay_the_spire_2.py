@@ -9,7 +9,6 @@ Mod structure:
   Root_Folder/ files deploy straight to the game install root (handled by GUI).
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame
@@ -26,7 +25,6 @@ from Utils.deploy import (
 )
 from Utils.modlist import read_modlist
 from Utils.config_paths import get_profiles_dir
-from Utils.steam_finder import find_prefix
 
 _PROFILES_DIR = get_profiles_dir()
 

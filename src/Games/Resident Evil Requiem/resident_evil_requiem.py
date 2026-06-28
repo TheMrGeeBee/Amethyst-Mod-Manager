@@ -20,7 +20,6 @@ Mod structure:
   Proton prefix on every deploy.
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

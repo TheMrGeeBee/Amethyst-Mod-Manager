@@ -10,7 +10,6 @@ Mod structure:
   Staged mods live in Profiles/Mount & Blade II: Bannerlord/mods/
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

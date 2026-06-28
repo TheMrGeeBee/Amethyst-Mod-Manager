@@ -20,9 +20,8 @@ from gui.theme import (
     TEXT_MAIN,
     TEXT_DIM,
     FONT_BOLD,
-    FONT_SMALL,
-    FONT_MONO,
-    TK_FONT_BOLD, TK_FONT_SMALL,
+    TK_FONT_BOLD,
+    TK_FONT_SMALL,
     scaled,
 )
 

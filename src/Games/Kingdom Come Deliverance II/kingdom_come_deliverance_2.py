@@ -12,7 +12,6 @@ Mod structure:
   Root_Folder/ files deploy straight to the game install root (handled by GUI).
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

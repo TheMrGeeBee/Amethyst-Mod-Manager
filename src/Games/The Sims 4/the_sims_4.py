@@ -11,7 +11,6 @@ Mod structure:
   images, etc.) are excluded via mod_install_extensions.
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame

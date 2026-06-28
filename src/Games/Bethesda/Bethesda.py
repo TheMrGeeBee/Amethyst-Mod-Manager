@@ -7,7 +7,6 @@ Mod structure:
   Staged mods live in Profiles/Fallout 3/mods/
 """
 
-import json
 import re
 import shutil
 from pathlib import Path

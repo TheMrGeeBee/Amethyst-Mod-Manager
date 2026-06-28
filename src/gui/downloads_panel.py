@@ -14,7 +14,7 @@ import threading
 import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Set
+from typing import Callable, Optional
 
 import customtkinter as ctk
 import gui.theme as _theme
@@ -34,21 +34,21 @@ from gui.theme import (
     BG_ROW,
     BG_ROW_ALT,
     BG_HOVER,
-    BG_SELECT,
     BG_SEP,
     ACCENT,
     ACCENT_HOV,
     TEXT_ON_ACCENT,
     TEXT_MAIN,
     TEXT_DIM,
-    TEXT_SEP,
     BORDER,
     FONT_HEADER,
     FONT_FAMILY,
     FS10,
     FS11,
     scaled,
- CTK_FS10, CTK_FS11, TK_FONT_NORMAL, TK_FONT_SMALL, TK_FONT_HEADER,
+    CTK_FS10,
+    CTK_FS11,
+ TK_FONT_NORMAL, TK_FONT_SMALL, TK_FONT_HEADER,
 )
 
 # Smaller, denser fonts to match the Plugins tab. Filenames use FS11

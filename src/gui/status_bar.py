@@ -4,7 +4,6 @@ Status bar: log area and collapse/expand. Used by App.
 
 from datetime import datetime
 import os
-import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -15,30 +14,28 @@ from pathlib import Path
 from Utils.config_paths import (
     get_logs_dir,
     get_download_cache_dir,
-    get_download_cache_dir_for_game,
     get_profiles_dir,
     get_config_dir,
 )
 from Utils.xdg import open_url, xdg_open
 from Utils.ui_config import (
-    load_ui_scale, save_ui_scale, detect_hidpi_scale,
-    load_collection_settings, save_collection_settings,
-    load_normalize_folder_case, save_normalize_folder_case,
-    load_clear_archive_after_install, save_clear_archive_after_install,
-    load_keep_fomod_archives, save_keep_fomod_archives,
-    load_show_summary_tooltips, save_show_summary_tooltips,
-    load_hide_bsa_conflicts, save_hide_bsa_conflicts,
-    load_rename_mod_after_install, save_rename_mod_after_install,
-    load_restore_on_close, save_restore_on_close,
-    load_allow_prerelease, save_allow_prerelease,
-    load_dev_mode,
-    load_heroic_config_path, save_heroic_config_path,
-    load_steam_libraries_vdf_path, save_steam_libraries_vdf_path,
-    load_default_staging_path, save_default_staging_path,
-    load_download_cache_path, save_download_cache_path,
-    load_font_family, save_font_family, get_font_family,
-    THEME_DEFAULTS, get_theme_color, save_theme_color,
-    get_appearance_mode, save_appearance_mode,
+    save_ui_scale, detect_hidpi_scale, load_collection_settings,
+    save_collection_settings, load_normalize_folder_case,
+    save_normalize_folder_case, load_clear_archive_after_install,
+    save_clear_archive_after_install, load_keep_fomod_archives,
+    save_keep_fomod_archives, load_show_summary_tooltips,
+    save_show_summary_tooltips, load_hide_bsa_conflicts,
+    save_hide_bsa_conflicts, load_rename_mod_after_install,
+    save_rename_mod_after_install, load_restore_on_close,
+    save_restore_on_close, load_allow_prerelease,
+    save_allow_prerelease, load_dev_mode,
+    load_heroic_config_path,
+    save_heroic_config_path, load_steam_libraries_vdf_path,
+    save_steam_libraries_vdf_path, load_default_staging_path,
+    save_default_staging_path, load_download_cache_path,
+    save_download_cache_path, save_font_family,
+    get_font_family, THEME_DEFAULTS, get_theme_color,
+    save_theme_color, get_appearance_mode, save_appearance_mode,
 )
 from gui.ctk_components import CTkProgressPopup, CTkAlert, CTkNotification
 from gui.version_check import is_appimage, is_flatpak

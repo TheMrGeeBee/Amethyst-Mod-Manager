@@ -21,7 +21,6 @@ from Utils.deploy_shared import (
     _do_link,
     _mkdir_leaves,
     _move_crash_safe,
-    _path_under_root,
     _prune_empty_dirs,
     _resolve_source,
     _restore_backup_dir,

@@ -125,7 +125,7 @@ ctk.set_window_scaling(_UI_SCALE)
 from gui.wheel_compat import patch_ctk_scrollable_frame
 patch_ctk_scrollable_frame()
 
-from gui.theme import ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_HOVER, BORDER, FONT_BOLD, FONT_NORMAL, FS9, TEXT_DIM, TEXT_MAIN, init_fonts, scaled, scaled_layout_minsize, TEXT_ON_ACCENT
+from gui.theme import ACCENT, ACCENT_HOV, BG_DEEP, BG_HEADER, BG_HOVER, BORDER, FONT_BOLD, FONT_NORMAL, FS9, TEXT_DIM, TEXT_MAIN, init_fonts, scaled, TEXT_ON_ACCENT
 from gui.game_helpers import (
     _GAMES,
     _vanilla_plugins_for_game,
@@ -138,7 +138,6 @@ from gui.top_bar import TopBar
 from gui.status_bar import StatusBar
 from gui.shortcuts import register_shortcuts
 from gui.install_mod import install_mod_from_archive, fomod_dialog_active
-from gui.mod_name_utils import _suggest_mod_names
 from gui.version_check import (
     is_appimage,
     is_flatpak,
@@ -153,20 +152,16 @@ from gui.version_check import (
 from version import __version__
 from Utils.app_log import app_log, set_app_log
 from Utils.plugins import (
-    prune_plugins_from_filemap,
-    sync_plugins_from_filemap,
     sync_plugins_from_filemap_combined,
     sync_plugins_from_overwrite_dir,
-    read_plugins,
-    write_plugins,
 )
 from Utils.profile_state import read_disabled_plugins
 from Nexus.nexus_api import NexusAPI, load_api_key, clear_api_key
 from Nexus.nexus_oauth import load_oauth_tokens, clear_oauth_tokens
 from Nexus.nexus_download import NexusDownloader, delete_archive_and_sidecar
-from Nexus.nxm_handler import NxmLink, NxmCollectionLink, NxmHandler, NxmIPC, parse_nxm_url
-from Nexus.nexus_meta import build_meta_from_download, write_meta
-from Utils.config_paths import get_download_cache_dir, get_download_cache_dir_for_game
+from Nexus.nxm_handler import NxmCollectionLink, NxmHandler, NxmIPC, parse_nxm_url
+from Nexus.nexus_meta import build_meta_from_download
+from Utils.config_paths import get_download_cache_dir_for_game
 
 from Utils.ui_config import get_appearance_mode as _get_appearance_mode
 from gui.themes import get_ctk_appearance as _get_ctk_appearance
@@ -2381,7 +2376,7 @@ class App(ctk.CTk):
     def _sync_custom_handlers(self):
         """Background-download every custom handler from GitHub, overwriting stale copies."""
         import json as _json
-        from gui.dialogs import _CUSTOM_HANDLERS_API_URL, _list_compatible_handlers
+        from gui.dialogs import _list_compatible_handlers
         from Utils.config_paths import get_custom_games_dir as _gcgd
         from Utils.gh_cache import fetch_text as _gh_fetch_text
         from Utils.ui_config import load_dev_mode

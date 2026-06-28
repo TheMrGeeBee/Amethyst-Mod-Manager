@@ -7,7 +7,6 @@ Mod structure:
   Staged mods live in Profiles/Cyberpunk 2077/mods/
 """
 
-import json
 from pathlib import Path
 
 from Games.base_game import BaseGame, MODERN_DIRECTX_DEPS

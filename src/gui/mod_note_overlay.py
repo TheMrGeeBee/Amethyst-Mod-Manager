@@ -22,13 +22,12 @@ from gui.theme import (
     BG_PANEL,
     BORDER,
     FONT_BOLD,
-    FONT_NORMAL,
-    FONT_SMALL,
     TEXT_DIM,
     TEXT_MAIN,
     TEXT_ON_ACCENT,
-    TK_FONT_BOLD, TK_FONT_NORMAL, TK_FONT_SMALL,
-    scaled,
+    TK_FONT_BOLD,
+    TK_FONT_NORMAL,
+    TK_FONT_SMALL, scaled,
 )
 
 

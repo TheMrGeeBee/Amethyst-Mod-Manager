@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 from Nexus.nexus_api import NexusAPI, NexusAPIError, NexusModUpdateInfo
-from Nexus.nexus_meta import NexusModMeta, scan_installed_mods, read_meta, write_meta
+from Nexus.nexus_meta import NexusModMeta, scan_installed_mods, write_meta
 from Nexus.nexus_requirements import MissingRequirementInfo, check_requirements_from_gql
 
 ProgressCallback = Callable[[str], None]
