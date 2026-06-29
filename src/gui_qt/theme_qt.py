@@ -60,11 +60,43 @@ def build_qss(pal: dict | None = None) -> str:
     c = lambda k: _c(p, k)
     return f"""
     QWidget {{
-        background: {c('BG_DEEP')};
         color: {c('TEXT_MAIN')};
         font-size: 13px;
     }}
     QMainWindow, QDialog {{ background: {c('BG_DEEP')}; }}
+    /* Transparent by default so labels/checkboxes don't paint near-black boxes
+       over their container — containers set their own background explicitly. */
+    QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
+    QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
+
+    /* Toggle indicators — blue when checked, consistent size everywhere. */
+    QCheckBox::indicator {{
+        width: 16px; height: 16px;
+        border: 1px solid {c('BORDER_FAINT')};
+        border-radius: 3px;
+        background: {c('BG_DEEP')};
+    }}
+    QCheckBox::indicator:hover {{ border: 1px solid {c('ACCENT')}; }}
+    QCheckBox::indicator:checked {{
+        background: {c('ACCENT')};
+        border: 1px solid {c('ACCENT')};
+        image: url({_icon_url('check_white.png')});
+    }}
+    /* Radio: same look as the dropdown-menu exclusive indicator — hollow ring
+       unchecked, a fully accent-filled circle when checked (border-radius = half
+       the box). 14px to match QMenu::indicator. */
+    QRadioButton::indicator {{
+        width: 14px; height: 14px;
+        border: 1px solid {c('BORDER_FAINT')};
+        border-radius: 7px;
+        background: {c('BG_DEEP')};
+    }}
+    QRadioButton::indicator:hover {{ border: 1px solid {c('ACCENT')}; }}
+    QRadioButton::indicator:checked {{
+        border: 1px solid {c('ACCENT')};
+        border-radius: 7px;
+        background: {c('ACCENT')};
+    }}
 
     /* Toolbar */
     QToolBar {{
@@ -297,6 +329,41 @@ def build_qss(pal: dict | None = None) -> str:
     }}
     #IconButton:hover {{ background: {c('BG_ROW_HOVER')}; }}
     #IconButton:pressed {{ background: {c('ACCENT')}; }}
+    /* Configure-Game form body + monospace path fields + buttons. */
+    #FormBody {{ background: {c('BG_PANEL')}; }}
+    #PathEdit {{
+        background: {c('BG_ROW')};
+        color: {c('TEXT_MAIN')};
+        border: 1px solid {c('BORDER')};
+        border-radius: 4px;
+        padding: 8px 10px;
+    }}
+    /* Consistent form button (Browse/Open/Scan/Reset, Cancel) — same height as
+       the primary Save/Danger buttons so rows line up. */
+    #FormButton {{
+        background: {c('BG_ROW')};
+        color: {c('TEXT_MAIN')};
+        border: 1px solid {c('BORDER')};
+        border-radius: 4px;
+        padding: 0 14px;
+        min-height: 30px;
+        font-size: 13px;
+    }}
+    #FormButton:hover {{ background: {c('BG_ROW_HOVER')}; }}
+    #FormButton:pressed {{ background: {c('ACCENT')}; color: {c('TEXT_ON_ACCENT')}; }}
+    #PrimaryButton {{
+        background: {c('ACCENT')}; color: {c('TEXT_ON_ACCENT')}; font-weight: 600;
+        border: none; border-radius: 4px; padding: 0 18px;
+        min-height: 30px; font-size: 13px;
+    }}
+    #PrimaryButton:hover {{ background: {c('ACCENT_HOV')}; }}
+    #PrimaryButton:disabled {{ background: {c('BG_ROW')}; color: {c('TEXT_DIM')}; }}
+    #DangerButton {{
+        background: {c('RED_BTN')}; color: #fff; font-weight: 600;
+        border: none; border-radius: 4px; padding: 0 16px;
+        min-height: 30px; font-size: 13px;
+    }}
+    #DangerButton:hover {{ background: {c('RED_HOV')}; }}
     #FooterButton {{
         background: {c('BG_ROW')};
         color: {c('TEXT_MAIN')};

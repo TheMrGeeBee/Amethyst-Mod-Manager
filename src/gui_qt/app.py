@@ -414,6 +414,12 @@ class MainWindow(QMainWindow):
     def _on_game_action(self, which):
         if which == "add":
             self._open_add_game_tab()
+        elif which == "configure":
+            game = self._gs.game
+            if game is not None:
+                self._open_configure_game_tab(game)
+            else:
+                self._append_log("[game] no active game to configure")
         else:
             self._append_log(f"[game] {which} (not wired yet)")
 
@@ -437,9 +443,37 @@ class MainWindow(QMainWindow):
         self._append_log(f"[game] selected {name}")
 
     def _on_add_game_add(self, name: str):
-        """An unconfigured game was picked → start the configure flow (the
-        configure dialog isn't ported to Qt yet; logged for now)."""
-        self._append_log(f"[game] configure {name} (configure dialog not wired yet)")
+        """An unconfigured game was picked → open the configure-game tab."""
+        from gui.game_helpers import _GAMES
+        game = _GAMES.get(name)
+        if game is None:
+            self._append_log(f"[game] {name} not found in registry")
+            return
+        self._tabs.close_tab("add_game")
+        self._open_configure_game_tab(game)
+
+    def _open_configure_game_tab(self, game):
+        """Open the (live) Configure-Game view as a detachable tab."""
+        from gui_qt.configure_game_view import ConfigureGameView
+
+        def _done(saved: bool, removed: bool):
+            self._tabs.close_tab("configure_game")
+            if saved or removed:
+                # Refresh the game registry + selector; switch to the game if it
+                # is now configured, else fall back to the current/ first game.
+                from gui.game_helpers import _load_games
+                names = _load_games()
+                self._gs.game_names = names
+                self._game_selector.set_items(names, current=self._gs.game_name)
+                if saved and game.name in names:
+                    self._on_game_changed(game.name)
+                    self._game_selector.set_current(game.name)
+                elif removed:
+                    self._append_log(f"[game] removed instance: {game.name}")
+
+        page = ConfigureGameView(game, on_done=_done)
+        verb = "Reconfigure" if game.is_configured() else "Add"
+        self._tabs.open_tab(page, f"{verb} game", key="configure_game")
 
     def _on_profile_action(self, which):
         self._append_log(f"[profile] {which} (not wired yet)")
