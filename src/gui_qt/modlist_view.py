@@ -76,8 +76,12 @@ class ModListView(QTreeView):
 
         # Separator state persistence (profile dir set by the window on reload).
         self.profile_dir = None
-        # Rows hidden by the filter side panel (unioned with collapse hiding).
+        # Rows hidden by the filter side panel / search box (unioned with the
+        # collapse hiding). _searching = a non-empty query is active (collapse
+        # is then bypassed so matches inside collapsed separators show).
         self._filter_hidden: set[int] = set()
+        self._search_hidden: set[int] = set()
+        self._searching: bool = False
         self.doubleClicked.connect(self._on_double_click)
 
         self._restoring = True
@@ -148,9 +152,19 @@ class ModListView(QTreeView):
                                        m.entry(r).is_separator)
 
     def apply_collapse(self):
-        """Hide rows under collapsed separators OR the active filter (union)."""
-        hidden = self.model().hidden_rows()
+        """Hide rows under a collapsed separator, the filter panel, OR the search
+        box. When a search is active it OVERRIDES collapse (Tk parity — a match
+        inside a collapsed separator is still revealed); the filter still applies.
+        """
         flt = self._filter_hidden
+        srch = self._search_hidden
+        if self._searching:
+            # Search drives visibility; collapse is ignored so matches surface.
+            for r in range(self.model().rowCount()):
+                self.setRowHidden(r, self.rootIndex(),
+                                  r in srch or r in flt)
+            return
+        hidden = self.model().hidden_rows()
         for r in range(self.model().rowCount()):
             self.setRowHidden(r, self.rootIndex(),
                               r in hidden or r in flt)
@@ -159,6 +173,17 @@ class ModListView(QTreeView):
         """Set the rows the filter panel wants hidden, then reapply visibility.
         Empty set clears the filter. Repaints the marker strip too."""
         self._filter_hidden = set(rows or ())
+        self.apply_collapse()
+        sb = self.verticalScrollBar()
+        if sb is not None:
+            sb.update()
+
+    def set_search_hidden(self, rows: set[int], *, active: bool = None) -> None:
+        """Set the rows the search box wants hidden, then reapply visibility.
+        `active` marks whether a query is in effect (defaults to: any rows
+        hidden) so collapse is bypassed only while searching."""
+        self._search_hidden = set(rows or ())
+        self._searching = bool(self._search_hidden) if active is None else active
         self.apply_collapse()
         sb = self.verticalScrollBar()
         if sb is not None:
@@ -178,6 +203,16 @@ class ModListView(QTreeView):
         self.model().toggle_sep_lock(row)
         self._save_separator_state()
         self.viewport().update()
+
+    def set_all_collapsed(self, collapsed: bool):
+        """Collapse or expand every separator (Expand all / Collapse all)."""
+        self.model().set_all_collapsed(collapsed)
+        self.apply_collapse()
+        self._save_separator_state()
+        self.viewport().update()
+        sb = self.verticalScrollBar()
+        if sb is not None:
+            sb.update()
 
     def _save_separator_state(self):
         if self.profile_dir is None:

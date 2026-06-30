@@ -31,6 +31,9 @@ from Utils.steam_finder import (
 from Utils.config_paths import get_game_config_path
 from Utils.heroic_finder import find_heroic_game, find_heroic_prefix, find_heroic_game_info_by_exe
 from Utils.app_log import app_log
+# Single source of truth lives in Utils.modlist now (toolkit-neutral so the Qt
+# Refresh path can reuse it); re-exported here for existing call sites.
+from Utils.modlist import sync_modlist_with_mods_folder
 
 from gui.wheel_compat import LEGACY_WHEEL_REDUNDANT
 from gui.theme import (
@@ -1993,48 +1996,6 @@ class _CleanGameFolderDialog(ctk.CTkToplevel):
 # ---------------------------------------------------------------------------
 # Profile folder helper
 # ---------------------------------------------------------------------------
-
-def sync_modlist_with_mods_folder(modlist_path: Path, mods_dir: Path) -> None:
-    """
-    Sync modlist_path against mods_dir:
-      - Prepend any mod folders not yet in modlist as disabled entries.
-      - Remove any non-separator entries whose folder no longer exists.
-    Skips MO2 separator dummy folders (_separator suffix).
-    Creates modlist_path if it does not exist.
-    """
-    if not mods_dir.is_dir():
-        if not modlist_path.exists():
-            modlist_path.touch()
-        return
-
-    on_disk: set[str] = {
-        d.name for d in mods_dir.iterdir()
-        if d.is_dir() and not d.name.endswith("_separator")
-    }
-
-    # Parse existing modlist lines, dropping entries whose folder is gone
-    existing_lines: list[str] = []
-    existing_names: set[str] = set()
-    if modlist_path.exists():
-        for line in modlist_path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if stripped[0] in ("+", "-", "*"):
-                name = stripped[1:]
-                # Keep separators always; only keep mods that exist on disk
-                if name.endswith("_separator") or name in on_disk:
-                    existing_lines.append(stripped)
-                    existing_names.add(name)
-            else:
-                existing_lines.append(stripped)
-
-    new_mods = sorted(on_disk - existing_names)
-    new_lines = [f"-{name}" for name in new_mods]
-
-    all_lines = new_lines + existing_lines
-    modlist_path.write_text("\n".join(all_lines) + ("\n" if all_lines else ""), encoding="utf-8")
-
 
 def _create_profile_structure(game: BaseGame) -> None:
     """

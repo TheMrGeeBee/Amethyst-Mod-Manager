@@ -290,6 +290,51 @@ class ModListModel(QAbstractTableModel):
             self._sep_locks[name] = not self._sep_locks.get(name, False)
         return self._sep_locks
 
+    # ---- bulk separator / mod operations (footer buttons) -----------------
+    def collapsible_separator_names(self) -> list[str]:
+        """Display names of separators that can be collapsed (excludes the
+        Overwrite / Root Folder boundaries)."""
+        return [e.display_name for e in self._entries
+                if e.is_separator and e.name not in _BOUNDARY_NAMES]
+
+    def any_collapsed(self) -> bool:
+        names = self.collapsible_separator_names()
+        return any(n in self._collapsed for n in names)
+
+    def set_all_collapsed(self, collapsed: bool) -> set[str]:
+        """Collapse or expand every (non-boundary) separator. Returns the new
+        collapsed set so the view can persist it."""
+        names = set(self.collapsible_separator_names())
+        if collapsed:
+            self._collapsed |= names
+        else:
+            self._collapsed -= names
+        return self._collapsed
+
+    def all_mods_enabled(self) -> bool:
+        mods = [e for e in self._entries if not e.is_separator and not e.locked]
+        return bool(mods) and all(e.enabled for e in mods)
+
+    def has_disabled_mods(self) -> bool:
+        return any(not e.is_separator and not e.locked and not e.enabled
+                   for e in self._entries)
+
+    def set_all_enabled(self, enabled: bool) -> None:
+        """Enable/disable every toggleable mod, then save once."""
+        changed = False
+        for r, e in enumerate(self._entries):
+            if e.is_separator or e.locked:
+                continue
+            if e.enabled != enabled:
+                e.enabled = enabled
+                changed = True
+        if changed:
+            self.dataChanged.emit(
+                self.index(0, COL_NAME),
+                self.index(len(self._entries) - 1, COL_NAME),
+                [EntryRole, Qt.DisplayRole])
+            self.save()
+
     def hidden_rows(self) -> set[int]:
         """Rows to hide: mods that fall under a collapsed separator (up to the
         next separator). Separators themselves are never hidden."""

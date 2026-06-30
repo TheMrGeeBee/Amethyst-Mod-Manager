@@ -110,6 +110,43 @@ def _sep_block_has(entries, sep_idx: int, mod_pred) -> bool:
     return False
 
 
+def search_hidden_rows(entries, query: str) -> set[int]:
+    """Rows to HIDE for the modlist search box (Tk parity): a mod is shown when
+    its name contains *query* (case-insensitive); a separator is shown when any
+    mod in its block matches. Empty query hides nothing."""
+    q = (query or "").strip().lower()
+    if not q:
+        return set()
+    hide: set[int] = set()
+    for i, e in enumerate(entries):
+        if e.is_separator:
+            if not _sep_block_has(entries, i, lambda m: q in m.display_name.lower()):
+                hide.add(i)
+        elif q not in e.display_name.lower():
+            hide.add(i)
+    return hide
+
+
+def plugin_search_hidden_rows(rows, query: str, owner: dict | None = None) -> set[int]:
+    """Rows to HIDE for the plugins search box (Tk parity): a plugin is shown
+    when its name OR its owning mod name contains *query* (case-insensitive).
+    `owner` maps plugin filename (lower) → mod name. Empty query hides nothing."""
+    q = (query or "").strip().casefold()
+    if not q:
+        return set()
+    owner = owner or {}
+    hide: set[int] = set()
+    for i, r in enumerate(rows):
+        name_lower = r.name.lower()
+        if q in name_lower:
+            continue
+        mod = owner.get(name_lower, "")
+        if mod and q in mod.casefold():
+            continue
+        hide.add(i)
+    return hide
+
+
 def _apply_include(entries, keep: list[int], mod_pred, sep_pred) -> list[int]:
     """Keep mods passing mod_pred + separators whose block satisfies sep_pred."""
     out = []

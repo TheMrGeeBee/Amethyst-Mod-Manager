@@ -213,6 +213,7 @@ class PluginView(QTreeView):
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
 
         self._plugin_owner: dict = {}
+        self._search_hidden: set[int] = set()
         # Custom drag-reorder (vanilla pinned at top, locked rows immovable).
         self._drag_rows: list[int] = []
         self._drag_active = False
@@ -244,6 +245,16 @@ class PluginView(QTreeView):
     def _reposition_marker_strip(self):
         from gui_qt.marker_strip import reposition_marker_strip
         reposition_marker_strip(self)
+
+    # ---- search filtering ------------------------------------------------
+    def set_search_hidden(self, rows: set[int]) -> None:
+        """Hide the given rows (search box). Empty set shows everything."""
+        self._search_hidden = set(rows or ())
+        for r in range(self.model().rowCount()):
+            self.setRowHidden(r, self.rootIndex(), r in self._search_hidden)
+        sb = self.verticalScrollBar()
+        if sb is not None:
+            sb.update()
 
     # ---- cross-panel highlights ------------------------------------------
     def set_plugin_owner(self, owner: dict):

@@ -108,17 +108,21 @@ class GameState:
         p = staging.parent / "bsa_index.bin"
         return p if p.is_file() else None
 
-    def build_conflicts(self, log_fn=None) -> "ConflictData":
+    def build_conflicts(self, log_fn=None, rescan_index: bool = False) -> "ConflictData":
         """Build the filemap for the active game/profile and return a ConflictData
         with loose + BSA conflict codes, the override maps (for highlights), and a
-        plugin→owner map. Expensive — run off-thread. Empty on failure."""
+        plugin→owner map. Expensive — run off-thread. Empty on failure.
+
+        rescan_index=True forces a full re-scan of every mod folder from disk
+        (the Refresh path) so file changes inside existing mods are picked up."""
         g = self.game
         if g is None or not self.profile:
             return ConflictData()
         from Utils.deploy_pipeline import _build_filemap_for_game
         from gui_qt.modlist_data import display_codes_from_conflict_map
         log = log_fn or (lambda _m: None)
-        result = _build_filemap_for_game(g, self.profile, log_fn=log)
+        result = _build_filemap_for_game(
+            g, self.profile, log_fn=log, rescan_index=rescan_index)
         if not result:
             return ConflictData()
         _count, _conflict_map, overrides, overridden_by = result

@@ -150,3 +150,62 @@ def ensure_mod_preserving_position(
     # If not already present, add as a new top-priority entry.
     entries.insert(0, ModEntry(name=mod_name, enabled=enabled, locked=False))
     write_modlist(modlist_path, entries)
+
+
+# Profile-root infrastructure folder names. If one of these turns up *inside*
+# the mods/ staging folder it's almost always stray/test pollution (a mirror of
+# the profile-root layout), never a real mod — so the sync must never adopt it
+# into modlist.txt. Case-insensitive match.
+_RESERVED_STAGING_NAMES = frozenset({
+    "mods", "overwrite", "profiles", "backups",
+    "root_folder", "applications",
+})
+
+
+def sync_modlist_with_mods_folder(modlist_path: Path, mods_dir: Path) -> None:
+    """Sync modlist_path against mods_dir:
+
+      - Prepend any mod folders not yet in modlist as disabled entries.
+      - Remove any non-separator entries whose folder no longer exists.
+
+    Skips MO2 separator dummy folders (_separator suffix) and profile-root
+    infrastructure folder names (see _RESERVED_STAGING_NAMES). Creates
+    modlist_path if it does not exist. Pure pathlib — no GUI toolkit — so both
+    the Tk and Qt Refresh paths can call it (the Tk add-game dialog re-imports
+    it from here).
+    """
+    if not mods_dir.is_dir():
+        if not modlist_path.exists():
+            modlist_path.touch()
+        return
+
+    on_disk: set[str] = {
+        d.name for d in mods_dir.iterdir()
+        if d.is_dir()
+        and not d.name.endswith("_separator")
+        and d.name.lower() not in _RESERVED_STAGING_NAMES
+    }
+
+    # Parse existing modlist lines, dropping entries whose folder is gone.
+    existing_lines: list[str] = []
+    existing_names: set[str] = set()
+    if modlist_path.exists():
+        for line in modlist_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped[0] in ("+", "-", "*"):
+                name = stripped[1:]
+                # Keep separators always; only keep mods that exist on disk.
+                if name.endswith("_separator") or name in on_disk:
+                    existing_lines.append(stripped)
+                    existing_names.add(name)
+            else:
+                existing_lines.append(stripped)
+
+    new_mods = sorted(on_disk - existing_names)
+    new_lines = [f"-{name}" for name in new_mods]
+
+    all_lines = new_lines + existing_lines
+    modlist_path.write_text(
+        "\n".join(all_lines) + ("\n" if all_lines else ""), encoding="utf-8")

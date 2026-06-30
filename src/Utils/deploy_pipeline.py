@@ -244,12 +244,17 @@ def _make_ue5_conflict_key_fn(game, index_path: Path):
     return _ck
 
 
-def _build_filemap_for_game(game, profile, *, log_fn: LogFn):
+def _build_filemap_for_game(game, profile, *, log_fn: LogFn,
+                            rescan_index: bool = False):
     """Rebuild filemap.txt + filemap_root.txt for *profile* of *game*.
 
     Mirrors the call in top_bar._run_deploy: pulls excluded-files, root-flagged
     mods (Nexus), folder-case normalization toggle, UE5 conflict-key resolver.
     Errors are logged but not raised — partial filemap is still useful.
+
+    When ``rescan_index`` is True the mod index is fully rescanned from disk
+    first (the slow Refresh path) so newly added/removed files inside existing
+    mod folders are picked up; otherwise the cached index fast-path is used.
 
     Returns the build_filemap result tuple
     ``(count, conflict_map, overrides, overridden_by)`` so callers that need the
@@ -270,6 +275,24 @@ def _build_filemap_for_game(game, profile, *, log_fn: LogFn):
         exc_raw = read_excluded_mod_files(modlist_path.parent, None)
         exc = {k: set(v) for k, v in exc_raw.items()} if exc_raw else None
         rf_mods = collect_root_flagged_mods(modlist_path, staging, log_fn=log_fn)
+
+        if rescan_index:
+            # Full rescan of every mod folder → rewrite modindex.bin from disk
+            # (Refresh button). Uses the same game-derived params build_filemap
+            # would, so the cached index stays consistent.
+            try:
+                from Utils.filemap import rebuild_mod_index
+                rebuild_mod_index(
+                    filemap_out.parent / "modindex.bin", staging,
+                    strip_prefixes=set(game.mod_folder_strip_prefixes or ()) or None,
+                    per_mod_strip_prefixes=load_per_mod_strip_prefixes(
+                        modlist_path.parent),
+                    allowed_extensions=set(game.mod_install_extensions or ()) or None,
+                    root_folder_mods=set(rf_mods or ()) or None,
+                    log_fn=log_fn,
+                )
+            except Exception as idx_err:
+                log_fn(f"Index rescan warning: {idx_err}")
         norm_case = (
             getattr(game, "normalize_folder_case", True)
             and load_normalize_folder_case()

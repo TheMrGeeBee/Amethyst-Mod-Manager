@@ -155,12 +155,17 @@ class MainWindow(QMainWindow):
         self._play_bar_widget = play
         rc.addWidget(play)
         rc.addWidget(self._build_plugins(), 1)
+        self._right_col = right_col
 
         split = QSplitter(Qt.Horizontal)
-        split.addWidget(self._build_modlist())
+        split.addWidget(self._build_modlist_area())
         split.addWidget(right_col)
         split.setStretchFactor(0, 5)
         split.setStretchFactor(1, 4)
+        # Wider handle so a panel collapsed to one edge still has an easy-to-grab
+        # grip (the default 1px line is nearly invisible / hard to click).
+        split.setHandleWidth(8)
+        split.setChildrenCollapsible(True)
         split.setSizes([620, 480])
         self._body_split = split
         self._wire_cross_panel()
@@ -251,23 +256,66 @@ class MainWindow(QMainWindow):
 
         btns = QHBoxLayout()
         btns.setSpacing(4)
+        # label -> handler ("" = no-op stub, needs a dialog/auth — wired later).
+        _handlers = {
+            "Expand all": self._on_toggle_collapse_all,
+            "Enable all": self._on_toggle_enable_all,
+            "Filters": self._toggle_modlist_filters,
+            "Refresh Modlist": self._on_refresh_modlist,
+            "Check Updates": lambda: self._append_log(
+                "[modlist] Check Updates (not wired yet)"),
+            "Restore backup": lambda: self._append_log(
+                "[modlist] Restore backup (not wired yet)"),
+        }
+        self._modlist_footer_btns: list[QToolButton] = []
         for label in ["Expand all", "Enable all", "Check Updates", "Filters",
-                      "Restore backup", "Refresh Modlist",
-                      "Generate Separators"]:
+                      "Restore backup", "Refresh Modlist"]:
             b = self._text_button(label, compact=True)
             b.setFixedHeight(self._FOOT_BTN_H)
             # Reserve the label's natural width so it never squashes at min size.
             b.setMinimumWidth(b.sizeHint().width())
+            if label in _handlers:
+                b.clicked.connect(_handlers[label])
+            if label == "Filters":
+                b.setProperty("active", False)
+                self._modlist_filters_btn = b
+            elif label == "Expand all":
+                self._expand_all_btn = b
+            elif label == "Enable all":
+                self._enable_all_btn = b
             btns.addWidget(b)
+            self._modlist_footer_btns.append(b)
         btns.addStretch(1)
         v.addLayout(btns)
 
+        # Search box, capped to the same width as the button row so its right
+        # edge lines up with the last button (a trailing stretch absorbs the
+        # leftover, instead of the box spanning the whole footer).
         search = QLineEdit()
         search.setPlaceholderText("Search mods…")
         search.setClearButtonEnabled(True)
-        v.addWidget(search)
+        search.textChanged.connect(self._on_modlist_search)
         self._modlist_search = search
+        srow = QHBoxLayout()
+        srow.setContentsMargins(0, 0, 0, 0)
+        srow.addWidget(search)
+        srow.addStretch(1)
+        v.addLayout(srow)
+        # Match the search width to the button row once layout has settled
+        # (sizeHints are only final after the widgets are realised).
+        QTimer.singleShot(0, self._sync_modlist_search_width)
         return bar
+
+    def _sync_modlist_search_width(self):
+        """Cap the modlist search box to the combined width of the footer button
+        row so its right edge aligns with the last button."""
+        btns = getattr(self, "_modlist_footer_btns", None)
+        search = getattr(self, "_modlist_search", None)
+        if not btns or search is None:
+            return
+        spacing = 4
+        total = sum(b.sizeHint().width() for b in btns) + spacing * (len(btns) - 1)
+        search.setFixedWidth(total)
 
     def _plugins_footer(self) -> QWidget:
         """Colored tool buttons + search, under the plugins."""
@@ -296,6 +344,7 @@ class MainWindow(QMainWindow):
         search = QLineEdit()
         search.setPlaceholderText("Search plugins…")
         search.setClearButtonEnabled(True)
+        search.textChanged.connect(self._on_plugin_search)
         v.addWidget(search)
         self._plugins_search = search
         return bar
@@ -831,8 +880,272 @@ class MainWindow(QMainWindow):
         self._modlist_view = ModListView(self._modlist_model)
         return self._modlist_view
 
-    def _reload_modlist(self):
-        """Load the active game/profile's modlist + metadata into the model."""
+    def _build_modlist_area(self) -> QWidget:
+        """Modlist view with a collapsible filter side panel docked on its left
+        (Tk parity — the filter panel pushes the list right, not an overlay)."""
+        area = QWidget()
+        h = QHBoxLayout(area)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        self._modlist_filter_panel = self._build_modlist_filter_panel()
+        self._modlist_filter_panel.setVisible(False)
+        h.addWidget(self._modlist_filter_panel)
+        h.addWidget(self._build_modlist(), 1)
+        return area
+
+    def _build_modlist_filter_panel(self):
+        from gui_qt.filter_panel import FilterSidePanel
+        from gui_qt.modlist_filter import STATUS_FILTERS
+
+        # Filters whose backing data the Qt side doesn't build yet — shown but
+        # disabled (greyed) so the panel is complete and they light up later.
+        # (FOMOD/BAIN come from meta.is_fomod/is_bain; conflicts, plugins, BSA,
+        #  PBR, updates, categories, file types are all wired.)
+        _UNWIRED = {
+            "filter_missing_reqs", "filter_has_disabled_plugins",
+            "filter_has_disabled_files", "filter_has_notes",
+        }
+        items = [(key, label, key not in _UNWIRED)
+                 for key, label in STATUS_FILTERS]
+        spec = [
+            {"title": "By status", "type": "checks", "items": items},
+            {"title": "By category", "type": "dynamic", "id": "categories"},
+            {"title": "By file type", "type": "dynamic", "id": "filetypes"},
+        ]
+        panel = FilterSidePanel(spec, title="Filters")
+        panel.changed.connect(self._on_modlist_filter_changed)
+        panel.close_requested.connect(self._toggle_modlist_filters)
+        self._modlist_filter_state: dict = {}
+        self._modlist_filter_data = None
+        return panel
+
+    def _toggle_modlist_filters(self):
+        """Show/hide the modlist filter side panel (the Filters footer button).
+
+        Mirrors Tk: opening the modlist filter auto-hides the plugins panel so
+        the filter takes its space; closing restores the plugins panel only if
+        it was visible when we opened."""
+        panel = getattr(self, "_modlist_filter_panel", None)
+        if panel is None:
+            return
+        show = not panel.isVisible()
+        right = getattr(self, "_right_col", None)
+        if show:
+            self._filter_plugins_was_visible = bool(
+                right is not None and right.isVisible())
+            panel.setVisible(True)
+            if right is not None and self._filter_plugins_was_visible:
+                right.setVisible(False)
+            self._rebuild_filter_data()
+        else:
+            panel.setVisible(False)
+            if right is not None and getattr(
+                    self, "_filter_plugins_was_visible", False):
+                right.setVisible(True)
+            self._filter_plugins_was_visible = False
+
+    # ---- footer button handlers -----------------------------------------
+    def _on_toggle_collapse_all(self):
+        """Expand all / Collapse all separators (toggles based on current state)."""
+        m = self._modlist_model
+        if not m.collapsible_separator_names():
+            return
+        collapse = not m.any_collapsed()   # if any expanded → collapse all
+        self._modlist_view.set_all_collapsed(collapse)
+        self._refresh_footer_toggle_labels()
+
+    def _on_toggle_enable_all(self):
+        """Enable all / Disable all toggleable mods."""
+        m = self._modlist_model
+        enable = not m.all_mods_enabled()
+        m.set_all_enabled(enable)
+        self._refresh_footer_toggle_labels()
+        self._notify("All mods enabled" if enable else "All mods disabled",
+                     "info")
+
+    def _refresh_footer_toggle_labels(self):
+        """Keep the Expand/Collapse all + Enable/Disable all button text in sync
+        with the list state (Tk parity)."""
+        m = self._modlist_model
+        eb = getattr(self, "_expand_all_btn", None)
+        if eb is not None:
+            has_seps = bool(m.collapsible_separator_names())
+            eb.setText("Expand all" if (not has_seps or m.any_collapsed())
+                       else "Collapse all")
+        nb = getattr(self, "_enable_all_btn", None)
+        if nb is not None:
+            nb.setText("Disable all" if m.all_mods_enabled() else "Enable all")
+
+    def _on_refresh_modlist(self):
+        """Refresh: re-sync the mods folder, reload the modlist + plugins, and
+        force a full index rescan (picks up files added/removed inside mods)."""
+        from Utils.modlist import sync_modlist_with_mods_folder
+        ml = self._gs.modlist_path()
+        staging = self._gs.staging_dir()
+        if ml is not None and staging is not None:
+            try:
+                sync_modlist_with_mods_folder(ml, staging)
+            except Exception as exc:
+                print(f"[gui_qt] modlist sync failed: {exc}", flush=True)
+        self._reload_modlist(rescan_index=True)
+        self._reload_plugins()
+        self._refresh_footer_toggle_labels()
+        self._notify("Modlist refreshed", "info")
+
+    # ---- search boxes ----------------------------------------------------
+    def _on_modlist_search(self, text: str):
+        """Modlist search: hide rows whose mod name (or owning separator block)
+        doesn't contain the query. Debounced to coalesce fast typing."""
+        self._modlist_search_text = text
+        t = getattr(self, "_modlist_search_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(120)
+            t.timeout.connect(self._apply_modlist_search)
+            self._modlist_search_timer = t
+        t.start()
+
+    def _apply_modlist_search(self):
+        from gui_qt.modlist_filter import search_hidden_rows
+        text = getattr(self, "_modlist_search_text", "")
+        entries = self._modlist_model._entries
+        active = bool((text or "").strip())
+        self._modlist_view.set_search_hidden(
+            search_hidden_rows(entries, text), active=active)
+
+    def _on_plugin_search(self, text: str):
+        """Plugins search: hide plugins whose name (or owning mod name) doesn't
+        contain the query."""
+        self._plugin_search_text = text
+        t = getattr(self, "_plugin_search_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(120)
+            t.timeout.connect(self._apply_plugin_search)
+            self._plugin_search_timer = t
+        t.start()
+
+    def _apply_plugin_search(self):
+        from gui_qt.modlist_filter import plugin_search_hidden_rows
+        text = getattr(self, "_plugin_search_text", "")
+        rows = self._plugin_model._rows
+        owner = (self._conflict_data.plugin_owner
+                 if getattr(self, "_conflict_data", None) else {})
+        self._plugin_view.set_search_hidden(
+            plugin_search_hidden_rows(rows, text, owner))
+
+    def _on_modlist_filter_changed(self, state: dict):
+        self._modlist_filter_state = state
+        self._apply_modlist_filters()
+        self._update_filters_btn_active()
+
+    def _apply_modlist_filters(self):
+        from gui_qt.modlist_filter import compute_hidden_rows
+        state = getattr(self, "_modlist_filter_state", {}) or {}
+        data = getattr(self, "_modlist_filter_data", None)
+        if data is None:
+            self._modlist_view.set_filter_hidden(set())
+            return
+        entries = self._modlist_model._entries
+        hide = compute_hidden_rows(entries, state, data)
+        self._modlist_view.set_filter_hidden(hide)
+
+    def _update_filters_btn_active(self):
+        """Tint the Filters footer button when any filter is active (Tk parity)."""
+        btn = getattr(self, "_modlist_filters_btn", None)
+        panel = getattr(self, "_modlist_filter_panel", None)
+        if btn is None or panel is None:
+            return
+        btn.setProperty("active", panel.any_active())
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def _rebuild_filter_data(self):
+        """(Re)build FilterData from the current conflicts/meta/indexes and
+        repopulate the filter panel's dynamic category/filetype lists, then
+        reapply active filters. Cheap — reads the persisted indexes."""
+        panel = getattr(self, "_modlist_filter_panel", None)
+        if panel is None:
+            return
+        from gui_qt.modlist_filter import (
+            FilterData, build_index_data, build_mods_with_bsa,
+            build_mods_with_plugins,
+        )
+        cd = getattr(self, "_conflict_data", None)
+        staging = self._gs.staging_dir()
+        staging_parent = staging.parent if staging is not None else None
+
+        data = FilterData()
+        if cd is not None:
+            data.conflict_codes = self._loose_backend_codes(cd)
+            data.bsa_conflict_codes = self._bsa_backend_codes(cd)
+        data.mods_with_updates = set(getattr(self, "_mod_updates", set()))
+        data.category_names = dict(getattr(self, "_mod_categories", {}))
+        data.fomod_mods = set(getattr(self, "_mod_fomod", set()))
+        data.bain_mods = set(getattr(self, "_mod_bain", set()))
+        if staging_parent is not None:
+            counts, mod_ft, pbr = build_index_data(staging_parent)
+            data.filetype_counts = counts
+            data.mod_filetypes = mod_ft
+            data.mods_with_pbr = pbr
+            data.mods_with_bsa = build_mods_with_bsa(staging_parent)
+            g = self._gs.game
+            data.mods_with_plugins = build_mods_with_plugins(
+                staging_parent, getattr(g, "plugin_extensions", None))
+        self._modlist_filter_data = data
+
+        # Repopulate dynamic lists.
+        cats = sorted({(c or "") for c in data.category_names.values()} | {""},
+                      key=lambda c: ("(Uncategorized)" if c == "" else c).lower())
+        panel.set_dynamic_items("categories", [
+            (c, "(Uncategorized)" if c == "" else c, None) for c in cats])
+        fts = sorted(data.filetype_counts.items(), key=lambda kv: kv[0])
+        panel.set_dynamic_items("filetypes", [
+            (ext, ext, count) for ext, count in fts])
+
+        # Relabel / re-enable game-specific filters, then reapply.
+        self._refresh_filter_game_specific()
+        self._apply_modlist_filters()
+
+    def _refresh_filter_game_specific(self):
+        """Relabel BSA→BA2 + enable/disable PGPatcher per the active game."""
+        panel = getattr(self, "_modlist_filter_panel", None)
+        g = self._gs.game
+        if panel is None:
+            return
+        archive_exts = getattr(g, "archive_extensions", None) if g else None
+        if archive_exts and ".ba2" in archive_exts:
+            panel.set_check_label("filter_has_bsa", "Mods with BA2 archives")
+        else:
+            panel.set_check_label("filter_has_bsa", "Mods with BSA archives")
+        # PGPatcher (PBR) is Skyrim SE only.
+        is_sse = bool(g and getattr(g, "nexus_game_domain", "")
+                      == "skyrimspecialedition")
+        panel.set_check_enabled("filter_has_pbr", is_sse)
+
+    def _loose_backend_codes(self, cd) -> dict:
+        """Map the display loose_codes back to backend CONFLICT_* codes the
+        engine filters on (DISP 1/-1/2/3 → WINS/LOSES/PARTIAL/FULL)."""
+        from Utils.filemap import (
+            CONFLICT_WINS, CONFLICT_LOSES, CONFLICT_PARTIAL, CONFLICT_FULL)
+        m = {1: CONFLICT_WINS, -1: CONFLICT_LOSES,
+             2: CONFLICT_PARTIAL, 3: CONFLICT_FULL}
+        return {n: m[c] for n, c in (cd.loose_codes or {}).items() if c in m}
+
+    def _bsa_backend_codes(self, cd) -> dict:
+        """BSA codes from ConflictData are 1/-1/2 (win/lose/mixed). Map to
+        backend codes for the engine (mixed→PARTIAL)."""
+        from Utils.filemap import (
+            CONFLICT_WINS, CONFLICT_LOSES, CONFLICT_PARTIAL)
+        m = {1: CONFLICT_WINS, -1: CONFLICT_LOSES, 2: CONFLICT_PARTIAL}
+        return {n: m[c] for n, c in (cd.bsa_codes or {}).items() if c in m}
+
+    def _reload_modlist(self, rescan_index: bool = False):
+        """Load the active game/profile's modlist + metadata into the model.
+        rescan_index=True forces the conflict rebuild to rescan the index from
+        disk (Refresh button)."""
         from Utils.modlist import read_modlist
         from gui_qt.modlist_data import read_meta_for_entries
 
@@ -841,8 +1154,15 @@ class MainWindow(QMainWindow):
         entries = read_modlist(ml_path) if (ml_path and ml_path.is_file()) else []
 
         versions = installed = flags = {}
+        self._mod_categories: dict[str, str] = {}
+        self._mod_updates: set[str] = set()
+        self._mod_fomod: set[str] = set()
+        self._mod_bain: set[str] = set()
         if entries and staging is not None:
-            versions, installed, flags = read_meta_for_entries(entries, staging)
+            (versions, installed, flags,
+             self._mod_categories, self._mod_updates,
+             self._mod_fomod, self._mod_bain) = read_meta_for_entries(
+                entries, staging)
 
         self._modlist_model.set_entries(entries)
         self._modlist_model._versions = versions
@@ -855,10 +1175,13 @@ class MainWindow(QMainWindow):
         self._modlist_view.staging_dir = staging
         self._modlist_view.profile_dir = self._gs.profile_dir()
         self._modlist_view.load_separator_state()
+        self._refresh_footer_toggle_labels()
+        # Re-apply an active search against the fresh row indices.
+        self._apply_modlist_search()
         print(f"[gui_qt] modlist: {ml_path} ({len(entries)} entries)")
 
         if entries:
-            self._rebuild_conflicts_async()
+            self._rebuild_conflicts_async(rescan_index=rescan_index)
 
     def _reload_plugins(self):
         """Load the active game/profile's plugins into the Plugins tab."""
@@ -867,12 +1190,14 @@ class MainWindow(QMainWindow):
         self._plugin_model.set_rows(rows, game=self._gs.game,
                                     profile=self._gs.profile,
                                     profile_dir=self._gs.profile_dir())
+        self._apply_plugin_search()
         print(f"[gui_qt] plugins: {len(rows)} entries")
 
-    def _rebuild_conflicts_async(self):
+    def _rebuild_conflicts_async(self, rescan_index: bool = False):
         """Build the filemap off-thread; the worker emits _conflicts_ready
         (queued → UI thread). A generation counter drops results from a
-        superseded reload (user switched game before the build finished)."""
+        superseded reload (user switched game before the build finished).
+        rescan_index=True forces a full disk rescan (Refresh button)."""
         import threading
         gen = getattr(self, "_conflict_gen", 0) + 1
         self._conflict_gen = gen
@@ -880,7 +1205,8 @@ class MainWindow(QMainWindow):
         def worker():
             # log to stderr (not the widget) — we're off the UI thread.
             data = self._gs.build_conflicts(
-                log_fn=lambda m: print(f"[filemap] {m}", flush=True))
+                log_fn=lambda m: print(f"[filemap] {m}", flush=True),
+                rescan_index=rescan_index)
             self._conflicts_ready.emit(gen, data)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -895,6 +1221,9 @@ class MainWindow(QMainWindow):
             data.overrides, data.overridden_by,
             data.bsa_overrides, data.bsa_overridden_by)
         self._plugin_view.set_plugin_owner(data.plugin_owner)
+        # Rebuild the filter data + repopulate the filter panel's dynamic lists,
+        # then reapply whatever filters are currently active.
+        self._rebuild_filter_data()
 
     # ----------------------------------------------------------------- right
     def _build_plugins(self) -> QWidget:
