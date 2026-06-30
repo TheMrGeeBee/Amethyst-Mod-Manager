@@ -14,6 +14,15 @@ from pathlib import Path
 from Utils.config_paths import get_config_dir
 
 _INI_SECTION = "ui"
+
+# Bumped when amethyst.ini's schema changes incompatibly. On startup,
+# ensure_ini_version() wipes a file whose [meta] version differs (or is absent)
+# so the Qt build starts from a clean ini — this clears Tk-era ini files when
+# users move over.
+_META_SECTION = "meta"
+_APP_INI_VERSION = 2
+# Last-used game + profile (restored at startup).
+_SESSION_SECTION = "session"
 _INI_OPTION = "scale"
 _INI_AUTO = "auto"
 _DEFAULT_SCALE = 1.0
@@ -1442,3 +1451,103 @@ def save_appearance_mode(mode: str) -> None:
     parser[_INI_SECTION][_APPEARANCE_OPTION] = mode
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
+
+
+# ---------------------------------------------------------------------------
+# Last session (game + profile) — restored at startup
+# ---------------------------------------------------------------------------
+
+def load_last_session() -> "tuple[str | None, str | None]":
+    """Return (last_game, last_profile) from amethyst.ini, each None if unset."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return (None, None)
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        g = parser.get(_SESSION_SECTION, "last_game", fallback="") or ""
+        p = parser.get(_SESSION_SECTION, "last_profile", fallback="") or ""
+        return (g or None, p or None)
+    except Exception:
+        return (None, None)
+
+
+def save_last_session(game: "str | None", profile: "str | None") -> None:
+    """Persist the last-used game + profile to amethyst.ini ([session])."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parser = _new_parser()
+        if path.is_file():
+            parser.read(path)
+        if _SESSION_SECTION not in parser:
+            parser[_SESSION_SECTION] = {}
+        parser[_SESSION_SECTION]["last_game"] = game or ""
+        parser[_SESSION_SECTION]["last_profile"] = profile or ""
+        with path.open("w", encoding="utf-8") as f:
+            parser.write(f)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# amethyst.ini schema version gate (migration wipe)
+# ---------------------------------------------------------------------------
+
+def ensure_ini_version() -> None:
+    """Ensure amethyst.ini matches the current schema version.
+
+    If the file exists but its ``[meta] version`` is missing or != _APP_INI_VERSION
+    (an old Tk-era ini), DELETE it so the Qt build starts fresh. Then make sure a
+    file exists stamping the current version. amethyst.ini only — other config
+    (last_game.json, games/, profiles, caches) is left untouched.
+
+    Call this ONCE at the very start of startup, before anything reads the ini.
+    Best-effort: any error falls back to wiping + rewriting so a corrupt/locked
+    ini can never block startup.
+    """
+    path = get_ui_config_path()
+    try:
+        needs_wipe = False
+        if path.is_file():
+            try:
+                parser = _new_parser()
+                parser.read(path)
+                ver = parser.getint(_META_SECTION, "version", fallback=0)
+            except Exception:
+                ver = -1   # unreadable → treat as outdated
+            if ver != _APP_INI_VERSION:
+                needs_wipe = True
+        if needs_wipe:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        if not path.is_file():
+            # Fresh stamp (brand-new install or just-wiped).
+            path.parent.mkdir(parents=True, exist_ok=True)
+            parser = _new_parser()
+            parser[_META_SECTION] = {"version": str(_APP_INI_VERSION)}
+            with path.open("w", encoding="utf-8") as f:
+                parser.write(f)
+        else:
+            # File is current but make sure the version key is present/correct.
+            parser = _new_parser()
+            parser.read(path)
+            if (not parser.has_section(_META_SECTION)
+                    or parser.get(_META_SECTION, "version", fallback="")
+                    != str(_APP_INI_VERSION)):
+                if _META_SECTION not in parser:
+                    parser[_META_SECTION] = {}
+                parser[_META_SECTION]["version"] = str(_APP_INI_VERSION)
+                with path.open("w", encoding="utf-8") as f:
+                    parser.write(f)
+    except Exception:
+        # Last resort: try a clean rewrite; swallow anything so startup proceeds.
+        try:
+            parser = _new_parser()
+            parser[_META_SECTION] = {"version": str(_APP_INI_VERSION)}
+            with path.open("w", encoding="utf-8") as f:
+                parser.write(f)
+        except Exception:
+            pass

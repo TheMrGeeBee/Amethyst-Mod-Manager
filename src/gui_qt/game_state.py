@@ -14,6 +14,7 @@ from pathlib import Path
 from gui.game_helpers import (
     _load_games, _profiles_for_game, _load_last_game, _save_last_game, _GAMES,
 )
+from Utils.ui_config import load_last_session, save_last_session
 
 
 @dataclass
@@ -39,17 +40,22 @@ class GameState:
 
     # -- discovery / load ---------------------------------------------------
     def load(self) -> None:
-        """Discover games and select the last-used (or first) game + its default
-        profile. Populates game_names / game_name / profile."""
+        """Discover games and select the last-used game + profile (from
+        amethyst.ini [session], falling back to last_game.json / first game and
+        the first profile). Populates game_names / game_name / profile."""
         self.game_names = _load_games()
+        sess_game, sess_profile = load_last_session()
         last = _load_last_game()
-        if last and last in self.game_names:
+        if sess_game and sess_game in self.game_names:
+            self.game_name = sess_game
+        elif last and last in self.game_names:
             self.game_name = last
         elif self.game_names and self.game_names[0] != "No games configured":
             self.game_name = self.game_names[0]
         else:
             self.game_name = None
-        self._select_default_profile()
+        # Restore the saved profile if it still exists, else the first one.
+        self.profile = self._select_profile(sess_profile)
         self._apply_active_profile()
 
     # -- current handler ----------------------------------------------------
@@ -68,12 +74,14 @@ class GameState:
         _save_last_game(name)
         self._select_default_profile()
         self._apply_active_profile()
+        save_last_session(self.game_name, self.profile)
 
     def set_profile(self, profile: str) -> None:
         if profile == self.profile:
             return
         self.profile = profile
         self._apply_active_profile()
+        save_last_session(self.game_name, self.profile)
 
     # -- resolved paths -----------------------------------------------------
     def modlist_path(self) -> Path | None:
@@ -231,9 +239,16 @@ class GameState:
         return codes, over, overby
 
     # -- internals ----------------------------------------------------------
-    def _select_default_profile(self) -> None:
+    def _select_profile(self, preferred: "str | None") -> "str | None":
+        """*preferred* if it's a real profile for the current game, else the first
+        profile, else None."""
         profs = self.profiles()
-        self.profile = profs[0] if profs else None
+        if preferred and preferred in profs:
+            return preferred
+        return profs[0] if profs else None
+
+    def _select_default_profile(self) -> None:
+        self.profile = self._select_profile(None)
 
     def _apply_active_profile(self) -> None:
         g = self.game

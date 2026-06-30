@@ -3360,6 +3360,10 @@ class MainWindow(QMainWindow):
 def run() -> int:
     import sys
     from PySide6.QtWidgets import QApplication
+    # Migrate/clean amethyst.ini BEFORE anything reads it (theme loader, GameState).
+    # Wipes a pre-Qt ini (missing [meta] version=2) so everyone starts fresh.
+    from Utils.ui_config import ensure_ini_version
+    ensure_ini_version()
     app = QApplication(sys.argv)
     apply_theme(app)
     win = MainWindow(app)
