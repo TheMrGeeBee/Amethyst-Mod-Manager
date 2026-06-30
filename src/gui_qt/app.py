@@ -50,6 +50,9 @@ class MainWindow(QMainWindow):
     _nexus_validated = Signal(object)          # (username str | None)
     # LOOT Sort Plugins worker → UI thread (SortResult | None on error).
     _sort_plugins_ready = Signal(object)
+    # Nexus OAuth client (background thread) → UI thread.
+    # (kind, payload): kind in {"token","error","status"}.
+    _oauth_event = Signal(str, object)
 
     _PLAY_BAR_W = 380       # play-bar (header right) fixed width
     _BTN_H = 42          # consistent height for all header buttons (~30% bigger)
@@ -155,6 +158,10 @@ class MainWindow(QMainWindow):
         # rate limits; validate runs on a worker so startup isn't blocked.
         self._nexus_api = None
         self._nexus_validated.connect(self._on_nexus_validated)
+        # Live OAuth login client while a browser login is in flight (kept so the
+        # "Paste login code" fallback can feed its session). None when idle.
+        self._oauth_client = None
+        self._oauth_event.connect(self._on_oauth_event)
         QTimer.singleShot(0, self._ensure_nexus_api)
 
     def _populate_selectors(self):
@@ -858,6 +865,13 @@ class MainWindow(QMainWindow):
             ]),
             ("Nexus", "nexus.png", [
                 ("Open Nexus Mods", self._open_nexus_browser_tab),
+                None,
+                ("Login to Nexus", [
+                    ("Login via SSO", self._nexus_login_sso),
+                    ("Paste login code…", self._nexus_paste_code),
+                    ("Clear credentials", self._nexus_clear_credentials),
+                    (self._nxm_menu_label(), self._nexus_toggle_nxm),
+                ]),
                 ("Collections…", None),
                 ("Check for updates", None),
             ]),
@@ -1000,7 +1014,8 @@ class MainWindow(QMainWindow):
         # if startup couldn't (e.g. the user logged in afterwards).
         api = self._ensure_nexus_api()
         if api is None:
-            self._notify("Log in to Nexus first (Nexus settings).", "warning")
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
             self._append_log("[nexus] no OAuth tokens — login required")
             return
         from gui_qt.nexus_browser_view import NexusBrowserView
@@ -1011,6 +1026,100 @@ class MainWindow(QMainWindow):
         # Drop the reference when the tab/window is gone so we stop refreshing it.
         view.destroyed.connect(lambda *_: setattr(self, "_nexus_view", None))
         self._tabs.open_tab(view, "Nexus", key="nexus_browser")
+
+    # ---- Nexus login (header menu ▸ Login to Nexus) ------------------------
+    # Thin wiring over the toolkit-neutral OAuth/NXM backend in src/Nexus/,
+    # mirroring the Tk gui/nexus_settings_dialog.py. The OAuth client fires its
+    # callbacks from a background thread, so they only emit `_oauth_event`
+    # (queued → UI thread) and never touch widgets directly.
+
+    def _nexus_login_sso(self):
+        """Start the browser OAuth flow. Keeps the client on self so the
+        'Paste login code' fallback can complete the same session."""
+        from Nexus.nexus_oauth import NexusOAuthClient, CLIENT_ID
+        if not CLIENT_ID:
+            self._notify("Nexus login is unavailable in this build.", "warning")
+            return
+        if self._oauth_client is not None and self._oauth_client.is_running:
+            self._notify("A Nexus login is already in progress.", "info")
+            return
+        self._oauth_client = NexusOAuthClient(
+            on_token=lambda t: self._oauth_event.emit("token", t),
+            on_error=lambda m: self._oauth_event.emit("error", m),
+            on_status=lambda m: self._oauth_event.emit("status", m),
+        )
+        self._oauth_client.start()
+        self._notify("Opening browser to log in to Nexus Mods…", "info")
+
+    def _nexus_paste_code(self):
+        """Fallback when the localhost redirect was blocked: paste the Base64
+        code from the Nexus 'Having issues?' page into the live login session."""
+        if self._oauth_client is None or not self._oauth_client.is_running:
+            self._notify("Start 'Login via SSO' first, then paste the code.",
+                         "warning")
+            return
+        from PySide6.QtWidgets import QInputDialog
+        blob, ok = QInputDialog.getText(
+            self, "Paste Nexus login code",
+            "Paste the code from the Nexus 'Having issues?' page:")
+        if not ok or not blob.strip():
+            return
+        ok2, msg = self._oauth_client.submit_manual_code(blob)
+        self._notify(msg, "info" if ok2 else "warning")
+
+    def _nexus_clear_credentials(self):
+        """Forget the saved OAuth tokens + legacy API key."""
+        from Nexus.nexus_oauth import clear_oauth_tokens
+        from Nexus.nexus_api import clear_api_key
+        clear_api_key()
+        clear_oauth_tokens()
+        self._nexus_api = None
+        if hasattr(self, "_nexus_footer"):
+            self._nexus_footer.set_username(None)
+        self._notify("Nexus credentials cleared.", "warning")
+        self._append_log("[nexus] credentials cleared")
+
+    def _nxm_menu_label(self) -> str:
+        """Label for the NXM toggle, reflecting the handler's state at build
+        time (the menu is built once at startup)."""
+        from Nexus.nxm_handler import NxmHandler
+        try:
+            registered = NxmHandler.is_registered()
+        except Exception:
+            registered = False
+        return "Unregister NXM handler" if registered else "Register NXM handler"
+
+    def _nexus_toggle_nxm(self):
+        """Register or unregister the nxm:// protocol handler (for Nexus
+        'Download with Manager' links). Toasts the resulting state."""
+        from Nexus.nxm_handler import NxmHandler
+        try:
+            if NxmHandler.is_registered():
+                NxmHandler.unregister()
+                self._notify("NXM handler unregistered.", "warning")
+                self._append_log("[nexus] NXM handler unregistered")
+            elif NxmHandler.register():
+                self._notify("NXM handler registered.", "info")
+                self._append_log("[nexus] NXM handler registered")
+            else:
+                self._notify("Failed to register — xdg-mime not found?", "error")
+        except Exception as exc:
+            self._notify(f"NXM handler error: {exc}", "error")
+
+    def _on_oauth_event(self, kind: str, payload):
+        """OAuth client callbacks marshalled onto the UI thread."""
+        if kind == "status":
+            self._append_log(f"[nexus] {payload}")
+        elif kind == "error":
+            self._oauth_client = None
+            self._notify(f"Nexus login failed: {payload}", "error")
+        elif kind == "token":
+            # Tokens are already persisted by the client before this fires.
+            self._oauth_client = None
+            self._nexus_api = None
+            self._ensure_nexus_api()   # rebuild api + kick the validate() worker
+            self._notify("Logged in to Nexus Mods.", "info")
+            self._append_log("[nexus] OAuth login complete")
 
     def _on_add_game_select(self, name: str):
         """A configured game was picked in the Add-Game view → switch to it and
