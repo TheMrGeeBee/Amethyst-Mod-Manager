@@ -370,9 +370,27 @@ class DetachableTabWidget(QTabWidget):
             return
         title = self.tabText(index)
         key = w.property("_tab_key")
-        self.removeTab(index)
-        flt = _FloatingTab(w, title, self.window())
-        flt._tab_key = key
+        # SCOPED tab: its QTabWidget page is an empty placeholder — the REAL
+        # content lives in a target panel stack. Float that real widget instead
+        # (else the detached window is blank), and remember its scope so redock
+        # puts it back into the panel stack.
+        scoped = self._scoped.pop(id(w), None)
+        if scoped is not None:
+            target_stack, scoped_widget, _pi = scoped
+            target_stack.setCurrentIndex(0)        # reveal the panel again
+            target_stack.removeWidget(scoped_widget)
+            self.removeTab(index)
+            self._forget(w)
+            w.deleteLater()                        # drop the placeholder
+            flt = _FloatingTab(scoped_widget, title, self.window())
+            flt._tab_key = key
+            flt._scoped_target = target_stack       # mark for re-scope on redock
+            scoped_widget.setProperty("_tab_key", key)
+        else:
+            self.removeTab(index)
+            flt = _FloatingTab(w, title, self.window())
+            flt._tab_key = key
+            flt._scoped_target = None
         flt.redock_requested.connect(self._on_redock)
         flt.move(drop_pos)
         flt.show()
@@ -394,12 +412,28 @@ class DetachableTabWidget(QTabWidget):
     def _on_redock(self, page: QWidget, title: str):
         """A floating window closed → bring its page back as a tab."""
         self._set_drop_indicator(False)
+        # Was this a SCOPED float? Re-scope it into its panel stack.
+        target = None
+        for f in self._floats:
+            if f._page is page:
+                target = getattr(f, "_scoped_target", None)
+                break
         self._floats = [f for f in self._floats if f._page is not page]
-        # Re-add as a tab and refocus (the page kept its _tab_key, so dedup and
-        # close_tab still work).
-        idx = self.addTab(page, title)
-        page.show()
-        self.setCurrentIndex(idx)
+        key = page.property("_tab_key")
+        if target is not None:
+            # Re-create the scoped tab (placeholder in the bar, widget in stack).
+            placeholder = QWidget()
+            page_idx = target.addWidget(page)
+            self._scoped[id(placeholder)] = (target, page, page_idx)
+            idx = self.addTab(placeholder, title)
+            if key:
+                self._keys[key] = placeholder
+                placeholder.setProperty("_tab_key", key)
+            self.setCurrentIndex(idx)
+        else:
+            idx = self.addTab(page, title)
+            page.show()
+            self.setCurrentIndex(idx)
         self._update_bar_visibility()
 
     def _redock_zone(self):

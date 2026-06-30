@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QMainWindow, QToolButton, QWidget, QSplitter,
+    QMainWindow, QToolButton, QWidget, QSplitter, QApplication,
     QLabel, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
     QFrame, QLineEdit, QPushButton, QMenu, QStackedWidget,
 )
@@ -69,6 +69,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Amethyst Mod Manager")
         self.setMinimumSize(1280, 800)   # Steam Deck is the floor
         self.resize(1280, 800)
+        # Centre on the primary screen. The WM otherwise defaults the window to
+        # (0,0) in GLOBAL coords, which lands OFF-SCREEN on a multi-head / offset
+        # layout (e.g. a primary screen whose origin isn't at x=0) — the window
+        # then "doesn't open" because it's drawn where you can't see it.
+        try:
+            scr = (app or QApplication.instance()).primaryScreen()
+            if scr is not None:
+                ag = scr.availableGeometry()
+                self.move(ag.center().x() - 640, ag.center().y() - 400)
+        except Exception:
+            pass
 
         # Header+body+footer go in a vertical splitter with the log text area
         # so the log is drag-resizable; the log control bar stays fixed below.
@@ -165,6 +176,7 @@ class MainWindow(QMainWindow):
         self._plugin_footer_stack.addWidget(self._mod_files_footer())     # page 1
         self._plugin_footer_stack.addWidget(self._data_footer())          # page 2
         self._plugin_footer_stack.addWidget(self._downloads_footer())     # page 3
+        self._plugin_footer_stack.addWidget(self._text_files_footer())    # page 4
         rc.addWidget(self._plugin_footer_stack)
         self._right_col = right_col
 
@@ -270,6 +282,43 @@ class MainWindow(QMainWindow):
         self._image_preview_widget = widget
         self._tabs.open_scoped_tab(
             widget, name, self._modlist_panel_stack, key="mf_image_preview")
+
+    def _open_text_editor_tab(self, path, rel_str, find_kw=None):
+        """Open a text file in a save-capable editor as a MODLIST-PANEL-SCOPED tab
+        (the other panels stay live). Reuses one editor — clicking another file
+        swaps it in place. The tab title gets a '*' while there are unsaved edits.
+        *find_kw* (the active content-search keyword) is pre-highlighted."""
+        from pathlib import Path as _P
+        from gui_qt.text_editor import TextEditor
+        name = rel_str.replace("\\", "/").rsplit("/", 1)[-1]
+        existing = getattr(self, "_text_editor_widget", None)
+        if existing is not None and self._tabs.has_key("tf_text_editor"):
+            existing.load_file(_P(path), name)
+            if find_kw:
+                existing.find_text(find_kw)
+            self._tabs.focus_key("tf_text_editor")
+            self._tabs.set_tab_title("tf_text_editor", name)
+            return
+        widget = TextEditor(_P(path), name)
+        self._text_editor_widget = widget
+        widget.dirty_changed.connect(self._on_text_editor_dirty)
+        widget.saved.connect(self._on_text_editor_saved)
+        self._tabs.open_scoped_tab(
+            widget, name, self._modlist_panel_stack, key="tf_text_editor")
+        if find_kw:
+            widget.find_text(find_kw)
+
+    def _on_text_editor_dirty(self, dirty):
+        w = getattr(self, "_text_editor_widget", None)
+        if w is not None and self._tabs.has_key("tf_text_editor"):
+            self._tabs.set_tab_title(
+                "tf_text_editor", (w.name + " *") if dirty else w.name)
+
+    def _on_text_editor_saved(self):
+        # File content changed on disk → the Text Files content search may shift.
+        if hasattr(self, "_text_files_view"):
+            self._text_files_view.mark_dirty()
+        self._notify("Saved", "success")
 
     def _on_mod_files_changed(self):
         """A Top Level / Disable edit changed deploy state — force a full index
@@ -580,6 +629,104 @@ class MainWindow(QMainWindow):
         self._notify(f"Removed {removed} archive(s)", "info")
         self._downloads_view.clear_checks()
         self._downloads_view.refresh()
+
+    def _text_files_footer(self) -> QWidget:
+        """Search Content / Filters + search, shown under the plugins column when
+        the Text Files sub-tab is active (read-only — no Pack/Install)."""
+        bar = QWidget()
+        bar.setObjectName("HeaderBar")
+        v = QVBoxLayout(bar)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(6)
+
+        # Inline content-search popup (hidden until "Search Content" is clicked).
+        self._tf_content_bar = QWidget()
+        cbl = QHBoxLayout(self._tf_content_bar)
+        cbl.setContentsMargins(0, 0, 0, 0)
+        cbl.setSpacing(4)
+        lbl = QLabel("Find in files:")
+        lbl.setStyleSheet(f"color:{_c(self._pal,'TEXT_DIM')};")
+        cbl.addWidget(lbl)
+        self._tf_content_input = QLineEdit()
+        self._tf_content_input.setPlaceholderText("Text to search for…")
+        self._tf_content_input.setClearButtonEnabled(True)
+        self._tf_content_input.returnPressed.connect(self._run_tf_content_search)
+        cbl.addWidget(self._tf_content_input, 1)
+        go = self._color_button("Search", _c(self._pal, "BTN_SUCCESS"), compact=True)
+        go.setFixedHeight(self._FOOT_BTN_H)
+        go.clicked.connect(self._run_tf_content_search)
+        cbl.addWidget(go)
+        close = self._text_button("✕", compact=True)
+        close.setFixedHeight(self._FOOT_BTN_H)
+        close.clicked.connect(self._close_tf_content_bar)
+        cbl.addWidget(close)
+        self._tf_content_bar.setVisible(False)
+        v.addWidget(self._tf_content_bar)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(4)
+        self._tf_content_btn = self._color_button(
+            "Search Content", _c(self._pal, "BTN_INFO"), compact=True)
+        self._tf_content_btn.setFixedHeight(self._FOOT_BTN_H)
+        self._tf_content_btn.clicked.connect(self._on_text_files_content_search)
+        self._tf_filters_btn = self._color_button(
+            "Filters", _c(self._pal, "BTN_INFO"), compact=True)
+        self._tf_filters_btn.setFixedHeight(self._FOOT_BTN_H)
+        self._tf_filters_btn.clicked.connect(self._toggle_text_files_filters)
+        btns.addWidget(self._tf_content_btn)
+        btns.addWidget(self._tf_filters_btn)
+        btns.addStretch(1)
+        # A dim status label showing the active content-search keyword.
+        self._tf_content_status = QLabel("")
+        self._tf_content_status.setStyleSheet(
+            f"color:{_c(self._pal,'TEXT_DIM')};")
+        btns.addWidget(self._tf_content_status)
+        v.addLayout(btns)
+        self._text_files_view.content_status_changed.connect(
+            self._on_tf_content_status)
+
+        search = QLineEdit()
+        search.setPlaceholderText("Search files…")
+        search.setClearButtonEnabled(True)
+        search.textChanged.connect(lambda t: self._text_files_view._on_search(t))
+        v.addWidget(search)
+        self._tf_search = search
+        return bar
+
+    def _on_text_files_content_search(self):
+        """Toggle the inline content-search bar. When a search is active, this
+        clears it; otherwise it opens the input bar above the footer + focuses it."""
+        if self._text_files_view._content_keyword:
+            self._text_files_view.clear_content_search()
+            self._tf_content_input.clear()
+            self._tf_content_bar.setVisible(False)
+            return
+        showing = not self._tf_content_bar.isVisible()
+        self._tf_content_bar.setVisible(showing)
+        if showing:
+            self._tf_content_input.setFocus()
+            self._tf_content_input.selectAll()
+
+    def _run_tf_content_search(self):
+        kw = self._tf_content_input.text().strip()
+        if kw:
+            self._text_files_view.run_content_search(kw)
+        else:
+            self._text_files_view.clear_content_search()
+
+    def _close_tf_content_bar(self):
+        self._tf_content_bar.setVisible(False)
+        self._tf_content_input.clear()
+        if self._text_files_view._content_keyword:
+            self._text_files_view.clear_content_search()
+
+    def _on_tf_content_status(self, keyword):
+        if keyword:
+            self._tf_content_status.setText(f'Content: "{keyword}"')
+            self._tf_content_btn.setText("Clear Content")
+        else:
+            self._tf_content_status.setText("")
+            self._tf_content_btn.setText("Search Content")
 
     def _left_header(self) -> QWidget:
         # Single row: game/profile selectors, then the mod-action buttons.
@@ -1161,8 +1308,48 @@ class MainWindow(QMainWindow):
         self._downloads_filter_panel = self._build_downloads_filter_panel()
         self._downloads_filter_panel.setVisible(False)
         h.addWidget(self._downloads_filter_panel)
+        # The Text Files filter panel shares the slot too.
+        self._text_files_filter_panel = self._build_text_files_filter_panel()
+        self._text_files_filter_panel.setVisible(False)
+        h.addWidget(self._text_files_filter_panel)
         h.addWidget(col, 1)
         return area
+
+    def _build_text_files_filter_panel(self):
+        from gui_qt.filter_panel import FilterSidePanel
+        panel = FilterSidePanel(self._text_files_view.filter_spec(), title="Filters")
+        panel.changed.connect(self._on_text_files_filter_changed)
+        panel.close_requested.connect(self._toggle_text_files_filters)
+        self._text_files_view.filetypes_changed.connect(
+            self._sync_text_files_filter_list)
+        return panel
+
+    def _toggle_text_files_filters(self):
+        panel = self._text_files_filter_panel
+        show = not panel.isVisible()
+        if show:
+            self._modlist_filter_panel.setVisible(False)
+            self._mod_files_filter_panel.setVisible(False)
+            self._data_filter_panel.setVisible(False)
+            self._downloads_filter_panel.setVisible(False)
+            panel.setVisible(True)
+            self._sync_text_files_filter_list()
+        else:
+            panel.setVisible(False)
+
+    def _on_text_files_filter_changed(self, state: dict):
+        self._text_files_view.apply_filter_state(state)
+        active = self._text_files_filter_panel.any_active()
+        b = getattr(self, "_tf_filters_btn", None)
+        if b is not None:
+            b.setProperty("active", active)
+            b.style().unpolish(b); b.style().polish(b)
+
+    def _sync_text_files_filter_list(self):
+        if not self._text_files_filter_panel.isVisible():
+            return
+        self._text_files_filter_panel.set_dynamic_items(
+            "filetypes", self._text_files_view.filetype_items())
 
     def _build_downloads_filter_panel(self):
         from gui_qt.filter_panel import FilterSidePanel
@@ -1180,6 +1367,7 @@ class MainWindow(QMainWindow):
             self._modlist_filter_panel.setVisible(False)
             self._mod_files_filter_panel.setVisible(False)
             self._data_filter_panel.setVisible(False)
+            self._text_files_filter_panel.setVisible(False)
             panel.setVisible(True)
             self._sync_downloads_filter_list()
         else:
@@ -1219,6 +1407,7 @@ class MainWindow(QMainWindow):
             self._modlist_filter_panel.setVisible(False)
             self._mod_files_filter_panel.setVisible(False)
             self._downloads_filter_panel.setVisible(False)
+            self._text_files_filter_panel.setVisible(False)
             panel.setVisible(True)
             self._sync_data_filter_list()
         else:
@@ -1261,6 +1450,7 @@ class MainWindow(QMainWindow):
             self._modlist_filter_panel.setVisible(False)  # share the slot
             self._data_filter_panel.setVisible(False)
             self._downloads_filter_panel.setVisible(False)
+            self._text_files_filter_panel.setVisible(False)
             panel.setVisible(True)
             self._sync_mod_files_filter_list()
         else:
@@ -1340,6 +1530,9 @@ class MainWindow(QMainWindow):
             dlfp = getattr(self, "_downloads_filter_panel", None)
             if dlfp is not None and dlfp.isVisible():
                 self._toggle_downloads_filters()
+            tffp = getattr(self, "_text_files_filter_panel", None)
+            if tffp is not None and tffp.isVisible():
+                self._toggle_text_files_filters()
             self._filter_plugins_was_visible = bool(
                 right is not None and right.isVisible())
             panel.setVisible(True)
@@ -1624,6 +1817,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_downloads_view"):
             self._downloads_view.configure(
                 self._gs.game, lambda: self._gs.game_name)
+        # Point the Text Files tab at this game/profile.
+        if hasattr(self, "_text_files_view"):
+            fm3 = (staging.parent / "filemap.txt") if staging is not None else None
+            self._text_files_view.configure(
+                self._gs.game, self._gs.profile_dir(), fm3, staging)
         self._refresh_footer_toggle_labels()
         # Re-apply an active search against the fresh row indices.
         self._apply_modlist_search()
@@ -1636,6 +1834,8 @@ class MainWindow(QMainWindow):
             self._data_view.mark_dirty()
         if hasattr(self, "_downloads_view"):
             self._downloads_view.mark_dirty()
+        if hasattr(self, "_text_files_view"):
+            self._text_files_view.mark_dirty()
 
         if entries:
             self._rebuild_conflicts_async(rescan_index=rescan_index)
@@ -1696,6 +1896,9 @@ class MainWindow(QMainWindow):
         # A mod may have been added/removed → re-evaluate Install vs Reinstall.
         if hasattr(self, "_downloads_view"):
             self._downloads_view.mark_dirty()
+        # The deployed file set changed → the Text Files list is stale.
+        if hasattr(self, "_text_files_view"):
+            self._text_files_view.mark_dirty()
 
     # ----------------------------------------------------------------- right
     def _build_plugins(self) -> QWidget:
@@ -1775,11 +1978,11 @@ class MainWindow(QMainWindow):
         self._mod_files_view.changed.connect(self._on_mod_files_changed)
         self._mod_files_view.on_open_image = self._open_image_preview_tab
         self._plugin_stack.addWidget(self._mod_files_view)
-        # Page 2: Text Files placeholder.
-        ph = QLabel("Text Files\n(coming in a later phase)")
-        ph.setAlignment(Qt.AlignCenter)
-        ph.setStyleSheet(f"color:{_c(self._pal,'TEXT_FAINT')};")
-        self._plugin_stack.addWidget(ph)
+        # Page 2: the real Text Files view.
+        from gui_qt.text_files_view import TextFilesView
+        self._text_files_view = TextFilesView()
+        self._text_files_view.on_open_file = self._open_text_editor_tab
+        self._plugin_stack.addWidget(self._text_files_view)
         # Page 3: the real Data view.
         from gui_qt.data_view import DataView
         self._data_view = DataView()
@@ -1792,6 +1995,7 @@ class MainWindow(QMainWindow):
         self._downloads_view.selection_changed.connect(
             self._update_downloads_footer)
         self._plugin_stack.addWidget(self._downloads_view)
+        self._TEXT_FILES_TAB_IDX = 2
         self._DATA_TAB_IDX = 3
         self._DOWNLOADS_TAB_IDX = 4
 
@@ -1812,15 +2016,16 @@ class MainWindow(QMainWindow):
 
     def _select_plugin_tab(self, idx: int):
         self._plugin_stack.setCurrentIndex(idx)
-        # Swap the column footer to match the active sub-tab:
-        # 0 = plugin tools, 1 = Mod Files, 2 = Data, 3 = Downloads.
+        # Swap the column footer to match the active sub-tab. Footer pages:
+        # 0 plugins / 1 Mod Files / 2 Data / 3 Downloads / 4 Text Files.
         fstack = getattr(self, "_plugin_footer_stack", None)
+        tf_idx = getattr(self, "_TEXT_FILES_TAB_IDX", 2)
         data_idx = getattr(self, "_DATA_TAB_IDX", 3)
         dl_idx = getattr(self, "_DOWNLOADS_TAB_IDX", 4)
         if fstack is not None:
             fstack.setCurrentIndex(
                 1 if idx == 1 else 2 if idx == data_idx
-                else 3 if idx == dl_idx else 0)
+                else 3 if idx == dl_idx else 4 if idx == tf_idx else 0)
         # Deferred build: only (re)build a tab's contents when it's shown.
         dv = getattr(self, "_data_view", None)
         if dv is not None:
@@ -1830,6 +2035,9 @@ class MainWindow(QMainWindow):
             dlv.set_visible_tab(idx == dl_idx)
             if idx == dl_idx:
                 self._update_downloads_footer()
+        tfv = getattr(self, "_text_files_view", None)
+        if tfv is not None:
+            tfv.set_visible_tab(idx == tf_idx)
         for i, lbl in enumerate(self._plugin_tab_labels):
             sel = i == idx
             lbl.setStyleSheet(
