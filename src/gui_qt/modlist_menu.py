@@ -118,9 +118,11 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         divider()
         # Group: Nexus (stub)
         stub(f"Abstain selected ({n})")
-        stub(f"Check Updates ({n})")
+        act(f"Check Updates ({n})",
+            lambda: _check_updates(view, [model.entry(r).name for r in sel_mods]))
         stub(f"Endorse selected ({n})")
-        stub(f"Missing Requirements ({n})")
+        act(f"Missing Requirements ({n})",
+            lambda: _missing_reqs(view, [model.entry(r).name for r in sel_mods]))
         stub(f"Open on Nexus ({n})")
         stub(f"Quick Update ({n})")
         divider()
@@ -158,12 +160,13 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
     divider()
     # Group 3: Nexus / online & updates
     stub("Abstain from Endorsement")
-    stub("Change Version")
-    stub("Check Updates")
+    act("Change Version", lambda: _change_version(view, entry.name))
+    act("Check Updates", lambda: _check_updates(view, [entry.name]))
     stub("Endorse Mod")
-    stub("Missing Requirements")
+    act("Missing Requirements", lambda: _missing_reqs(view, [entry.name]))
     stub("Open on mod.io")
-    stub("Open on Nexus")
+    act("Open on Nexus", lambda: _open_on_nexus(view, entry.name),
+        enabled=_has_nexus_page(view, entry.name))
     stub("Quick Update")
     divider()
     # Group 4: organise / layout
@@ -206,6 +209,60 @@ def _open_folder(view, model, row):
     try:
         from Utils.xdg import xdg_open
         xdg_open(str(path))
+    except Exception:
+        pass
+
+
+def _check_updates(view, names):
+    """Run a Nexus update check limited to *names* (the window installs the
+    callback in _reload_modlist). No-op if it isn't wired (e.g. headless)."""
+    cb = getattr(view, "on_check_updates", None)
+    if cb is not None and names:
+        cb(set(names))
+
+
+def _change_version(view, name):
+    """Open the Change Version picker for *name* (the window installs the
+    callback in _reload_modlist). No-op if it isn't wired (e.g. headless)."""
+    cb = getattr(view, "on_change_version", None)
+    if cb is not None and name:
+        cb(name)
+
+
+def _missing_reqs(view, names):
+    """Open the Missing Requirements panel for *names* (1 = single, N = multi).
+    The window installs the callback in _reload_modlist; no-op if unwired."""
+    cb = getattr(view, "on_missing_reqs", None)
+    if cb is not None and names:
+        cb(names[0] if len(names) == 1 else set(names))
+
+
+def _mod_nexus_url(view, name: str) -> str:
+    """The mod's Nexus page URL from its meta.ini ("" if none / no staging)."""
+    staging = getattr(view, "staging_dir", None)
+    if staging is None:
+        return ""
+    meta_path = staging / name / "meta.ini"
+    if not meta_path.is_file():
+        return ""
+    try:
+        from Nexus.nexus_meta import read_meta
+        return read_meta(meta_path).nexus_page_url or ""
+    except Exception:
+        return ""
+
+
+def _has_nexus_page(view, name: str) -> bool:
+    return bool(_mod_nexus_url(view, name))
+
+
+def _open_on_nexus(view, name: str):
+    url = _mod_nexus_url(view, name)
+    if not url:
+        return
+    try:
+        from Utils.xdg import open_url
+        open_url(url)
     except Exception:
         pass
 

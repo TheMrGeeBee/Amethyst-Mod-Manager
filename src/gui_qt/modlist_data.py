@@ -19,9 +19,24 @@ FLAG_UPDATE = 1 << 0       # has_update & not ignored
 FLAG_ENDORSED = 1 << 1
 FLAG_ROOT = 1 << 2
 FLAG_MODIFIED_MF = 1 << 3  # modified in the Mod Files tab (excluded files/strip)
+FLAG_MISSING_REQS = 1 << 4  # meta.missing_requirements has un-ignored entries
 
 
-def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path):
+def _parse_missing_req_names(raw: str) -> list[str]:
+    """Names from a meta.ini `missing_requirements` value: semicolon-separated
+    `modId:name` pairs (the name half). Tolerates bare names / blank entries."""
+    names: list[str] = []
+    for part in (raw or "").split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        # "modId:Name" -> "Name"; bare "Name" -> "Name".
+        names.append(part.split(":", 1)[1].strip() if ":" in part else part)
+    return [n for n in names if n]
+
+
+def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
+                          ignored_reqs: frozenset[str] = frozenset()):
     """Return a MetaInfo-ish tuple keyed by mod name.
 
     versions[name]   -> version string ("" if none)
@@ -31,6 +46,10 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path):
     updates          -> set of mod names with a pending update
     fomod            -> set of mod names installed via FOMOD (meta.is_fomod)
     bain             -> set of mod names installed via BAIN (meta.is_bain)
+    missing_reqs     -> set of mod names with un-ignored missing requirements
+
+    *ignored_reqs* — requirement names the user has dismissed (per-profile); a
+    mod is only flagged if it still has missing requirements outside this set.
     """
     versions: dict[str, str] = {}
     installed: dict[str, str] = {}
@@ -39,11 +58,13 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path):
     updates: set[str] = set()
     fomod: set[str] = set()
     bain: set[str] = set()
+    missing_reqs: set[str] = set()
 
     try:
         from Nexus.nexus_meta import read_meta
     except Exception:
-        return versions, installed, flags, categories, updates, fomod, bain
+        return (versions, installed, flags, categories, updates, fomod, bain,
+                missing_reqs)
 
     for e in entries:
         if e.is_separator:
@@ -82,10 +103,17 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path):
             bits |= FLAG_ENDORSED
         if meta.root_folder:
             bits |= FLAG_ROOT
+        if getattr(meta, "missing_requirements", ""):
+            unignored = [n for n in _parse_missing_req_names(meta.missing_requirements)
+                         if n not in ignored_reqs]
+            if unignored:
+                bits |= FLAG_MISSING_REQS
+                missing_reqs.add(e.name)
         if bits:
             flags[e.name] = bits
 
-    return versions, installed, flags, categories, updates, fomod, bain
+    return (versions, installed, flags, categories, updates, fomod, bain,
+            missing_reqs)
 
 
 # ---- mod folder sizes (Size column) — ported from gui/modlist_panel.py --------

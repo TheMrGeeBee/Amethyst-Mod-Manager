@@ -53,6 +53,11 @@ class MainWindow(QMainWindow):
     # Nexus OAuth client (background thread) → UI thread.
     # (kind, payload): kind in {"token","error","status"}.
     _oauth_event = Signal(str, object)
+    # Check-for-updates worker → UI thread ((updates, missing) | None on error).
+    _updates_ready = Signal(object)
+    # Install-a-Nexus-mod-by-id flow (used by Missing Requirements) → UI thread.
+    _req_install_files = Signal(object, object)   # (ctx dict, files|None)
+    _req_install_dl = Signal(object, object)      # (archive|None, meta|None)
 
     _PLAY_BAR_W = 380       # play-bar (header right) fixed width
     _BTN_H = 42          # consistent height for all header buttons (~30% bigger)
@@ -162,6 +167,13 @@ class MainWindow(QMainWindow):
         # "Paste login code" fallback can feed its session). None when idle.
         self._oauth_client = None
         self._oauth_event.connect(self._on_oauth_event)
+        # Check-for-updates: re-entrancy guard + worker→UI signal.
+        self._updates_running = False
+        self._updates_ready.connect(self._on_updates_ready)
+        # Install-a-Nexus-mod-by-id (Missing Requirements) flow.
+        self._req_installing = False
+        self._req_install_files.connect(self._on_req_install_files)
+        self._req_install_dl.connect(self._on_req_install_dl)
         QTimer.singleShot(0, self._ensure_nexus_api)
 
     def _populate_selectors(self):
@@ -196,7 +208,9 @@ class MainWindow(QMainWindow):
         play = self._play_bar()
         self._play_bar_widget = play
         rc.addWidget(play)
-        rc.addWidget(self._build_plugins(), 1)
+        # Build the plugins panel FIRST — it creates the sub-tab views (incl.
+        # _text_files_view) that the footers below reference.
+        plugins_body = self._build_plugins()
         # The plugins column footer is a stack: it swaps to the active sub-tab's
         # tools (Plugins tools ↔ Mod Files Pack/Unpack + search).
         self._plugin_footer_stack = QStackedWidget()
@@ -205,7 +219,18 @@ class MainWindow(QMainWindow):
         self._plugin_footer_stack.addWidget(self._data_footer())          # page 2
         self._plugin_footer_stack.addWidget(self._downloads_footer())     # page 3
         self._plugin_footer_stack.addWidget(self._text_files_footer())    # page 4
-        rc.addWidget(self._plugin_footer_stack)
+        # The whole plugins panel (sub-tab strip + content + footer, but NOT the
+        # Play bar) lives in a stack so a panel-scoped tab (Change Version) can
+        # take it over entirely. Page 0 = the plugins panel + its footer.
+        plugins_panel = QWidget()
+        pp = QVBoxLayout(plugins_panel)
+        pp.setContentsMargins(0, 0, 0, 0)
+        pp.setSpacing(0)
+        pp.addWidget(plugins_body, 1)
+        pp.addWidget(self._plugin_footer_stack)
+        self._plugins_panel_stack = QStackedWidget()
+        self._plugins_panel_stack.addWidget(plugins_panel)               # page 0
+        rc.addWidget(self._plugins_panel_stack, 1)
         self._right_col = right_col
 
         # The modlist column lives in a stack so a panel-scoped tab (e.g. an
@@ -415,8 +440,7 @@ class MainWindow(QMainWindow):
             "Enable all": self._on_toggle_enable_all,
             "Filters": self._toggle_modlist_filters,
             "Refresh Modlist": self._on_refresh_modlist,
-            "Check Updates": lambda: self._append_log(
-                "[modlist] Check Updates (not wired yet)"),
+            "Check Updates": self._on_check_updates,
             "Restore backup": lambda: self._append_log(
                 "[modlist] Restore backup (not wired yet)"),
         }
@@ -436,6 +460,8 @@ class MainWindow(QMainWindow):
                 self._expand_all_btn = b
             elif label == "Enable all":
                 self._enable_all_btn = b
+            elif label == "Check Updates":
+                self._check_updates_btn = b
             btns.addWidget(b)
             self._modlist_footer_btns.append(b)
         btns.addStretch(1)
@@ -873,7 +899,6 @@ class MainWindow(QMainWindow):
                     (self._nxm_menu_label(), self._nexus_toggle_nxm),
                 ]),
                 ("Collections…", None),
-                ("Check for updates", None),
             ]),
         ]:
             b = self._menu_action_button(label, ico, items)
@@ -1120,6 +1145,352 @@ class MainWindow(QMainWindow):
             self._ensure_nexus_api()   # rebuild api + kick the validate() worker
             self._notify("Logged in to Nexus Mods.", "info")
             self._append_log("[nexus] OAuth login complete")
+
+    # ---- Check for updates -------------------------------------------------
+    # Reuses the toolkit-neutral Nexus.nexus_update_checker.check_for_updates,
+    # which writes has_update / missing_requirements back to each mod's meta.ini
+    # (save_results=True). The modlist re-reads those on reload and paints the
+    # update + missing-requirement badges, so the handler just runs the check on
+    # a worker thread and reloads.
+
+    def _on_check_updates(self, names=None):
+        """Check Nexus for mod updates + missing requirements. *names* limits the
+        check to a set of mod folder names (right-click subset); None = all."""
+        if self._updates_running:
+            self._notify("An update check is already running.", "info")
+            return
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        domain = getattr(game, "nexus_game_domain", "") or ""
+        if not domain:
+            self._notify(f"'{game.name}' has no Nexus Mods page.", "warning")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            return
+        staging = self._gs.staging_dir()
+        if staging is None:
+            self._notify("No mod staging folder for this profile.", "warning")
+            return
+
+        # Normalise the subset to a set (or None for "all").
+        subset = set(names) if names else None
+        self._updates_running = True
+        btn = getattr(self, "_check_updates_btn", None)
+        if btn is not None:
+            btn.setEnabled(False)
+            btn.setText("Checking…")
+        n = len(subset) if subset else "all"
+        self._notify(f"Checking Nexus for updates ({n})…", "info")
+
+        import threading
+        from Nexus.nexus_update_checker import check_for_updates
+
+        def _worker():
+            try:
+                result = check_for_updates(
+                    api, staging, game_domain=domain, save_results=True,
+                    enabled_only=subset,
+                    progress_cb=lambda m: self._op_log.emit(f"[nexus] {m}"),
+                )
+            except Exception as exc:
+                self._append_log(f"[nexus] update check failed: {exc}")
+                self._updates_ready.emit(None)
+                return
+            self._updates_ready.emit(result)
+
+        threading.Thread(target=_worker, daemon=True, name="check-updates").start()
+
+    def _on_updates_ready(self, result):
+        """Worker finished — re-enable the button, summarise, refresh the rows."""
+        self._updates_running = False
+        btn = getattr(self, "_check_updates_btn", None)
+        if btn is not None:
+            btn.setEnabled(True)
+            btn.setText("Check Updates")
+        if result is None:
+            self._notify("Update check failed — see the log.", "error")
+            return
+        updates, missing = result
+        if not updates and not missing:
+            self._notify("Nexus: all mods are up to date.", "info")
+        else:
+            parts = []
+            if updates:
+                parts.append(f"{len(updates)} update"
+                             f"{'s' if len(updates) != 1 else ''}")
+            if missing:
+                parts.append(f"{len(missing)} missing requirement"
+                             f"{'s' if len(missing) != 1 else ''}")
+            self._notify("Nexus: " + ", ".join(parts) + ".", "warning")
+        # Re-read meta.ini (now updated on disk) → repaint flags + refresh filters.
+        self._reload_modlist()
+
+    # ---- Change Version (plugins-panel-scoped overlay) --------------------
+
+    def _open_change_version_tab(self, mod_name: str):
+        """Open the Change Version picker for *mod_name* as a tab that takes over
+        the whole plugins panel. Triggered by the update-flag click + the
+        right-click 'Change Version' item."""
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        domain = getattr(game, "nexus_game_domain", "") or ""
+        if not domain:
+            self._notify(f"'{game.name}' has no Nexus Mods page.", "warning")
+            return
+        staging = self._gs.staging_dir()
+        if staging is None:
+            self._notify("No mod staging folder for this profile.", "warning")
+            return
+        from Nexus.nexus_meta import read_meta
+        meta = read_meta(staging / mod_name / "meta.ini")
+        if int(getattr(meta, "mod_id", 0) or 0) <= 0:
+            self._notify(f"'{mod_name}' isn't a Nexus mod.", "warning")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            return
+
+        # Reuse one overlay: rebuild it for the new mod if already open.
+        if self._tabs.has_key("change_version"):
+            self._tabs.close_tab("change_version")
+        from gui_qt.change_version_view import ChangeVersionView
+        view = ChangeVersionView(
+            api, game, mod_name, meta,
+            install_fn=self._install_paths,
+            on_close=self._close_change_version_tab,
+            log_fn=self._append_log)
+        self._change_version_view = view
+        view.destroyed.connect(
+            lambda *_: setattr(self, "_change_version_view", None))
+        self._tabs.open_scoped_tab(
+            view, "Change Version", self._plugins_panel_stack,
+            key="change_version")
+
+    def _close_change_version_tab(self):
+        """Close the Change Version overlay + refresh modlist flags (an Ignore-
+        Update toggle or an install may have changed meta.ini)."""
+        if self._tabs.has_key("change_version"):
+            self._tabs.close_tab("change_version")
+        self._reload_modlist()
+
+    def _open_missing_reqs_tab(self, target):
+        """Open the Missing Requirements panel over the plugins panel. *target* is
+        a single mod name (str) or a set of names (multi-select). Triggered by the
+        ⚠ flag click + the right-click 'Missing Requirements' item."""
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        domain = getattr(game, "nexus_game_domain", "") or ""
+        if not domain:
+            self._notify(f"'{game.name}' has no Nexus Mods page.", "warning")
+            return
+        staging = self._gs.staging_dir()
+        if staging is None:
+            self._notify("No mod staging folder for this profile.", "warning")
+            return
+        names = [target] if isinstance(target, str) else list(target or ())
+        from Nexus.nexus_meta import read_meta
+        from gui_qt.modlist_data import _parse_missing_req_names  # noqa: F401
+        specs = []
+        for name in names:
+            meta = read_meta(staging / name / "meta.ini")
+            raw = getattr(meta, "missing_requirements", "") or ""
+            ids: set[int] = set()
+            for part in raw.split(";"):
+                part = part.strip()
+                if not part:
+                    continue
+                head = part.split(":", 1)[0].strip()
+                try:
+                    ids.add(int(head))
+                except ValueError:
+                    pass
+            if not ids:
+                continue
+            specs.append({"mod_name": name,
+                          "mod_id": int(getattr(meta, "mod_id", 0) or 0),
+                          "domain": getattr(meta, "game_domain", "") or domain,
+                          "missing_ids": ids})
+        if not specs:
+            self._notify("No missing requirements.", "info")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            return
+
+        from Utils.profile_state import (
+            read_ignored_missing_requirements, write_ignored_missing_requirements)
+        pdir = self._gs.profile_dir()
+
+        def _save_ignored(s):
+            if pdir is not None:
+                write_ignored_missing_requirements(pdir, set(s))
+
+        ignored = (read_ignored_missing_requirements(pdir)
+                   if pdir is not None else set())
+
+        if self._tabs.has_key("missing_reqs"):
+            self._tabs.close_tab("missing_reqs")
+        from gui_qt.missing_reqs_view import MissingReqsView
+        view = MissingReqsView(
+            api, game, specs, ignored, _save_ignored,
+            on_close=self._close_missing_reqs_tab, log_fn=self._append_log,
+            install_fn=self._install_nexus_mod_by_id)
+        self._missing_reqs_view = view
+        view.destroyed.connect(
+            lambda *_: setattr(self, "_missing_reqs_view", None))
+        self._tabs.open_scoped_tab(
+            view, "Missing Requirements", self._plugins_panel_stack,
+            key="missing_reqs")
+
+    def _close_missing_reqs_tab(self):
+        """Close the Missing Requirements panel + refresh flags (an Ignore toggle
+        may have changed which mods are flagged)."""
+        if self._tabs.has_key("missing_reqs"):
+            self._tabs.close_tab("missing_reqs")
+        self._reload_modlist()
+
+    # ---- install a Nexus mod by id (used by Missing Requirements cards) ----
+    # Mirrors the Nexus browser's install flow: premium check → fetch files →
+    # pick MAIN (or file chooser if several) → download → hand to _install_paths.
+    # All worker stages hop back to the UI thread via Signals (NOT QThread).
+
+    def _install_nexus_mod_by_id(self, mod_id: int, domain: str, name: str):
+        if self._req_installing:
+            self._notify("An install is already in progress.", "info")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in to Nexus first.", "warning")
+            return
+        mod_id = int(mod_id or 0)
+        if mod_id <= 0:
+            self._notify("That requirement has no Nexus mod page.", "warning")
+            return
+        self._req_installing = True
+        ctx = {"mod_id": mod_id, "domain": domain, "name": name}
+        self._append_log(f"[nexus] preparing install for {name}…")
+        import threading
+
+        def worker():
+            files = None
+            try:
+                user = api.validate()
+                if not bool(getattr(user, "is_premium", False)):
+                    # Non-premium: open the files page (site 'Download with Manager').
+                    from Utils.xdg import open_url
+                    open_url(f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
+                             f"?tab=files", log_fn=self._append_log)
+                    self._append_log("[nexus] premium required for direct "
+                                     "download — opened the files page.")
+                    self._req_install_files.emit(ctx, None)
+                    return
+                resp = api.get_mod_files(domain, mod_id)
+                files = list(resp.files)
+            except Exception as exc:
+                self._append_log(f"[nexus] install prep failed: {exc}")
+            self._req_install_files.emit(ctx, files)
+
+        threading.Thread(target=worker, daemon=True, name="req-install-files").start()
+
+    def _on_req_install_files(self, ctx, files):
+        """UI thread: pick which file to install (file chooser if >1 MAIN)."""
+        if files is None:           # non-premium / error path already handled
+            self._req_installing = False
+            return
+        mains = [f for f in files if f.category_name == "MAIN"] or list(files)
+        if not mains:
+            self._notify("No downloadable files for that mod.", "warning")
+            self._req_installing = False
+            return
+        mains.sort(key=lambda f: getattr(f, "uploaded_timestamp", 0), reverse=True)
+        if len(mains) > 1:
+            from gui_qt.nexus_file_chooser import NexusFileChooser
+
+            def _picked(chosen):
+                if chosen is None:
+                    self._req_installing = False
+                    return
+                self._start_req_download(ctx, chosen)
+
+            NexusFileChooser.show_over(self, ctx["name"], mains, _picked)
+        else:
+            self._start_req_download(ctx, mains[0])
+
+    def _start_req_download(self, ctx, f):
+        domain, mod_id, name = ctx["domain"], ctx["mod_id"], ctx["name"]
+        self._append_log(f"[nexus] downloading {f.file_name or name}…")
+
+        class _Info:
+            pass
+        info = _Info()
+        info.mod_id = mod_id
+        info.domain_name = domain
+        info.name = name
+        import threading
+
+        def worker():
+            archive = meta = None
+            try:
+                from Nexus.nexus_download import NexusDownloader
+                from Utils.config_paths import get_download_cache_dir_for_game
+                from Nexus.nexus_meta import build_meta_from_download
+                dest = get_download_cache_dir_for_game(
+                    getattr(self._gs.game, "name", "") or "")
+                size = (f.size_in_bytes or 0) or (f.size_kb * 1024)
+                result = NexusDownloader(
+                    self._nexus_api, download_dir=dest).download_file(
+                    game_domain=domain, mod_id=mod_id, file_id=f.file_id,
+                    dest_dir=dest, known_file_name=f.file_name,
+                    expected_size_bytes=size, progress_cb=lambda d, t: None)
+                if result.success and result.file_path is not None:
+                    archive = str(result.file_path)
+                    try:
+                        meta = build_meta_from_download(
+                            game_domain=domain, mod_id=mod_id, file_id=f.file_id,
+                            archive_name=result.file_name, mod_info=info,
+                            file_info=f)
+                    except Exception:
+                        meta = None
+                else:
+                    self._append_log(f"[nexus] download failed: "
+                                     f"{result.error or 'unknown error'}")
+            except Exception as exc:
+                self._append_log(f"[nexus] download error: {exc}")
+            self._req_install_dl.emit(archive, meta)
+
+        threading.Thread(target=worker, daemon=True, name="req-install-dl").start()
+
+    def _on_req_install_dl(self, archive, meta):
+        self._req_installing = False
+        if not archive:
+            return
+        self._append_log(f"[nexus] downloaded → {archive}; installing…")
+        self._install_paths([archive], {archive: meta} if meta is not None else None)
+
+    def _on_modlist_flag_clicked(self, row: int, flag: int):
+        """A flag icon in the modlist Flags column was clicked. Update flag opens
+        Change Version; the warning flag opens Missing Requirements (Tk parity)."""
+        from gui_qt.modlist_data import FLAG_UPDATE, FLAG_MISSING_REQS
+        e = self._modlist_model.entry(row)
+        if e is None or e.is_separator:
+            return
+        if flag == FLAG_UPDATE:
+            self._open_change_version_tab(e.name)
+        elif flag == FLAG_MISSING_REQS:
+            self._open_missing_reqs_tab(e.name)
 
     def _on_add_game_select(self, name: str):
         """A configured game was picked in the Add-Game view → switch to it and
@@ -2245,6 +2616,8 @@ class MainWindow(QMainWindow):
             data.conflict_codes = self._loose_backend_codes(cd)
             data.bsa_conflict_codes = self._bsa_backend_codes(cd)
         data.mods_with_updates = set(getattr(self, "_mod_updates", set()))
+        data.missing_reqs = set(getattr(self, "_mod_missing_reqs", set()))
+        data.ignored_missing_reqs = set(getattr(self, "_ignored_missing_reqs", frozenset()))
         data.category_names = dict(getattr(self, "_mod_categories", {}))
         data.fomod_mods = set(getattr(self, "_mod_fomod", set()))
         data.bain_mods = set(getattr(self, "_mod_bain", set()))
@@ -2344,11 +2717,22 @@ class MainWindow(QMainWindow):
         self._mod_updates: set[str] = set()
         self._mod_fomod: set[str] = set()
         self._mod_bain: set[str] = set()
+        self._mod_missing_reqs: set[str] = set()
+        self._ignored_missing_reqs: frozenset[str] = frozenset()
         if entries and staging is not None:
+            pdir = self._gs.profile_dir()
+            if pdir is not None:
+                try:
+                    from Utils.profile_state import read_ignored_missing_requirements
+                    self._ignored_missing_reqs = frozenset(
+                        read_ignored_missing_requirements(pdir))
+                except Exception:
+                    self._ignored_missing_reqs = frozenset()
             (versions, installed, flags,
              self._mod_categories, self._mod_updates,
-             self._mod_fomod, self._mod_bain) = read_meta_for_entries(
-                entries, staging)
+             self._mod_fomod, self._mod_bain,
+             self._mod_missing_reqs) = read_meta_for_entries(
+                entries, staging, self._ignored_missing_reqs)
 
         self._modlist_model.set_entries(entries)
         self._modlist_model._versions = versions
@@ -2362,6 +2746,13 @@ class MainWindow(QMainWindow):
         self._modlist_view.staging_dir = staging
         self._modlist_view.profile_dir = self._gs.profile_dir()
         self._modlist_view.game = self._gs.game
+        # Right-click "Check Updates" reaches the window through this callback.
+        self._modlist_view.on_check_updates = self._on_check_updates
+        # Change Version: right-click item + clicking the update flag icon.
+        self._modlist_view.on_change_version = self._open_change_version_tab
+        self._modlist_view.on_flag_clicked = self._on_modlist_flag_clicked
+        # Missing Requirements: right-click item + clicking the ⚠ flag icon.
+        self._modlist_view.on_missing_reqs = self._open_missing_reqs_tab
         # Enabling the Size column scans mod folder sizes on demand (Tk parity:
         # only walk the disk when Size is actually shown).
         self._modlist_view.on_sizes_requested = self._apply_modlist_sizes

@@ -233,11 +233,19 @@ class DetachableTabWidget(QTabWidget):
             # showing the scoped view. The tab stays HIGHLIGHTED via the bar's
             # own current index (we leave the bar on the scoped tab; only the
             # displayed page is forced to the permanent one).
-            target_stack, _sw, page_idx = scoped
+            target_stack, scoped_widget, _page_idx = scoped
             self._active_scoped = id(w)
-            # Reset other scoped stacks, then activate this one.
-            for pid, (ts, _s, _p) in self._scoped.items():
-                ts.setCurrentIndex(page_idx if pid == id(w) else 0)
+            # Reset every scoped stack to page 0 FIRST, then activate this one
+            # LAST. Two scoped tabs can share one target stack (e.g. Change
+            # Version + Missing Requirements both scope the plugins panel); a
+            # single pass would let the "reset other → 0" step clobber the page
+            # this tab just set on the shared stack, blanking the panel.
+            for (ts, _s, _p) in self._scoped.values():
+                ts.setCurrentIndex(0)
+            # Resolve the page by WIDGET, not the stored index — closing another
+            # scoped tab on the same stack shifts indices (removeWidget), which
+            # would make a stored page_idx stale.
+            target_stack.setCurrentWidget(scoped_widget)
             self._show_permanent_page_keeping_tab(index)
         else:
             self._active_scoped = None
@@ -310,6 +318,11 @@ class DetachableTabWidget(QTabWidget):
         """Close the tab/float registered under *key* (no-op if not open)."""
         widget = self._keys.get(key)
         if widget is None:
+            return
+        # Scoped tab? Route through the scoped teardown so the target panel
+        # stack is reset to page 0 (a plain removeTab would strand it).
+        if id(widget) in self._scoped:
+            self._close_scoped(widget)
             return
         # Docked tab?
         idx = self.indexOf(widget)

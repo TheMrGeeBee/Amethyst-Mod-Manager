@@ -21,12 +21,13 @@ from gui_qt.modlist_model import (
     COL_NAME, COL_FLAGS, COL_CONFLICTS,
 )
 from gui_qt.modlist_data import (
-    FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF,
+    FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF, FLAG_MISSING_REQS,
 )
 
 # Flag bit → icon filename, painted left-to-right in the Flags column.
 _FLAG_ICONS = [
     (FLAG_UPDATE, "update.png"),
+    (FLAG_MISSING_REQS, "warning.png"),
     (FLAG_ENDORSED, "endorsed.png"),
     (FLAG_ROOT, "root.png"),
     (FLAG_MODIFIED_MF, "eye2_white.png"),
@@ -337,6 +338,24 @@ class ModRowDelegate(QStyledItemDelegate):
     def _flag_icons(self, bits):
         return [name for bit, name in _FLAG_ICONS if bits & bit]
 
+    def _hit_flag_bit(self, pos, r, bits):
+        """Which FLAG_* bit's icon (if any) is under *pos* within the Flags cell
+        rect *r*. Recomputes the same left-to-right centred geometry as
+        _paint_icons so a click lands on the icon the user sees."""
+        names = self._flag_icons(bits)
+        if not names:
+            return 0
+        sz, gap = ICON_SZ, 3
+        total = len(names) * sz + (len(names) - 1) * gap
+        x = r.left() + max(6, (r.width() - total) // 2)
+        y = r.top() + (r.height() - sz) // 2
+        name_to_bit = {name: bit for bit, name in _FLAG_ICONS}
+        for name in names:
+            if QRect(x, y, sz, sz).contains(pos):
+                return name_to_bit.get(name, 0)
+            x += sz + gap
+        return 0
+
     def _paint_icons(self, p, r, names):
         """Paint a horizontally-centred row of icons (Flags + Conflicts cells,
         and the collapsed-separator summary) so they line up under the column."""
@@ -355,10 +374,27 @@ class ModRowDelegate(QStyledItemDelegate):
                 break
 
     def editorEvent(self, event, model, opt, index):
-        if event.type() != QEvent.MouseButtonRelease or index.column() != COL_NAME:
+        if event.type() != QEvent.MouseButtonRelease:
+            return False
+        if index.column() not in (COL_NAME, COL_FLAGS):
             return False
         pos = event.position().toPoint()
         e = model.entry(index.row())
+
+        # Flags cell: a click on a flag icon may trigger an action (the update
+        # flag opens Change Version). Other flags are inert for now.
+        if index.column() == COL_FLAGS:
+            if e.is_separator:
+                return False
+            bits = model.data(index, FlagsRole) or 0
+            hit = self._hit_flag_bit(pos, opt.rect, bits)
+            if hit:
+                view = self.parent()
+                cb = getattr(view, "on_flag_clicked", None)
+                if cb is not None:
+                    cb(index.row(), hit)
+                    return True
+            return False
 
         if e.is_separator:
             from gui_qt.modlist_model import _BOUNDARY_NAMES
