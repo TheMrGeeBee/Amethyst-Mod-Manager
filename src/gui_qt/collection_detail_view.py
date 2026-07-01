@@ -92,6 +92,8 @@ class CollectionDetailView(QWidget):
         self._domain = (getattr(game, "nexus_game_domain", "")
                         or getattr(collection, "game_domain", "") or "")
         self._mods = []
+        self._dl_path = ""                          # collection-archive download link
+        self._recommend_new_profile = False         # manifest rule: force new profile
         self._opt_boxes: list[tuple[QCheckBox, int]] = []   # (checkbox, file_id)
         self._revision_number = revision_number    # None = latest published
         # A ctor-requested revision (e.g. Open Current) — the FIRST fetch is still
@@ -327,6 +329,7 @@ class CollectionDetailView(QWidget):
             self._opt_empty.setText("Could not load.")
             return
         name, total_size, mod_count, mods, dl_path, revisions = result
+        self._dl_path = dl_path or ""   # collection-archive download link (manifest)
         # `revisions` is populated only on the latest fetch (empty on a specific
         # revision fetch) — don't clobber the stored list.
         if revisions:
@@ -507,6 +510,15 @@ class CollectionDetailView(QWidget):
                 manifest = load_collection_manifest(
                     self._api, game_name, slug, rev, dl_path, log_fn=self._log)
                 offsite = extract_offsite_mods(manifest)
+                # Manifest rule: some collections must be installed as a NEW
+                # profile (collectionConfig.recommendNewProfile). Capture it so
+                # the install mode overlay can disable "Append".
+                try:
+                    self._recommend_new_profile = bool(
+                        (manifest.get("collectionConfig") or {}).get(
+                            "recommendNewProfile", False))
+                except Exception:
+                    pass
             except Exception as exc:
                 self._log(f"Collection manifest error: {exc}")
             self._manifest_ready.emit(offsite)
@@ -554,11 +566,30 @@ class CollectionDetailView(QWidget):
         from Utils.xdg import open_url
         open_url(url, log_fn=self._log)
 
-    def _on_install_clicked(self):
-        # Install is stubbed this pass — capture the optional selection.
+    def set_install_handler(self, handler):
+        """Set the ``handler(chosen_fids, skipped_fids)`` invoked by the Install
+        button (the app wires the real automatic-install flow here)."""
+        self._on_install = handler
+
+    def optional_selection(self):
+        """Return (chosen_fids, skipped_fids) from the optional checklist."""
         chosen = {fid for cb, fid in self._opt_boxes if cb.isChecked() and fid}
         skipped = {fid for cb, fid in self._opt_boxes if not cb.isChecked() and fid}
-        self._log(f"Collection install (stub): {len(chosen)} optional kept, "
+        return chosen, skipped
+
+    def install_mods(self, skipped_fids):
+        """Return the list of NexusCollectionMods to install: every mod except
+        the unticked optionals."""
+        return [m for m in self._mods
+                if not (getattr(m, "optional", False) and m.file_id in skipped_fids)]
+
+    @property
+    def download_link_path(self):
+        return self._dl_path
+
+    def _on_install_clicked(self):
+        chosen, skipped = self.optional_selection()
+        self._log(f"Collection install: {len(chosen)} optional kept, "
                   f"{len(skipped)} skipped.")
         if self._on_install is not None:
             self._on_install(chosen, skipped)

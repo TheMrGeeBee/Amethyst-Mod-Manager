@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QRect, QSize, QEvent
 from PySide6.QtGui import QColor, QFont, QPen, QBrush
-from PySide6.QtWidgets import QStyledItemDelegate, QStyle
+from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QToolTip
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.icons import icon
@@ -22,6 +22,7 @@ from gui_qt.modlist_model import (
 )
 from gui_qt.modlist_data import (
     FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF, FLAG_MISSING_REQS,
+    FLAG_COLLECTION_BUNDLED, FLAG_COLLECTION_PATCHED,
 )
 
 # Flag bit → icon filename, painted left-to-right in the Flags column.
@@ -31,7 +32,22 @@ _FLAG_ICONS = [
     (FLAG_ENDORSED, "endorsed.png"),
     (FLAG_ROOT, "root.png"),
     (FLAG_MODIFIED_MF, "eye2_white.png"),
+    # Collection provenance — both reuse the info icon (Tk parity); the hover
+    # tooltip distinguishes bundled vs patched.
+    (FLAG_COLLECTION_BUNDLED, "info.png"),
+    (FLAG_COLLECTION_PATCHED, "info.png"),
 ]
+
+# Flag bit → hover tooltip text (Tk parity). Only flags with an entry get a tip.
+_FLAG_TIPS = {
+    FLAG_UPDATE: "Update available",
+    FLAG_MISSING_REQS: "Missing requirements",
+    FLAG_ENDORSED: "Endorsed",
+    FLAG_ROOT: "This mod is sent to the root folder",
+    FLAG_MODIFIED_MF: "Modified in Mod Files tab",
+    FLAG_COLLECTION_BUNDLED: "This mod is a collection bundled mod",
+    FLAG_COLLECTION_PATCHED: "This mod has diff patches applied by the collection install",
+}
 
 # Conflict code → icon (lightning), painted in the Conflicts column (Tk parity).
 _CONFLICT_ICONS = {
@@ -349,12 +365,33 @@ class ModRowDelegate(QStyledItemDelegate):
         total = len(names) * sz + (len(names) - 1) * gap
         x = r.left() + max(6, (r.width() - total) // 2)
         y = r.top() + (r.height() - sz) // 2
-        name_to_bit = {name: bit for bit, name in _FLAG_ICONS}
-        for name in names:
+        # names can repeat (bundled+patched both use info.png); walk the ACTIVE
+        # bits in the same order the icons were painted so the hit maps to the
+        # correct flag even when two share an icon.
+        active_bits = [bit for bit, _n in _FLAG_ICONS if bits & bit]
+        for bit in active_bits:
             if QRect(x, y, sz, sz).contains(pos):
-                return name_to_bit.get(name, 0)
+                return bit
             x += sz + gap
         return 0
+
+    def helpEvent(self, event, view, opt, index):
+        """Show the per-flag tooltip when hovering a flag icon (Tk parity —
+        distinguishes e.g. collection bundled vs patched)."""
+        try:
+            if (event.type() == QEvent.ToolTip
+                    and index.isValid() and index.column() == COL_FLAGS):
+                bits = index.data(FlagsRole) or 0
+                if bits:
+                    hit = self._hit_flag_bit(event.pos(), opt.rect, bits)
+                    tip = _FLAG_TIPS.get(hit)
+                    if tip:
+                        QToolTip.showText(event.globalPos(), tip, view)
+                        return True
+                QToolTip.hideText()
+        except Exception:
+            pass
+        return super().helpEvent(event, view, opt, index)
 
     def _paint_icons(self, p, r, names):
         """Paint a horizontally-centred row of icons (Flags + Conflicts cells,

@@ -373,62 +373,11 @@ def _resolve_collection_priorities(collection_schema: dict) -> dict[int, int]:
     return {fid: pos for pos, fid in enumerate(sorted_fids)}
 
 
-def _build_collision_suffix_map(
-    schema_mods: list[dict],
-    schema_file_id_to_logical: dict[int, str],
-    schema_pos_to_name: dict[int, str],
-    schema_file_id_to_pos: dict[int, int],
-) -> dict[int, str]:
-    """Return file_id → suffix to append when multiple collection entries
-    from different mod pages would otherwise install into the same folder.
-
-    Collisions happen when curators include several small "patch"-style mods
-    that share a generic name (e.g. four "EOTB Patch" entries from different
-    authors). Without disambiguation each install overwrites the previous —
-    only the last one survives. Appending " (mod_id)" keeps each in its own
-    folder while remaining recognisable to the user.
-
-    Returns "" for non-colliding entries; the suffix string for colliders.
-    """
-    # Group fileIds by their effective base preferred name (lowercased).
-    base_to_fids: dict[str, list[int]] = {}
-    fid_to_base: dict[int, str] = {}
-    fid_to_mod_id: dict[int, int] = {}
-    for sm in schema_mods:
-        src = sm.get("source") or {}
-        fid = src.get("fileId")
-        if fid is None:
-            continue
-        fid = int(fid)
-        logical = schema_file_id_to_logical.get(fid, "") or ""
-        schema_name = schema_pos_to_name.get(
-            schema_file_id_to_pos.get(fid, -1), "") or ""
-        base = (logical or schema_name or sm.get("name") or "").strip()
-        if not base:
-            continue
-        fid_to_base[fid] = base
-        mid = src.get("modId")
-        if mid:
-            fid_to_mod_id[fid] = int(mid)
-        base_to_fids.setdefault(base.lower(), []).append(fid)
-
-    result: dict[int, str] = {}
-    for fid, base in fid_to_base.items():
-        siblings = base_to_fids.get(base.lower(), [])
-        if len(siblings) <= 1:
-            result[fid] = ""
-            continue
-        # Only disambiguate when siblings come from different mod pages.
-        # Two entries from the same mod_id (e.g. main+optional file) shouldn't
-        # collide because they go through the already-installed-by-fid path.
-        sibling_mod_ids = {fid_to_mod_id.get(s) for s in siblings}
-        sibling_mod_ids.discard(None)
-        if len(sibling_mod_ids) <= 1:
-            result[fid] = ""
-            continue
-        mod_id = fid_to_mod_id.get(fid)
-        result[fid] = f" ({mod_id})" if mod_id else ""
-    return result
+# _build_collision_suffix_map + _fomod_choices_from_collection moved to the
+# toolkit-neutral Utils.collection_install (shared with the Qt collection
+# installer); re-imported here so the Tk paths keep using ONE implementation.
+from Utils.collection_install import (  # noqa: E402
+    _build_collision_suffix_map, _fomod_choices_from_collection)
 
 
 def _fmt_size(n_bytes: int) -> str:
@@ -453,51 +402,6 @@ def _get_dir_size(path: Path) -> int:
     except OSError:
         pass
     return total
-
-
-def _fomod_choices_from_collection(choices: dict) -> "dict[str, dict[str, list[str]]]":
-    """Convert a collection.json FOMOD choices block to the saved_selections
-    format that ``resolve_files()`` / ``FomodDialog`` expect.
-
-    Collection format::
-
-        {
-          "type": "fomod",
-          "options": [
-            {
-              "name": "<step_name>",
-              "groups": [
-                {
-                  "name": "<group_name>",
-                  "choices": [{"name": "<plugin_name>", "idx": 0}, ...]
-                },
-                ...
-              ]
-            },
-            ...
-          ]
-        }
-
-    Saved-selections format::
-
-        {
-          "<step_name>": {
-            "<group_name>": ["<plugin_name>", ...]
-          },
-          ...
-        }
-    """
-    result: dict = {}
-    for step_idx, step in enumerate(choices.get("options", [])):
-        groups: dict = {}
-        for group in step.get("groups", []):
-            group_name = group.get("name", "")
-            plugin_names = [c["name"] for c in group.get("choices", []) if c.get("name")]
-            if plugin_names:
-                groups[group_name] = plugin_names
-        if groups:
-            result[str(step_idx)] = groups
-    return result
 
 
 # ---------------------------------------------------------------------------

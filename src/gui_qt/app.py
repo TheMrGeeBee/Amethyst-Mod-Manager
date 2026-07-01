@@ -63,6 +63,19 @@ class MainWindow(QMainWindow):
     _req_install_dl = Signal(object, object)      # (archive|None, meta|None)
     # Collection reset-load-order worker → UI thread (result dict).
     _reset_done = Signal(object)
+    # Collection INSTALL worker → UI thread. Every callback is a single emit; the
+    # connected slots (UI thread) update the install overlay. (verb, payload)
+    # batches keep the surface small. See _install_collection.
+    _col_status = Signal(str)
+    _col_progress = Signal(object)             # float | None
+    _col_agg = Signal(int, int, float)         # bytes cur, total, MB/s
+    _col_dl = Signal(str, object)              # ("start"|"update"|"finish", payload)
+    _col_extract = Signal(str, object)         # ("queue"|"add"|"remove", payload)
+    _col_row = Signal(int)                     # file_id installed
+    _col_finished = Signal(str, object)        # ("done"|"paused"|"cancelled", payload)
+    # Worker blocks on these to show the deferred FOMOD / BAIN pickers (holder+Event).
+    _col_fomod = Signal(object)
+    _col_bain = Signal(object)
 
     _PLAY_BAR_W = 380       # play-bar (header right) fixed width
     _BTN_H = 42          # consistent height for all header buttons (~30% bigger)
@@ -185,6 +198,19 @@ class MainWindow(QMainWindow):
         self._req_install_dl.connect(self._on_req_install_dl)
         self._reset_done.connect(self._on_reset_done)
         self._reset_running = False
+        # Collection install state + Signal→UI-thread wiring.
+        self._col_install_running = False
+        self._col_install_overlay = None
+        self._col_install_control = None
+        self._col_status.connect(self._on_col_status)
+        self._col_progress.connect(self._on_col_progress)
+        self._col_agg.connect(self._on_col_agg)
+        self._col_dl.connect(self._on_col_dl)
+        self._col_extract.connect(self._on_col_extract)
+        self._col_row.connect(self._on_col_row)
+        self._col_finished.connect(self._on_col_finished)
+        self._col_fomod.connect(self._on_col_fomod_ui)
+        self._col_bain.connect(self._on_col_bain_ui)
         QTimer.singleShot(0, self._ensure_nexus_api)
 
     def _populate_selectors(self):
@@ -1182,11 +1208,496 @@ class MainWindow(QMainWindow):
         from gui_qt.collection_detail_view import CollectionDetailView
         view = CollectionDetailView(
             api, collection, game, log_fn=self._append_log,
-            revision_number=revision_number,
-            on_install=lambda chosen, skipped: self._notify(
-                "Collection install isn't wired yet.", "info"))
+            revision_number=revision_number)
+        view.set_install_handler(
+            lambda chosen, skipped: self._install_collection(collection, view,
+                                                             chosen, skipped))
         title = f"Collection: {collection.name or collection.slug}"
         self._tabs.open_tab(view, title, key=key)
+
+    # ---- Collection install (automatic / premium) ------------------------
+    def _install_collection(self, collection, detail_view, chosen, skipped):
+        """Start an automatic (premium) collection install: gate on premium,
+        create a new profile, then run the neutral orchestrator on a daemon
+        thread with every callback marshaled through a Signal (UI-thread slots
+        update the overlay). Deferred FOMOD/BAIN mods block the worker on a
+        wizard via _col_fomod / _col_bain (same handshake as _make_exists_cb)."""
+        import threading
+        if self._col_install_running:
+            self._notify("A collection install is already running.", "warning")
+            return
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus.", "warning")
+            return
+        dl_path = getattr(detail_view, "download_link_path", "") or ""
+        revision_number = getattr(detail_view, "_revision_number", None)
+        # Manifest rule: this collection must be installed as a NEW profile.
+        recommend_new = bool(getattr(detail_view, "_recommend_new_profile", False))
+        mods = detail_view.install_mods(skipped)
+        if not mods:
+            self._notify("This collection has no installable mods.", "info")
+            return
+        slug = getattr(collection, "slug", "") or ""
+        domain = (getattr(game, "nexus_game_domain", "")
+                  or getattr(collection, "game_domain", "") or "")
+
+        # Premium gate runs off-thread (validate() is rate-limited); on success it
+        # creates the profile + starts the pipeline, all marshaled back to the UI.
+        self._col_install_running = True
+        self._notify("Checking Nexus account…", "info")
+
+        def _premium_worker():
+            try:
+                user = api.validate()
+                is_premium = bool(getattr(user, "is_premium", False))
+            except Exception as exc:
+                self._op_log.emit(f"[collection] premium check failed: {exc}")
+                is_premium = False
+            try:
+                from Utils.ui_config import load_force_manual_install
+                force_manual = bool(load_force_manual_install())
+            except Exception:
+                force_manual = False
+            self._col_finished.emit(
+                "_premium", {"ok": is_premium and not force_manual,
+                             "collection": collection, "domain": domain,
+                             "slug": slug, "dl_path": dl_path,
+                             "revision": revision_number, "mods": mods,
+                             "skipped": set(skipped), "game": game, "api": api,
+                             "recommend_new": recommend_new})
+
+        threading.Thread(target=_premium_worker, daemon=True,
+                         name="col-premium").start()
+
+    def _choose_collection_mode(self, info):
+        """UI thread: show the New/Append (or Continue) mode overlay, then start
+        the pipeline with the chosen mode. Mirrors Tk _continue_install_collection:
+        if this exact collection+revision URL is already in a profile → Continue;
+        else → New/Append."""
+        from gui.game_helpers import (
+            find_profile_with_collection_url, _profiles_for_game)
+        game = info["game"]; slug = info["slug"]; domain = info["domain"]
+        rev = info["revision"]
+        url = f"https://www.nexusmods.com/{domain}/collections/{slug}"
+        if rev is not None:
+            url += f"/revisions/{rev}"
+        try:
+            existing = find_profile_with_collection_url(game.name, url)
+        except Exception:
+            existing = None
+
+        def _done(result):
+            if result is None:
+                self._col_install_running = False
+                self._notify("Collection install cancelled.", "info")
+                return
+            info["mode_result"] = result
+            self._start_collection_pipeline(info)
+
+        if existing:
+            from gui_qt.collection_mode_overlay import ContinueOverlay
+            ContinueOverlay.show_over(self, existing, _done)
+        else:
+            from gui_qt.collection_mode_overlay import ModeOverlay
+            try:
+                profiles = _profiles_for_game(game.name)
+            except Exception:
+                profiles = []
+            # Manifest rule (collectionConfig.recommendNewProfile) → disable Append.
+            force_new = bool(info.get("recommend_new"))
+            ModeOverlay.show_over(self, profiles, _done, force_new_profile=force_new)
+
+    def _start_collection_pipeline(self, info):
+        """UI thread: premium confirmed — create the profile, open the overlay,
+        and launch the orchestrator on a daemon thread."""
+        import threading
+        game = info["game"]; api = info["api"]; collection = info["collection"]
+        slug = info["slug"]; domain = info["domain"]
+        revision_number = info["revision"]; mods = info["mods"]
+        skipped = info["skipped"]; dl_path = info["dl_path"]
+
+        # Resolve the install mode chosen in the mode overlay (default: new).
+        mode_result = info.get("mode_result") or ("new", None, False, False)
+        mode, append_profile_name, ov_existing, skip_existing = mode_result
+        # Mods whose optional was unticked — the orchestrator removes these from
+        # an existing profile (append/continue).
+        skipped_mods = [m for m in mods if getattr(m, "file_id", None) in skipped]
+
+        from gui.game_helpers import (
+            _create_profile, _profiles_for_game, save_collection_url_to_profile)
+        from Utils.profile_state import (
+            write_collection_revision, write_collection_optional_skipped)
+        import re as _re
+
+        # overwrite_existing is None for new/continue (fresh modlist write); a bool
+        # for append (preserves existing load order via _append_reconcile_modlist).
+        overwrite_existing = None
+        skip_existing_arg = False
+
+        if mode == "new":
+            raw = collection.name or slug or "Collection"
+            base = _re.sub(r"[^\w\s\-]", "", raw).strip().replace(" ", "_") or "Collection"
+            profile_name = (f"{base}_Rev{revision_number}"[:64]
+                            if revision_number is not None else base[:64])
+            _existing = set(_profiles_for_game(game.name))
+            _pn = profile_name
+            _i = 2
+            while _pn in _existing:
+                _pn = f"{profile_name}_{_i}"[:64]
+                _i += 1
+            profile_name = _pn
+            try:
+                profile_dir = Path(_create_profile(
+                    game.name, profile_name, profile_specific_mods=True))
+            except Exception as exc:
+                self._col_install_running = False
+                self._notify(f"Could not create profile: {exc}", "error")
+                return
+            # New/continue claim the collection: record URL + revision.
+            self._stamp_collection_profile(
+                profile_dir, domain, slug, revision_number, skipped)
+        else:
+            # append / continue → install into an existing profile.
+            profile_dir = game.get_profile_root() / "profiles" / append_profile_name
+            if not profile_dir.is_dir():
+                self._col_install_running = False
+                self._notify(f"Profile '{append_profile_name}' not found.", "error")
+                return
+            if mode == "append":
+                overwrite_existing = bool(ov_existing)
+                skip_existing_arg = bool(skip_existing)
+                # Append doesn't claim the collection URL; still record skipped set.
+                try:
+                    write_collection_optional_skipped(profile_dir, skipped)
+                except Exception:
+                    pass
+            else:  # continue
+                self._stamp_collection_profile(
+                    profile_dir, domain, slug, revision_number, skipped)
+
+        old_profile_dir = getattr(game, "_active_profile_dir", None)
+
+        # Overlay + control.
+        from gui_qt.collection_install_overlay import CollectionInstallOverlay
+        from Utils.collection_install import CollectionInstallControl
+        control = CollectionInstallControl()
+        self._col_install_control = control
+        title = f"Installing collection: {collection.name or slug}"
+        self._col_install_overlay = CollectionInstallOverlay.show_over(
+            self, title, on_pause=self._on_col_pause_clicked,
+            on_cancel=self._on_col_cancel_clicked)
+
+        callbacks = self._build_collection_callbacks()
+
+        def _worker():
+            from Utils.collection_install import run_collection_install
+            from Nexus.nexus_download import NexusDownloader
+            from Utils.config_paths import get_download_cache_dir_for_game
+            downloader = NexusDownloader(
+                api, download_dir=get_download_cache_dir_for_game(game.name or ""))
+            try:
+                run_collection_install(
+                    game=game, api=api, downloader=downloader, mods=mods,
+                    download_link_path=dl_path, profile_dir=profile_dir,
+                    old_profile_dir=old_profile_dir, collection_slug=slug,
+                    revision_number=revision_number, skipped_fids=skipped,
+                    skipped_mods=skipped_mods, overwrite_existing=overwrite_existing,
+                    skip_existing=skip_existing_arg,
+                    callbacks=callbacks, control=control)
+            except Exception as exc:
+                import traceback
+                self._op_log.emit(f"[collection] install error: {exc}\n"
+                                  f"{traceback.format_exc()}")
+                self._col_finished.emit("cancelled", {"profile_dir": str(profile_dir)})
+
+        threading.Thread(target=_worker, daemon=True, name="col-install").start()
+
+    def _stamp_collection_profile(self, profile_dir, domain, slug, revision_number,
+                                  skipped):
+        """Record the collection URL + revision + skipped-optionals on a profile
+        that claims this collection (new / continue modes)."""
+        from gui.game_helpers import save_collection_url_to_profile
+        from Utils.profile_state import (
+            write_collection_revision, write_collection_optional_skipped)
+        try:
+            url = f"https://www.nexusmods.com/{domain}/collections/{slug}"
+            if revision_number is not None:
+                url += f"/revisions/{revision_number}"
+            save_collection_url_to_profile(profile_dir, url)
+        except Exception as exc:
+            self._append_log(f"[collection] could not save URL: {exc}")
+        try:
+            if revision_number is not None:
+                write_collection_revision(profile_dir, revision_number)
+            if skipped:
+                write_collection_optional_skipped(profile_dir, skipped)
+        except Exception:
+            pass
+
+    def _build_collection_callbacks(self):
+        """Build a CollectionInstallCallbacks whose every field is a single
+        Signal.emit — NO callback touches a widget (all UI mutation happens in the
+        connected UI-thread slots). Matches the thread-safety rule that cost a
+        segfault before."""
+        from Utils.collection_install import CollectionInstallCallbacks
+        return CollectionInstallCallbacks(
+            on_status=lambda m: self._col_status.emit(m),
+            on_progress=lambda v: self._col_progress.emit(v),
+            on_agg_download=lambda c, t, s: self._col_agg.emit(int(c), int(t), float(s)),
+            on_dl_mod_start=lambda f, n, s: self._col_dl.emit("start", (f, n, s)),
+            on_dl_mod_update=lambda f, c, t: self._col_dl.emit("update", (f, c, t)),
+            on_dl_mod_finish=lambda f: self._col_dl.emit("finish", f),
+            on_extract_queue=lambda f, n: self._col_extract.emit("queue", (f, n)),
+            on_extract_add=lambda f, n: self._col_extract.emit("add", (f, n)),
+            on_extract_remove=lambda f: self._col_extract.emit("remove", f),
+            on_row_installed=lambda f: self._col_row.emit(int(f)),
+            on_log=lambda m: self._op_log.emit(str(m)),
+            on_done=lambda i, s, t, p: self._col_finished.emit("done", (i, s, t, p)),
+            on_paused=lambda i, p: self._col_finished.emit("paused", (i, p)),
+            on_cancelled=lambda pd: self._col_finished.emit("cancelled", {"profile_dir": str(pd)}),
+            resolve_fomod=self._make_col_fomod_cb(),
+            resolve_bain=self._make_col_bain_cb(),
+        )
+
+    # ---- collection progress slots (UI thread) ---------------------------
+    def _on_col_status(self, text):
+        if self._col_install_overlay is not None:
+            self._col_install_overlay.set_status(text)
+
+    def _on_col_progress(self, value):
+        pass   # overlay drives from the aggregate bytes; per-mod count unused here
+
+    def _on_col_agg(self, cur, tot, mbps):
+        if self._col_install_overlay is not None:
+            self._col_install_overlay.set_agg(cur, tot, mbps)
+
+    def _on_col_dl(self, verb, payload):
+        ov = self._col_install_overlay
+        if ov is None:
+            return
+        if verb == "start":
+            ov.dl_start(*payload)
+        elif verb == "update":
+            ov.dl_update(*payload)
+        elif verb == "finish":
+            ov.dl_finish(payload)
+
+    def _on_col_extract(self, verb, payload):
+        ov = self._col_install_overlay
+        if ov is None:
+            return
+        if verb == "queue":
+            ov.extract_queue(*payload)
+        elif verb == "add":
+            ov.extract_add(*payload)
+        elif verb == "remove":
+            ov.extract_remove(payload)
+
+    def _on_col_row(self, file_id):
+        if self._col_install_overlay is not None:
+            self._col_install_overlay.row_installed(file_id)
+
+    # ---- deferred FOMOD / BAIN blocking handshake ------------------------
+    def _make_col_fomod_cb(self):
+        """resolve_fomod for the orchestrator: runs on the WORKER thread, asks the
+        UI to open the FOMOD wizard, and BLOCKS until the user Finishes/Cancels."""
+        import threading
+
+        def _cb(config, base, name, installed, active, loose):
+            holder = {"result": None}
+            ev = threading.Event()
+            self._col_fomod.emit({"config": config, "base": base, "name": name,
+                                  "holder": holder, "event": ev})
+            ev.wait()
+            return holder["result"]
+
+        return _cb
+
+    def _on_col_fomod_ui(self, payload):
+        """UI thread: open the FOMOD wizard as a tab; unblock the worker on
+        finish/cancel/close. Only ONE deferred wizard is ever open (the deferred
+        loop is sequential) so there's no nesting."""
+        from gui_qt.fomod_wizard_view import FomodWizardView
+        holder, ev = payload["holder"], payload["event"]
+        done = {"v": False}
+
+        def _finish_ev(result):
+            if done["v"]:
+                return
+            done["v"] = True
+            holder["result"] = result
+            self._tabs.close_tab("col_fomod_wizard")
+            ev.set()
+
+        view = FomodWizardView(payload["config"], payload["base"], payload["name"],
+                               on_finish=lambda sel: _finish_ev(sel),
+                               on_cancel=lambda: _finish_ev(None))
+        # Closing the tab (or a stop request) counts as cancel so we never hang.
+        view.destroyed.connect(lambda *_: _finish_ev(None))
+        self._tabs.open_tab(view, f"Install: {payload['name']}",
+                            key="col_fomod_wizard")
+
+    def _make_col_bain_cb(self):
+        import threading
+
+        def _cb(subpkgs, root, name):
+            holder = {"result": None}
+            ev = threading.Event()
+            self._col_bain.emit({"subpkgs": subpkgs, "root": root, "name": name,
+                                 "holder": holder, "event": ev})
+            ev.wait()
+            return holder["result"]
+
+        return _cb
+
+    def _on_col_bain_ui(self, payload):
+        from gui_qt.bain_picker_view import BainPickerView
+        holder, ev = payload["holder"], payload["event"]
+        done = {"v": False}
+
+        def _finish_ev(result):
+            if done["v"]:
+                return
+            done["v"] = True
+            holder["result"] = result
+            self._tabs.close_tab("col_bain_picker")
+            ev.set()
+
+        view = BainPickerView(payload["subpkgs"], payload["root"], payload["name"],
+                              on_done=lambda r: _finish_ev(r))
+        view.destroyed.connect(lambda *_: _finish_ev(None))
+        self._tabs.open_tab(view, f"Install: {payload['name']}",
+                            key="col_bain_picker")
+
+    # ---- pause / cancel --------------------------------------------------
+    def _on_col_pause_clicked(self):
+        ctl = self._col_install_control
+        if ctl is not None:
+            ctl.pause.set()
+            ctl.stop.set()
+
+    def _on_col_cancel_clicked(self):
+        from gui_qt.confirm_overlay import ConfirmOverlay
+
+        def _done(confirmed):
+            if not confirmed:
+                return
+            ctl = self._col_install_control
+            if ctl is not None:
+                ctl.cancel.set()
+                ctl.pause.set()
+                ctl.stop.set()
+            if self._col_install_overlay is not None:
+                self._col_install_overlay.set_status("Cancelling…")
+
+        ConfirmOverlay.show_over(
+            self, "Cancel install?",
+            "This will stop the install and delete the collection profile.",
+            _done, confirm_label="Cancel Install", cancel_label="Keep Going")
+
+    # ---- completion ------------------------------------------------------
+    def _on_col_finished(self, kind, payload):
+        """UI thread: handle the premium gate result AND the terminal states."""
+        if kind == "_premium":
+            if not payload.get("ok"):
+                self._col_install_running = False
+                self._notify("Automatic collection install requires Nexus Premium "
+                             "(manual install coming later).", "warning")
+                return
+            # Premium confirmed — ask the user how to install (New/Append/Continue)
+            # BEFORE creating any profile.
+            self._choose_collection_mode(payload)
+            return
+
+        # Terminal states.
+        self._col_install_running = False
+        self._col_install_control = None
+        ov = self._col_install_overlay
+
+        if kind == "cancelled":
+            import threading
+            pd = payload.get("profile_dir") if isinstance(payload, dict) else None
+            if ov is not None:
+                ov.set_status("Cancelling…")
+            game = self._gs.game
+
+            def _cleanup_worker():
+                from Utils.collection_install import cleanup_cancelled_install
+                from Utils.ui_config import load_clear_archive_after_install
+                try:
+                    cleanup_cancelled_install(
+                        game, Path(pd) if pd else None,
+                        clear_cache=bool(load_clear_archive_after_install()),
+                        log_fn=lambda m: self._op_log.emit(str(m)))
+                except Exception as exc:
+                    self._op_log.emit(f"[collection] cancel cleanup failed: {exc}")
+                self._col_finished.emit("_cancel_cleaned", None)
+
+            threading.Thread(target=_cleanup_worker, daemon=True,
+                             name="col-cancel-cleanup").start()
+            return
+
+        if kind == "_cancel_cleaned":
+            if ov is not None:
+                ov.dismiss()
+                self._col_install_overlay = None
+            # Switch back to the default profile + reload.
+            try:
+                profs = self._gs.profiles()
+                if profs:
+                    self._on_profile_changed(profs[0])
+            except Exception:
+                pass
+            self._notify("Collection install cancelled.", "info")
+            return
+
+        if kind == "paused":
+            installed, profile_name = payload
+            if ov is not None:
+                ov.finish(f"Paused — {installed} installed.")
+                QTimer.singleShot(1500, self._dismiss_col_overlay)
+            self._select_installed_collection_profile(profile_name)
+            self._notify(f"Install paused — {installed} mod(s) installed.", "info")
+            return
+
+        # done
+        installed, skipped_n, total, profile_name = payload
+        if ov is not None:
+            ov.finish(f"Done — {installed}/{total} installed.")
+            QTimer.singleShot(1500, self._dismiss_col_overlay)
+        self._select_installed_collection_profile(profile_name)
+        msg = f"Collection installed — {installed}/{total} mod(s)"
+        self._notify(msg + (f" ({skipped_n} skipped)" if skipped_n else ""), "success")
+
+    def _dismiss_col_overlay(self):
+        if self._col_install_overlay is not None:
+            self._col_install_overlay.dismiss()
+            self._col_install_overlay = None
+
+    def _select_installed_collection_profile(self, profile_name):
+        """Switch the profile selector to the freshly-installed collection profile
+        and reload the panels + Open-Current."""
+        try:
+            profs = self._gs.profiles()
+            self._profile_selector.set_items(profs, current=profile_name)
+            self._gs.set_profile(profile_name)
+            self._profile_selector.set_current(profile_name)
+        except Exception as exc:
+            self._append_log(f"[collection] profile switch failed: {exc}")
+        self._reload_modlist()
+        self._reload_plugins()
+        try:
+            self._update_deployed_profile_highlight()
+        except Exception:
+            pass
+        cv = getattr(self, "_collections_view", None)
+        if cv is not None:
+            cv.refresh_open_current()
 
     # ---- Collections ▸ Reset load order ----------------------------------
     def _reset_collection_load_order(self):

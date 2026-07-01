@@ -29,6 +29,13 @@ from typing import Callable, Optional
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[int, int, Optional[str]], None]
 
+# Sentinels returned by install_collection_archive when an interactive FOMOD/BAIN
+# has no author selections and must be deferred to the end of a collection install
+# (opened one-by-one in phase order). gui/install_mod.py imports these back so the
+# Tk and Qt installers agree on the sentinel value.
+FOMOD_DEFERRED = "__FOMOD_DEFERRED__"
+BAIN_DEFERRED = "__BAIN_DEFERRED__"
+
 
 # ---- case-insensitive copy core (moved from gui/install_mod.py, shared) ------
 # These resolve FOMOD/archive paths case-insensitively against the real (case-
@@ -790,6 +797,334 @@ def install_archive(archive_path: str, game, profile_dir: Path, *,
     if prepared is None:
         return None
     return finish_install(prepared, None, log_fn=log_fn, progress_fn=progress_fn)
+
+
+# ---------------------------------------------------------- collection installs
+def _collection_plugin_context(game, profile_dir: "Path | None"
+                               ) -> "tuple[set[str], set[str], set[str]]":
+    """Build the (installed_files, active_files, loose_files) sets a collection
+    FOMOD needs to evaluate its conditions — a tkinter-free port of the set-up
+    block in ``gui/install_mod.py`` (~1747-1794). Reads plugins.txt/loadorder.txt/
+    filemap.txt next to the profile, then seeds vanilla/DLC plugins (loaded
+    implicitly by the engine, so never in plugins.txt)."""
+    installed_files: set[str] = set()
+    active_files: set[str] = set()
+    loose_files: set[str] = set()
+    if profile_dir is not None:
+        try:
+            from Utils.plugins import read_plugins, read_loadorder
+            for entry in read_plugins(profile_dir / "plugins.txt"):
+                installed_files.add(entry.name.lower())
+                if entry.enabled:
+                    active_files.add(entry.name.lower())
+            for name in read_loadorder(profile_dir / "loadorder.txt"):
+                installed_files.add(name.lower())
+        except Exception:
+            pass
+        # <fileDependency> nodes can reference arbitrary asset paths; MO2 checks
+        # the whole virtual tree, so mirror the filemap's relative paths.
+        try:
+            with open(profile_dir / "filemap.txt", "r", encoding="utf-8") as fmf:
+                for line in fmf:
+                    rel = line.split("\t", 1)[0].strip()
+                    if rel:
+                        loose_files.add(rel.replace("\\", "/").lower())
+        except OSError:
+            pass
+    if game is not None:
+        try:
+            from gui.game_helpers import _vanilla_plugins_for_game
+            for vname_lower in _vanilla_plugins_for_game(game).keys():
+                installed_files.add(vname_lower)
+                active_files.add(vname_lower)
+        except Exception:
+            pass
+    return installed_files, active_files, loose_files
+
+
+def install_collection_archive(
+        archive_path: str, game, profile_dir: Path, *,
+        log_fn: LogFn, progress_fn: Optional[ProgressFn] = None,
+        preferred_name: str = "",
+        prebuilt_meta=None,
+        fomod_auto_selections: "dict | None" = None,
+        bain_auto_selections: "dict | None" = None,
+        overwrite_existing: "bool | None" = None,
+        skip_index_update: bool = True,
+        defer_interactive_fomod: bool = False,
+        defer_interactive_bain: bool = False,
+        resolve_fomod=None,
+        resolve_bain=None,
+        on_installed=None) -> "str | None":
+    """Install ONE collection mod from a downloaded archive — the tkinter-free
+    equivalent of ``gui/install_mod.py:install_mod_from_archive`` for the paths a
+    collection install exercises (FOMOD with author selections or deferred, BAIN,
+    dinput/root_folder, plain). Reuses the shared neutral staging/meta/modlist
+    helpers in this module.
+
+    Returns the installed folder name, or the ``FOMOD_DEFERRED`` / ``BAIN_DEFERRED``
+    sentinel when an interactive installer has no author selections and
+    ``defer_interactive_*`` is set (the orchestrator processes those at the end,
+    one-by-one, passing ``resolve_fomod`` / ``resolve_bain`` to show the wizard),
+    or ``None`` on failure / user-cancel.
+
+    resolve_fomod(config, fomod_base, mod_name, installed, active, loose) -> dict|None
+    resolve_bain(subpackages, mod_root, mod_name) -> {"selected":[...]}|None
+        (return None to cancel that mod). ``on_installed(is_fomod: bool)`` fires
+        after a successful stage so the orchestrator's archive-keep logic works.
+    """
+    archive = Path(archive_path)
+    if not archive.is_file():
+        log_fn(f"Collection install: archive not found: {archive_path}")
+        return None
+    staging_root = game.get_effective_mod_staging_path()
+    if staging_root is None:
+        log_fn("Collection install: no staging folder configured.")
+        return None
+    staging_root = Path(staging_root)
+
+    # Extract + FOMOD-detect via the shared prepare step (kept temp dir).
+    prepared = prepare_archive(
+        str(archive), game, profile_dir, log_fn=log_fn, progress_fn=progress_fn,
+        preferred_name=preferred_name, prebuilt_meta=prebuilt_meta)
+    if prepared is None:
+        return None
+
+    def _pp(done, total, phase=None):
+        if progress_fn is not None:
+            progress_fn(done, total, phase)
+
+    is_fomod_install = False
+    file_list: "list[tuple[str, str, bool]] | None" = None
+    stage_src_root = str(prepared.extract_dir)   # copier's src root
+    cancelled = False
+
+    try:
+        # ---- FOMOD --------------------------------------------------------
+        if prepared.is_fomod():
+            config = prepared.fomod_config
+            fomod_base = prepared.fomod_base
+            installed_files, active_files, loose_files = _collection_plugin_context(
+                game, profile_dir)
+            try:
+                from Utils.fomod_installer import (
+                    resolve_files, check_module_dependencies)
+                ok, msg = check_module_dependencies(
+                    config, installed_files, active_files, loose_files)
+                if not ok:
+                    log_fn("WARNING: this mod's <moduleDependencies> gate is not "
+                           "satisfied — it may not work until these are met:")
+                    for line in (msg or "").splitlines():
+                        log_fn(f"  {line}")
+            except Exception:
+                resolve_files = None  # type: ignore
+
+            if fomod_auto_selections is None and defer_interactive_fomod:
+                log_fn("FOMOD installer detected — deferring until dependencies "
+                       "are installed.")
+                prepared.cleanup()
+                return FOMOD_DEFERRED
+
+            if fomod_auto_selections is not None:
+                log_fn("FOMOD installer detected — applying collection author's "
+                       "choices automatically.")
+                final_selections = fomod_auto_selections
+            elif resolve_fomod is not None:
+                log_fn("FOMOD installer detected — opening wizard...")
+                final_selections = resolve_fomod(
+                    config, fomod_base, prepared.mod_name,
+                    installed_files, active_files, loose_files)
+                if final_selections is None:
+                    log_fn("FOMOD install cancelled.")
+                    cancelled = True
+            else:
+                # No auto-selections and no resolver → FOMOD defaults (parity with
+                # the non-interactive single-mod fallback).
+                log_fn("FOMOD installer detected — using default/recommended options.")
+                final_selections = None
+
+            if not cancelled:
+                _write_profile_fomod_selection(game, prepared.mod_name, final_selections)
+                try:
+                    if final_selections is None:
+                        file_list = _default_fomod_file_list(
+                            config, installed_files, active_files, loose_files, log_fn)
+                    else:
+                        file_list = resolve_files(
+                            config, final_selections, installed_files,
+                            active_files, loose_files)
+                    is_fomod_install = True
+                    log_fn(f"FOMOD complete — {len(file_list or [])} file(s) to install.")
+                except Exception as exc:
+                    log_fn(f"FOMOD resolve failed ({exc}) — installing verbatim.")
+                    file_list = None
+                    is_fomod_install = False
+
+        # ---- BAIN ---------------------------------------------------------
+        elif getattr(game, "supports_bain", True):
+            from Utils.bain_installer import (
+                detect_bain, resolve_bain_files, bain_unwrap_single_folder)
+            bain_root = bain_unwrap_single_folder(str(prepared.extract_dir))
+            bain_subpkgs = detect_bain(
+                bain_root, extra_exts=getattr(game, "plugin_extensions", None))
+            if bain_subpkgs:
+                stage_src_root = bain_root
+                default_names = [p.name for p in bain_subpkgs if p.default_selected]
+                log_fn(f"BAIN package detected — {len(bain_subpkgs)} sub-package(s).")
+                if bain_auto_selections is None and defer_interactive_bain:
+                    log_fn("BAIN installer detected — deferring until other mods "
+                           "are installed.")
+                    prepared.cleanup()
+                    return BAIN_DEFERRED
+                if bain_auto_selections is not None:
+                    selected = bain_auto_selections.get("selected", [])
+                    log_fn("BAIN: applying exported selection automatically.")
+                elif resolve_bain is not None:
+                    result = resolve_bain(bain_subpkgs, bain_root, prepared.mod_name)
+                    if result is None:
+                        log_fn("BAIN install cancelled.")
+                        cancelled = True
+                        selected = []
+                    else:
+                        selected = result.get("selected", [])
+                else:
+                    selected = default_names
+                    log_fn("BAIN: non-interactive install — using default selection.")
+                if not cancelled:
+                    _write_profile_bain_selection(
+                        game, prepared.mod_name, {"selected": selected})
+                    file_list = resolve_bain_files(bain_subpkgs, set(selected))
+                    log_fn(f"BAIN complete — {len(selected)} sub-package(s), "
+                           f"{len(file_list)} file(s) to install.")
+
+        if cancelled:
+            return None
+
+        # ---- stage --------------------------------------------------------
+        dest_root = staging_root / prepared.mod_name
+        _preserved_endorsed = False
+        if dest_root.exists():
+            # Collections pre-disambiguate folder names, so a collision means a
+            # genuine replace: silent when overwrite_existing is True/None.
+            try:
+                from Nexus.nexus_meta import read_meta
+                _preserved_endorsed = bool(read_meta(dest_root / "meta.ini").endorsed)
+            except Exception:
+                _preserved_endorsed = False
+            log_fn(f"Replacing existing mod folder: {prepared.mod_name}")
+            shutil.rmtree(dest_root, ignore_errors=True)
+
+        staging_root.mkdir(parents=True, exist_ok=True)
+        if file_list is not None:
+            # FOMOD / BAIN produced an explicit src→dst list.
+            dest_root.mkdir(parents=True, exist_ok=True)
+            _copy_file_list(file_list, stage_src_root, dest_root, log_fn)
+        else:
+            # Plain (non-FOMOD/BAIN) mod: normalise structure like the Tk direct
+            # path. dinput mods (prebuilt_meta.root_folder) install verbatim.
+            is_root = bool(getattr(prebuilt_meta, "root_folder", False))
+            staged = stage_file_list(
+                game, stage_src_root, is_root_install=is_root,
+                mod_name=prepared.mod_name, on_need_prefix=None, log_fn=log_fn)
+            if staged is None:
+                cancelled = True
+            else:
+                dest_root.mkdir(parents=True, exist_ok=True)
+                _copy_file_list(staged, stage_src_root, dest_root, log_fn)
+    finally:
+        prepared.cleanup()
+
+    if cancelled:
+        shutil.rmtree(dest_root, ignore_errors=True)
+        return None
+    if not dest_root.is_dir() or not any(dest_root.iterdir()):
+        log_fn(f"Collection install: nothing staged for '{prepared.mod_name}'.")
+        try:
+            dest_root.rmdir()
+        except OSError:
+            pass
+        return None
+
+    _write_install_meta(dest_root, archive, game, log_fn,
+                        prebuilt_meta=prebuilt_meta, endorsed=_preserved_endorsed)
+    if not skip_index_update:
+        _pp(0, 0, "Indexing")
+        _update_indexes(game, profile_dir, prepared.mod_name, dest_root, log_fn)
+    _add_to_modlist(profile_dir, prepared.mod_name, log_fn, preserve_position=False)
+    _add_plugins(game, profile_dir, dest_root, log_fn)
+    log_fn(f"Installed '{prepared.mod_name}'.")
+    _fire_on_installed(on_installed, is_fomod_install)
+    return prepared.mod_name
+
+
+def _fire_on_installed(cb, is_fomod: bool) -> None:
+    """Call *cb* as either ``cb(is_fomod)`` or ``cb()`` (parity with Tk's
+    ``_fire_on_installed``)."""
+    if cb is None:
+        return
+    try:
+        import inspect
+        params = inspect.signature(cb).parameters
+        if params:
+            cb(is_fomod)
+        else:
+            cb()
+    except (TypeError, ValueError):
+        try:
+            cb()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _default_fomod_file_list(config, installed_files, active_files, loose_files,
+                             log_fn: LogFn) -> "list[tuple[str, str, bool]]":
+    """Resolve a FOMOD's file list using its default/recommended selections
+    (threading flag state through steps), passing the collection context sets."""
+    from Utils.fomod_installer import (
+        resolve_files, get_default_selections, update_flags)
+    selections: dict = {}
+    flag_state: dict = {}
+    for i, step in enumerate(getattr(config, "steps", []) or []):
+        sels = get_default_selections(step, flag_state, installed_files)
+        selections[str(i)] = sels
+        flag_state = update_flags(step, sels, flag_state)
+    return resolve_files(config, selections, installed_files, active_files, loose_files)
+
+
+def _write_profile_fomod_selection(game, mod_name: str, selections) -> None:
+    """Mirror FOMOD selections into ``<profile>/fomod/<mod>.json`` (Tk parity —
+    profile-scoped, never the global config, so collection choices don't clobber
+    the user's manual selections). No-op when selections is None (defaults)."""
+    if selections is None:
+        return
+    pdir = getattr(game, "_active_profile_dir", None)
+    if not pdir:
+        return
+    try:
+        import json
+        pfomod = Path(pdir) / "fomod"
+        pfomod.mkdir(parents=True, exist_ok=True)
+        with open(pfomod / f"{mod_name}.json", "w", encoding="utf-8") as f:
+            json.dump(selections, f, indent=2)
+    except OSError:
+        pass
+
+
+def _write_profile_bain_selection(game, mod_name: str, result) -> None:
+    """Mirror BAIN selection into ``<profile>/bain/<mod>.json`` (Tk parity)."""
+    pdir = getattr(game, "_active_profile_dir", None)
+    if not pdir:
+        return
+    try:
+        import json
+        pbain = Path(pdir) / "bain"
+        pbain.mkdir(parents=True, exist_ok=True)
+        with open(pbain / f"{mod_name}.json", "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- helpers

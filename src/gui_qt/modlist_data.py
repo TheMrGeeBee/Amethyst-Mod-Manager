@@ -20,6 +20,8 @@ FLAG_ENDORSED = 1 << 1
 FLAG_ROOT = 1 << 2
 FLAG_MODIFIED_MF = 1 << 3  # modified in the Mod Files tab (excluded files/strip)
 FLAG_MISSING_REQS = 1 << 4  # meta.missing_requirements has un-ignored entries
+FLAG_COLLECTION_BUNDLED = 1 << 5  # meta.from_collection_bundled (bundled by a collection)
+FLAG_COLLECTION_PATCHED = 1 << 6  # meta.from_collection_patched (diff-patched by a collection)
 
 
 def _parse_missing_req_names(raw: str) -> list[str]:
@@ -109,6 +111,11 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
             if unignored:
                 bits |= FLAG_MISSING_REQS
                 missing_reqs.add(e.name)
+        # Collection-install provenance (stamped in meta.ini at install time).
+        if getattr(meta, "from_collection_bundled", False):
+            bits |= FLAG_COLLECTION_BUNDLED
+        if getattr(meta, "from_collection_patched", False):
+            bits |= FLAG_COLLECTION_PATCHED
         if bits:
             flags[e.name] = bits
 
