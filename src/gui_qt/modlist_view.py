@@ -89,6 +89,16 @@ class ModListView(QTreeView):
         self._filter_hidden: set[int] = set()
         self._search_hidden: set[int] = set()
         self._searching: bool = False
+        # Last hidden-row set actually applied via setRowHidden — lets
+        # apply_collapse touch only the delta. Row indices go stale on any
+        # structural change, so drop the cache there.
+        self._applied_hidden: set[int] | None = None
+
+        def _drop_applied(*_a):
+            self._applied_hidden = None
+        for sig in (model.modelReset, model.rowsInserted, model.rowsRemoved,
+                    model.rowsMoved, model.layoutChanged):
+            sig.connect(_drop_applied)
         self.doubleClicked.connect(self._on_double_click)
 
         self._restoring = True
@@ -254,14 +264,26 @@ class ModListView(QTreeView):
         srch = self._search_hidden
         if self._searching:
             # Search drives visibility; collapse is ignored so matches surface.
-            for r in range(self.model().rowCount()):
-                self.setRowHidden(r, self.rootIndex(),
-                                  r in srch or r in flt)
-            return
-        hidden = self.model().hidden_rows()
-        for r in range(self.model().rowCount()):
-            self.setRowHidden(r, self.rootIndex(),
-                              r in hidden or r in flt)
+            hidden = srch | flt
+        else:
+            hidden = self.model().hidden_rows() | flt
+        # Only touch rows whose visibility actually changes — setRowHidden is
+        # per-row layout work, and this runs per search keystroke.
+        prev = getattr(self, "_applied_hidden", None)
+        root = self.rootIndex()
+        self.setUpdatesEnabled(False)
+        try:
+            if prev is None:
+                for r in range(self.model().rowCount()):
+                    self.setRowHidden(r, root, r in hidden)
+            else:
+                for r in prev - hidden:
+                    self.setRowHidden(r, root, False)
+                for r in hidden - prev:
+                    self.setRowHidden(r, root, True)
+        finally:
+            self.setUpdatesEnabled(True)
+        self._applied_hidden = hidden
 
     def set_filter_hidden(self, rows: set[int]) -> None:
         """Set the rows the filter panel wants hidden, then reapply visibility.

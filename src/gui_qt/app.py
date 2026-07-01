@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
     _nexus_validated = Signal(object)          # (username str | None)
     # LOOT Sort Plugins worker → UI thread (SortResult | None on error).
     _sort_plugins_ready = Signal(object)
+    # Filter-data disk scan worker → UI thread (gen, payload dict | None).
+    _filter_data_ready = Signal(int, object)
     # Nexus OAuth client (background thread) → UI thread.
     # (kind, payload): kind in {"token","error","status"}.
     _oauth_event = Signal(str, object)
@@ -117,6 +119,8 @@ class MainWindow(QMainWindow):
         self._dll_overrides_view = None
         self._sort_running = False
         self._sort_plugins_ready.connect(self._on_sort_plugins_ready)
+        self._filter_data_gen = 0
+        self._filter_data_ready.connect(self._on_filter_data_ready)
         self.setWindowTitle("Amethyst Mod Manager")
         self.setMinimumSize(1280, 800)   # Steam Deck is the floor
         self.resize(1280, 800)
@@ -1054,6 +1058,7 @@ class MainWindow(QMainWindow):
             self._profile_selector.set_items(profs, current=self._gs.profile)
         self._game_selector.set_current(name)
         self._play_game_selector.set_current(name)
+        self._clear_search_boxes()
         self._reload_modlist()
         self._reload_plugins()
         self._update_deployed_profile_highlight()
@@ -1089,11 +1094,22 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._append_log(f"[nexus] retarget failed: {exc}")
 
+    def _clear_search_boxes(self):
+        """Reset both search boxes on a game/profile switch (Tk parity — a
+        stale query silently filters the freshly-loaded lists)."""
+        for attr, text_attr in (("_modlist_search", "_modlist_search_text"),
+                                ("_plugins_search", "_plugin_search_text")):
+            box = getattr(self, attr, None)
+            if box is not None and box.text():
+                box.clear()   # textChanged → debounced apply sees empty
+            setattr(self, text_attr, "")
+
     def _on_profile_changed(self, name):
         if name == self._gs.profile:
             return
         self._gs.set_profile(name)
         self._profile_selector.set_current(name)
+        self._clear_search_boxes()
         self._reload_modlist()
         self._reload_plugins()
         self._update_deployed_profile_highlight()
@@ -2686,7 +2702,8 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     self._op_log.emit(f"Nexus: {'endorse' if endorse else 'abstain'} "
                                       f"failed for '{nm}': {exc}")
-            self._endorse_done.emit({"ok": ok, "endorse": endorse})
+            self._endorse_done.emit({"ok": ok, "endorse": endorse,
+                                     "names": list(names)})
 
         threading.Thread(target=_worker, daemon=True, name="endorse").start()
 
@@ -2696,7 +2713,7 @@ class MainWindow(QMainWindow):
         verb = "Endorsed" if payload.get("endorse") else "Abstained from"
         if ok:
             self._notify(f"{verb} {ok} mod(s).", "success")
-            self._refresh_modlist_flags()
+            self._refresh_modlist_flags(payload.get("names"))
         else:
             self._notify("No mods were updated (already in that state or no "
                          "Nexus id).", "info")
@@ -2782,6 +2799,12 @@ class MainWindow(QMainWindow):
         import threading
         from pathlib import Path
         from Utils import mod_copy
+        # Serialize: a second copy/move while one runs would write the same
+        # target folders concurrently (install has the same guard).
+        if getattr(self, "_copy_running", False):
+            self._notify("A copy/move is already in progress.", "info")
+            return
+        self._copy_running = True
         self._notify(f"{'Moving' if move else 'Copying'} {len(plan)} mod(s) to "
                      f"'{target_profile}'…", "info")
 
@@ -2825,6 +2848,7 @@ class MainWindow(QMainWindow):
         mods' rows from this profile's modlist (remove_mods left modlist.txt to
         us — mirrors Tk _finish_copy_popup calling _remove_selected_mods), which
         persists modlist.txt via the model, then reload."""
+        self._copy_running = False
         c = payload.get("copied", 0)
         verb = "Moved" if payload.get("move") else "Copied"
         self._notify(f"{verb} {c}/{payload.get('total', 0)} mod(s) to "
@@ -3874,6 +3898,14 @@ class MainWindow(QMainWindow):
                                 normalize_folder_case=load_normalize_folder_case())
         except Exception:
             pass
+        # Re-key the name-keyed per-mod state (strip prefixes, disabled plugins,
+        # excluded files, notes) — Tk parity: _migrate_mod_name_state.
+        try:
+            from Utils.mod_rename import migrate_mod_state
+            migrate_mod_state(self._gs.profile_dir(), old_name, new_name,
+                              log_fn=self._append_log)
+        except Exception as exc:
+            print(f"[gui_qt] rename state migration failed: {exc}", flush=True)
         # Update the modlist entry by name, persist, and reload everything.
         m = self._modlist_model
         for r in range(m.rowCount()):
@@ -3917,8 +3949,26 @@ class MainWindow(QMainWindow):
 
     def _build_modlist(self) -> QWidget:
         self._modlist_model = ModListModel([])
+        self._modlist_model.enabled_changed.connect(self._on_mods_enabled_changed)
+        self._modlist_model.save_failed.connect(
+            lambda msg: self._notify(msg, "error"))
         self._modlist_view = ModListView(self._modlist_model)
         return self._modlist_view
+
+    def _on_mods_enabled_changed(self, changes):
+        """Mods were toggled (checkbox / Enable-Disable all / context menu) —
+        mirror the change into plugins.txt + loadorder.txt (Tk parity:
+        _sync_plugins_for_toggle) and refresh the Plugins tab."""
+        from Utils.plugin_sync import sync_plugins_for_mods
+        try:
+            wrote = sync_plugins_for_mods(
+                self._gs.game, self._gs.profile_dir(), self._gs.staging_dir(),
+                list(changes or []), log_fn=self._append_log)
+        except Exception as exc:
+            print(f"[gui_qt] plugin sync failed: {exc}", flush=True)
+            return
+        if wrote:
+            self._reload_plugins()
 
     def _build_modlist_area(self) -> QWidget:
         """Modlist column: the list + its tool footer (buttons + search) stacked
@@ -4369,19 +4419,53 @@ class MainWindow(QMainWindow):
         btn.style().polish(btn)
 
     def _rebuild_filter_data(self):
-        """(Re)build FilterData from the current conflicts/meta/indexes and
-        repopulate the filter panel's dynamic category/filetype lists, then
-        reapply active filters. Cheap — reads the persisted indexes."""
+        """(Re)build FilterData: the disk-derived parts (modindex read + BSA /
+        plugin folder walks) run on a worker; _on_filter_data_ready assembles
+        the FilterData and updates the panel on the UI thread. Runs after every
+        conflict rebuild, so the scans must not block the UI."""
         panel = getattr(self, "_modlist_filter_panel", None)
         if panel is None:
             return
-        from gui_qt.modlist_filter import (
-            FilterData, build_index_data, build_mods_with_bsa,
-            build_mods_with_plugins,
-        )
-        cd = getattr(self, "_conflict_data", None)
+        import threading
         staging = self._gs.staging_dir()
         staging_parent = staging.parent if staging is not None else None
+        plugin_exts = getattr(self._gs.game, "plugin_extensions", None)
+        self._filter_data_gen += 1
+        gen = self._filter_data_gen
+
+        def worker():
+            payload = None
+            if staging_parent is not None:
+                from gui_qt.modlist_filter import (
+                    build_index_data, build_mods_with_bsa, build_mods_with_plugins,
+                )
+                try:
+                    counts, mod_ft, pbr = build_index_data(staging_parent)
+                    payload = {
+                        "filetype_counts": counts,
+                        "mod_filetypes": mod_ft,
+                        "mods_with_pbr": pbr,
+                        "mods_with_bsa": build_mods_with_bsa(staging_parent),
+                        "mods_with_plugins": build_mods_with_plugins(
+                            staging_parent, plugin_exts),
+                    }
+                except Exception as exc:
+                    print(f"[gui_qt] filter data scan failed: {exc}", flush=True)
+            self._filter_data_ready.emit(gen, payload)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="filter-data").start()
+
+    def _on_filter_data_ready(self, gen: int, payload):
+        """UI thread: merge the worker's disk-derived sets with the in-memory
+        meta/conflict state into FilterData, repopulate the panel, reapply."""
+        if gen != self._filter_data_gen:
+            return   # superseded by a newer rebuild
+        panel = getattr(self, "_modlist_filter_panel", None)
+        if panel is None:
+            return
+        from gui_qt.modlist_filter import FilterData
+        cd = getattr(self, "_conflict_data", None)
 
         data = FilterData()
         if cd is not None:
@@ -4396,15 +4480,12 @@ class MainWindow(QMainWindow):
         data.modified_mf_mods = self._build_modified_mf_mods()
         # Overlay the "modified in Mod Files" eye flag in the modlist Flags column.
         self._modlist_model.set_modified_mf(data.modified_mf_mods)
-        if staging_parent is not None:
-            counts, mod_ft, pbr = build_index_data(staging_parent)
-            data.filetype_counts = counts
-            data.mod_filetypes = mod_ft
-            data.mods_with_pbr = pbr
-            data.mods_with_bsa = build_mods_with_bsa(staging_parent)
-            g = self._gs.game
-            data.mods_with_plugins = build_mods_with_plugins(
-                staging_parent, getattr(g, "plugin_extensions", None))
+        if payload:
+            data.filetype_counts = payload["filetype_counts"]
+            data.mod_filetypes = payload["mod_filetypes"]
+            data.mods_with_pbr = payload["mods_with_pbr"]
+            data.mods_with_bsa = payload["mods_with_bsa"]
+            data.mods_with_plugins = payload["mods_with_plugins"]
         self._modlist_filter_data = data
 
         # Repopulate dynamic lists.
@@ -4537,7 +4618,7 @@ class MainWindow(QMainWindow):
         # vs verbatim paths, so it's now stale; the rebuild also refreshes the
         # filemap-derived root-rule/pre-RTX overlays).
         self._modlist_view.on_root_folder_changed = \
-            lambda names: (self._refresh_modlist_flags(),
+            lambda names: (self._refresh_modlist_flags(names),
                            self._rebuild_conflicts_async(rescan_index=True))
         # Endorse/Abstain: needs the shared Nexus API + a flag refresh.
         self._modlist_view.on_endorse = self._on_modlist_endorse
@@ -4545,6 +4626,8 @@ class MainWindow(QMainWindow):
         self._modlist_view.on_notes_changed = self._refresh_modlist_flags
         # Copy/Move to profile: worker copy + collision overlay + (move) remove.
         self._modlist_view.on_copy_to_profile = self._copy_mods_to_profile
+        # Rename (context menu): folder + modindex + per-mod state migration.
+        self._modlist_view.on_rename_mod = self._rename_mod_on_disk
         # Enabling the Size column scans mod folder sizes on demand (Tk parity:
         # only walk the disk when Size is actually shown).
         self._modlist_view.on_sizes_requested = self._apply_modlist_sizes
@@ -4623,27 +4706,47 @@ class MainWindow(QMainWindow):
         disabled = sum(1 for e in entries if not e.is_separator and not e.enabled)
         bar.set_stats([("Enabled", enabled), ("Disabled", disabled)])
 
-    def _refresh_modlist_flags(self):
+    def _refresh_modlist_flags(self, names=None):
         """Re-read the meta/profile-derived flags and push them into the model
         WITHOUT the full modlist reset (keeps selection + scroll). Call after any
-        action that changes a flag (endorse, root toggle, note edit). The
-        filemap-derived overlays (pre-RTX / root-rule) refresh via the
+        action that changes a flag (endorse, root toggle, note edit). When
+        *names* is given, only those mods' metas are re-read and merged into the
+        existing state (endorsing one mod shouldn't re-read 500 meta files).
+        The filemap-derived overlays (pre-RTX / root-rule) refresh via the
         conflict-ready path instead."""
         from gui_qt.modlist_data import read_meta_for_entries
         staging = self._gs.staging_dir()
         if staging is None:
             return
-        entries = [self._modlist_model.entry(r)
-                   for r in range(self._modlist_model.rowCount())]
+        subset = set(names) if names else None
+        entries = [e for r in range(self._modlist_model.rowCount())
+                   if (e := self._modlist_model.entry(r)) is not None
+                   and (subset is None or e.name in subset)]
         try:
-            (_v, _i, flags, self._mod_categories, self._mod_updates,
-             self._mod_fomod, self._mod_bain,
-             self._mod_missing_reqs) = read_meta_for_entries(
+            (_v, _i, flags, categories, updates, fomod, bain,
+             missing_reqs) = read_meta_for_entries(
                 entries, staging, self._ignored_missing_reqs,
                 profile_dir=self._gs.profile_dir(),
                 is_bg3=(getattr(self._gs.game, "game_id", "") == "baldurs_gate_3"))
         except Exception:
             return
+        if subset is None:
+            (self._mod_categories, self._mod_updates, self._mod_fomod,
+             self._mod_bain, self._mod_missing_reqs) = (
+                categories, updates, fomod, bain, missing_reqs)
+        else:
+            # Merge: clear the requested names first (a cleared flag won't
+            # appear in the subset result), then overlay the fresh values.
+            flags = {**{n: b for n, b in self._modlist_model._flags.items()
+                        if n not in subset}, **flags}
+            self._mod_categories = {**{n: c for n, c in self._mod_categories.items()
+                                       if n not in subset}, **categories}
+            for cur, fresh in ((self._mod_updates, updates),
+                               (self._mod_fomod, fomod),
+                               (self._mod_bain, bain),
+                               (self._mod_missing_reqs, missing_reqs)):
+                cur -= subset
+                cur |= fresh
         self._modlist_model.set_flags(flags)
         self._modlist_model.set_notes(self._read_mod_notes())
 
@@ -4677,6 +4780,10 @@ class MainWindow(QMainWindow):
         self._plugin_model.set_rows(rows, game=self._gs.game,
                                     profile=self._gs.profile,
                                     profile_dir=self._gs.profile_dir())
+        # Context menu reads these off the view (ESL path resolution + refresh).
+        self._plugin_view.game = self._gs.game
+        self._plugin_view.profile_dir = self._gs.profile_dir()
+        self._plugin_view.on_plugins_changed = self._reload_plugins
         self._apply_plugin_search()
         # Row indices/flags changed — re-apply any active plugin filter.
         if getattr(self, "_plugin_filter_panel", None) is not None:
@@ -4972,6 +5079,8 @@ class MainWindow(QMainWindow):
         # reuses the same rebuild path as mod toggles. _build_bsa_conflicts
         # re-reads the freshly-written loadorder.txt.
         self._plugin_model.order_changed.connect(self._rebuild_conflicts_async)
+        self._plugin_model.save_failed.connect(
+            lambda msg: self._notify(msg, "error"))
         self._plugin_view = PluginView(self._plugin_model)
         from gui_qt.framework_banner import FrameworkBanner
         self._framework_banner = FrameworkBanner()

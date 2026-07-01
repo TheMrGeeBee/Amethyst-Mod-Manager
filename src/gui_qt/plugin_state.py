@@ -139,6 +139,26 @@ def _resolve_plugin_paths(staging_dir: Path | None, data_dir: Path | None,
     return paths
 
 
+def resolve_plugin_paths_for_game(game, data_dir: Path | None = None
+                                  ) -> dict[str, Path]:
+    """Map each plugin filename (lowercase) → its REAL on-disk path (staging mod
+    / overwrite / vanilla Data), using the same resolver load_plugins uses. Used
+    by the Flags column and the plugins context menu (ESL toggle needs the path
+    of the file to edit). Returns {} on any failure."""
+    if data_dir is None:
+        data_dir = (game.get_vanilla_plugins_path()
+                    if hasattr(game, "get_vanilla_plugins_path") else None)
+    try:
+        staging = (game.get_effective_mod_staging_path()
+                   if hasattr(game, "get_effective_mod_staging_path") else None)
+        filemap_path = (staging.parent / "filemap.txt") if staging else None
+        exts = tuple(x.lower() for x in (getattr(game, "plugin_extensions", []) or ())) \
+            or (".esp", ".esm", ".esl")
+        return _resolve_plugin_paths(staging, data_dir, filemap_path, exts)
+    except Exception:
+        return {}
+
+
 def load_plugins(game, profile: str) -> list[PluginRow]:
     """Return the ordered plugin rows for *game*/*profile*, or [] if none."""
     p = plugins_path(game, profile)
@@ -187,16 +207,7 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
                 if hasattr(game, "get_vanilla_plugins_path") else None)
     # Resolve each plugin's REAL path (staging mod / overwrite / Data) so header
     # flags (ESL, master, missing-master) work for mod plugins, not just vanilla.
-    resolved: dict[str, Path] = {}
-    try:
-        staging = (game.get_effective_mod_staging_path()
-                   if hasattr(game, "get_effective_mod_staging_path") else None)
-        filemap_path = (staging.parent / "filemap.txt") if staging else None
-        exts = tuple(x.lower() for x in (getattr(game, "plugin_extensions", []) or ())) \
-            or (".esp", ".esm", ".esl")
-        resolved = _resolve_plugin_paths(staging, data_dir, filemap_path, exts)
-    except Exception:
-        resolved = {}
+    resolved = resolve_plugin_paths_for_game(game, data_dir)
     rows = [_to_row(e, vanilla, resolved, data_dir) for e in ordered]
     _apply_master_checks(rows, resolved, data_dir)
     _apply_loot_flags(rows, p.parent)

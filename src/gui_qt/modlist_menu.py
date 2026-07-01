@@ -31,6 +31,9 @@ def build_context_menu(view, index):
         return None
     row = index.row()
     entry = model.entry(row)
+    # Fresh meta.ini memo per build — the gate helpers re-read the same metas
+    # many times per selected mod (see _read_mod_meta).
+    view._menu_meta_cache = {}
 
     # Selected rows (mods + separators tracked separately for the bulk actions).
     sel_rows = sorted({i.row() for i in view.selectionModel().selectedRows()
@@ -280,10 +283,9 @@ def _boundary_names():
 # ---- action implementations (model-level; backend ops come later) ---------
 
 def _set_enabled(view, model, rows, state):
-    for r in rows:
-        e = model.entry(r)
-        if not e.is_separator and not e.locked and e.enabled != state:
-            model.toggle(r)
+    # One save + one enabled_changed for the whole selection (toggle() per row
+    # would write modlist.txt and re-sync plugins N times).
+    model.set_rows_enabled(rows, state)
 
 
 def _open_folder(view, model, row):
@@ -529,35 +531,38 @@ def _copy_to_profile(view, names, enabled_map, target_profile, move):
 
 
 def _read_mod_meta(view, name):
-    """Read a mod's meta.ini (or None). Central so the menu helpers agree."""
+    """Read a mod's meta.ini (or None). Central so the menu helpers agree.
+    Memoised per menu build (the gate helpers each want the same meta 5-7
+    times per selected mod; build_context_menu resets the memo)."""
+    cache = getattr(view, "_menu_meta_cache", None)
+    if cache is not None and name in cache:
+        return cache[name]
+    meta = None
     staging = getattr(view, "staging_dir", None)
-    if staging is None:
-        return None
-    meta_path = staging / name / "meta.ini"
-    if not meta_path.is_file():
-        return None
-    try:
-        from Nexus.nexus_meta import read_meta
-        return read_meta(meta_path)
-    except Exception:
-        return None
+    if staging is not None:
+        meta_path = staging / name / "meta.ini"
+        if meta_path.is_file():
+            try:
+                from Nexus.nexus_meta import read_meta
+                meta = read_meta(meta_path)
+            except Exception:
+                meta = None
+    if cache is not None:
+        cache[name] = meta
+    return meta
 
 
 def _has_bundle_spec(view, name: str) -> bool:
-    """True if the mod's meta.ini carries an RE/Fluffy bundle spec (Tk
-    `_bundle_spec_path`). Same source the FLAG_BUNDLE flag uses; gates the
-    (still-unwired) Bundle options… menu item."""
-    staging = getattr(view, "staging_dir", None)
-    if staging is None:
-        return False
-    meta_path = staging / name / "meta.ini"
-    if not meta_path.is_file():
-        return False
+    """True if the mod carries an RE/Fluffy bundle spec (Tk `_bundle_spec_path`).
+    Read off the model's FLAG_BUNDLE bit (computed by read_meta_for_entries from
+    the same meta.ini) instead of re-parsing the spec on every right-click."""
     try:
-        from Utils.re_bundle import read_bundle_spec
-        return read_bundle_spec(meta_path) is not None
+        model = view.model()
     except Exception:
         return False
+    from gui_qt.modlist_data import FLAG_BUNDLE
+    bits = model._flags.get(name, 0) if hasattr(model, "_flags") else 0
+    return bool(bits & FLAG_BUNDLE)
 
 
 def _installation_archive(view, name: str):
@@ -693,7 +698,7 @@ def _open_note_editor(view, names):
             pass
         cb = getattr(view, "on_notes_changed", None)
         if cb is not None:
-            cb()
+            cb(list(names))
 
     def _remove():
         cur = dict(notes)
@@ -705,7 +710,7 @@ def _open_note_editor(view, names):
             pass
         cb = getattr(view, "on_notes_changed", None)
         if cb is not None:
-            cb()
+            cb(list(names))
 
     from gui_qt.note_editor_overlay import NoteEditorOverlay
     NoteEditorOverlay.show_over(view, title, initial, _save, _remove,
@@ -730,7 +735,7 @@ def _remove_notes(view, names):
             pass
         cb = getattr(view, "on_notes_changed", None)
         if cb is not None:
-            cb()
+            cb(list(names))
 
 
 def _open_on_nexus_multi(view, names):
@@ -792,8 +797,11 @@ def _create_empty_mod(view, model, row):
     if not name:
         return
     # Name-collision guard (mods + separators, by display name).
-    existing = {model.entry(r).name for r in range(model.rowCount())}
-    existing |= {model.entry(r).display_name for r in range(model.rowCount())}
+    existing = set()
+    for r in range(model.rowCount()):
+        e = model.entry(r)
+        existing.add(e.name)
+        existing.add(e.display_name)
     if name in existing:
         QMessageBox.warning(view, "Name conflict",
                             f"A mod or separator named '{name}' already exists.")
@@ -842,8 +850,18 @@ def _rename(view, model, row):
     e = model.entry(row)
     new, ok = QInputDialog.getText(view, "Rename", "New name:",
                                    text=e.display_name)
-    if ok and new.strip():
+    if not ok or not new.strip() or new.strip() == e.display_name:
+        return
+    if e.is_separator:
+        # No folder on disk — a pure modlist.txt edit is the whole rename.
         model.rename(row, new.strip())
+        return
+    # Mods must go through the window: staging folder rename + modindex +
+    # per-mod state migration (strip prefixes / disabled plugins / excluded
+    # files / notes), not just the modlist.txt line.
+    cb = getattr(view, "on_rename_mod", None)
+    if callable(cb):
+        cb(e.name, new.strip())
 
 
 def _set_priority(view, model, row):

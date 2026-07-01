@@ -26,6 +26,8 @@ class PluginModel(QAbstractTableModel):
     # toggle). BSA load order follows plugin load order, so the window listens
     # to this to recompute BSA conflicts. See _save().
     order_changed = Signal()
+    # plugins.txt write failed — the window surfaces a toast.
+    save_failed = Signal(str)
 
     def __init__(self, rows: list[PluginRow] | None = None):
         super().__init__()
@@ -123,6 +125,21 @@ class PluginModel(QAbstractTableModel):
         self.dataChanged.emit(idx, idx, [RowRole, Qt.DisplayRole])
         self._save()
 
+    def set_enabled(self, indices, enabled: bool):
+        """Enable/disable the given rows (skips vanilla — always-on), persist +
+        repaint. Mirrors toggle() for the context menu's Enable/Disable items."""
+        changed = [i for i in indices
+                   if 0 <= i < len(self._rows) and not self._rows[i].vanilla]
+        if not changed:
+            return
+        for i in changed:
+            self._rows[i].enabled = enabled
+        lo, hi = min(changed), max(changed)
+        self.dataChanged.emit(self.index(lo, COL_NAME),
+                              self.index(hi, COL_NAME),
+                              [RowRole, Qt.DisplayRole])
+        self._save()
+
     def is_movable(self, i: int) -> bool:
         """A row may be dragged unless it's vanilla (pinned) or user-locked."""
         if not (0 <= i < len(self._rows)):
@@ -170,6 +187,7 @@ class PluginModel(QAbstractTableModel):
                 save_plugins(self._game, self._profile, self._rows)
             except Exception as exc:
                 print(f"[gui_qt] plugins.txt save failed: {exc}", flush=True)
+                self.save_failed.emit(f"Plugins save failed: {exc}")
                 return
             # loadorder.txt / plugins.txt are now on disk — let the window
             # recompute BSA conflicts (BSA winners follow plugin load order).

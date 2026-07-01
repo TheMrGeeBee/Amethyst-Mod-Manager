@@ -10,7 +10,7 @@ number (highest-priority row = largest value).
 from __future__ import annotations
 
 from PySide6.QtCore import (
-    Qt, QAbstractTableModel, QModelIndex, QMimeData, QByteArray,
+    Qt, QAbstractTableModel, QModelIndex, QMimeData, QByteArray, Signal,
 )
 
 from Utils.modlist import ModEntry, read_modlist
@@ -46,6 +46,14 @@ _MIME = "application/x-amethyst-modrows"
 
 
 class ModListModel(QAbstractTableModel):
+    # Mods were enabled/disabled and modlist.txt saved. Payload is
+    # list[(mod_name, now_enabled)] — the window syncs plugins.txt to it
+    # (Tk parity: _sync_plugins_for_toggle).
+    enabled_changed = Signal(object)
+    # modlist.txt write failed — the window surfaces a toast (console print
+    # alone loses the user's reorder/toggle silently).
+    save_failed = Signal(str)
+
     def __init__(self, entries: list[ModEntry] | None = None,
                  versions: dict[str, str] | None = None,
                  installed: dict[str, str] | None = None,
@@ -88,6 +96,9 @@ class ModListModel(QAbstractTableModel):
         # dragged. Set via set_separator_state(); persistence lives in the view.
         self._collapsed: set[str] = set()
         self._sep_locks: dict[str, bool] = {}
+        # Per-row memo for _separator_highlight (block walk is O(block size)
+        # and data() asks per paint). Cleared on highlight/collapse/entry edits.
+        self._sep_hl_cache: dict[int, int] = {}
 
     # ---- loading ----------------------------------------------------------
     @classmethod
@@ -106,6 +117,7 @@ class ModListModel(QAbstractTableModel):
     def set_entries(self, entries: list[ModEntry]) -> None:
         self.beginResetModel()
         self._entries = self._with_boundaries(entries)
+        self._sep_hl_cache.clear()
         self.endResetModel()
 
     def set_sizes(self, sizes: dict[str, str]) -> None:
@@ -168,7 +180,17 @@ class ModListModel(QAbstractTableModel):
     def _separator_highlight(self, row: int, e) -> int:
         """A separator is tinted ONLY when collapsed AND one of its child mods is
         a highlight partner (Tk parity — an expanded block tints the child mod
-        directly instead). anchor(2) > higher(1) > lower(-1)."""
+        directly instead). anchor(2) > higher(1) > lower(-1).
+        Cached per row — data() asks for this on every paint, and the block walk
+        is O(block size). Invalidated on highlight/collapse/entry changes."""
+        cached = self._sep_hl_cache.get(row)
+        if cached is not None:
+            return cached
+        code = self._separator_highlight_compute(row, e)
+        self._sep_hl_cache[row] = code
+        return code
+
+    def _separator_highlight_compute(self, row: int, e) -> int:
         # [Overwrite] is a boundary separator but DOES light up (green) when it
         # wins over the selection — same as Tk. Root Folder never highlights.
         if e.name == OVERWRITE_NAME:
@@ -205,6 +227,7 @@ class ModListModel(QAbstractTableModel):
         self._hl_higher = set(higher or ())
         self._hl_lower = set(lower or ())
         self._hl_anchor = set(anchor or ())
+        self._sep_hl_cache.clear()
         if self._entries:
             self.dataChanged.emit(self.index(0, 0),
                                   self.index(len(self._entries) - 1, COL_PRIORITY),
@@ -336,6 +359,23 @@ class ModListModel(QAbstractTableModel):
         idx = self.index(row, COL_NAME)
         self.dataChanged.emit(idx, idx, [EntryRole, Qt.DisplayRole])
         self.save()
+        self.enabled_changed.emit([(e.name, e.enabled)])
+
+    def set_rows_enabled(self, rows, enabled: bool) -> None:
+        """Enable/disable the mods at *rows* (skips separators + locked), then
+        save + emit enabled_changed ONCE for the whole batch."""
+        changed: list[tuple[str, bool]] = []
+        for r in rows:
+            e = self._entries[r]
+            if e.is_separator or e.locked or e.enabled == enabled:
+                continue
+            e.enabled = enabled
+            changed.append((e.name, enabled))
+            idx = self.index(r, COL_NAME)
+            self.dataChanged.emit(idx, idx, [EntryRole, Qt.DisplayRole])
+        if changed:
+            self.save()
+            self.enabled_changed.emit(changed)
 
     def entry(self, row: int) -> ModEntry:
         return self._entries[row]
@@ -344,6 +384,7 @@ class ModListModel(QAbstractTableModel):
     def set_separator_state(self, collapsed: set[str], locks: dict[str, bool]):
         self._collapsed = set(collapsed or set())
         self._sep_locks = dict(locks or {})
+        self._sep_hl_cache.clear()
 
     def is_collapsed(self, sep_name: str) -> bool:
         return sep_name in self._collapsed
@@ -360,6 +401,7 @@ class ModListModel(QAbstractTableModel):
             self._collapsed.discard(name)
         else:
             self._collapsed.add(name)
+        self._sep_hl_cache.clear()
         return self._collapsed
 
     def toggle_sep_lock(self, row: int) -> dict[str, bool]:
@@ -400,19 +442,20 @@ class ModListModel(QAbstractTableModel):
 
     def set_all_enabled(self, enabled: bool) -> None:
         """Enable/disable every toggleable mod, then save once."""
-        changed = False
+        changed: list[tuple[str, bool]] = []
         for r, e in enumerate(self._entries):
             if e.is_separator or e.locked:
                 continue
             if e.enabled != enabled:
                 e.enabled = enabled
-                changed = True
+                changed.append((e.name, enabled))
         if changed:
             self.dataChanged.emit(
                 self.index(0, COL_NAME),
                 self.index(len(self._entries) - 1, COL_NAME),
                 [EntryRole, Qt.DisplayRole])
             self.save()
+            self.enabled_changed.emit(changed)
 
     def hidden_rows(self) -> set[int]:
         """Rows to hide: mods that fall under a collapsed separator (up to the
@@ -469,12 +512,16 @@ class ModListModel(QAbstractTableModel):
         stripped before writing. Fires on_saved() so the view can rebuild."""
         if self.modlist_path is None:
             return
+        # Every structural edit (drag, remove, add-separator, set_priority…)
+        # funnels through here — row→block mapping may have changed.
+        self._sep_hl_cache.clear()
         from Utils.modlist import write_modlist
         body = [e for e in self._entries if e.name not in _BOUNDARY_NAMES]
         try:
             write_modlist(self.modlist_path, body)
         except Exception as exc:
             print(f"[gui_qt] modlist save failed: {exc}", flush=True)
+            self.save_failed.emit(f"Modlist save failed: {exc}")
             return
         if self.on_saved:
             self.on_saved()

@@ -215,6 +215,15 @@ class PluginView(QTreeView):
         self._plugin_owner: dict = {}
         self._search_hidden: set[int] = set()
         self._filter_hidden: set[int] = set()
+        # Delta cache for _apply_hidden — row indices go stale on structural
+        # changes, so drop it there (same scheme as the modlist view).
+        self._applied_hidden: set[int] | None = None
+
+        def _drop_applied(*_a):
+            self._applied_hidden = None
+        for sig in (model.modelReset, model.rowsInserted, model.rowsRemoved,
+                    model.rowsMoved, model.layoutChanged):
+            sig.connect(_drop_applied)
         # Custom drag-reorder (vanilla pinned at top, locked rows immovable).
         self._drag_rows: list[int] = []
         self._drag_active = False
@@ -243,6 +252,20 @@ class PluginView(QTreeView):
         install_marker_strip(self, PHighlightRole)
         self._reposition_marker_strip()
 
+        # Right-click context menu (mirrors modlist_view).
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+
+    def _on_context_menu(self, pos):
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return
+        selected = {i.row() for i in self.selectionModel().selectedRows()}
+        if index.row() not in selected:
+            self.setCurrentIndex(index)   # right-click outside selection → select it
+        from gui_qt.plugin_menu import show_context_menu
+        show_context_menu(self, self.viewport().mapToGlobal(pos), index)
+
     def _reposition_marker_strip(self):
         from gui_qt.marker_strip import reposition_marker_strip
         reposition_marker_strip(self)
@@ -250,10 +273,25 @@ class PluginView(QTreeView):
     # ---- search + filter row hiding --------------------------------------
     def _apply_hidden(self) -> None:
         """Hide the UNION of search-hidden and filter-hidden rows so the search
-        box and the Filters panel compose instead of clobbering each other."""
-        srch, flt = self._search_hidden, self._filter_hidden
-        for r in range(self.model().rowCount()):
-            self.setRowHidden(r, self.rootIndex(), r in srch or r in flt)
+        box and the Filters panel compose instead of clobbering each other.
+        Only the delta against the last applied set is touched (setRowHidden is
+        per-row layout work and this runs per search keystroke)."""
+        hidden = self._search_hidden | self._filter_hidden
+        prev = getattr(self, "_applied_hidden", None)
+        root = self.rootIndex()
+        self.setUpdatesEnabled(False)
+        try:
+            if prev is None:
+                for r in range(self.model().rowCount()):
+                    self.setRowHidden(r, root, r in hidden)
+            else:
+                for r in prev - hidden:
+                    self.setRowHidden(r, root, False)
+                for r in hidden - prev:
+                    self.setRowHidden(r, root, True)
+        finally:
+            self.setUpdatesEnabled(True)
+        self._applied_hidden = hidden
         sb = self.verticalScrollBar()
         if sb is not None:
             sb.update()
