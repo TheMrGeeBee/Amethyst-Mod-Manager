@@ -481,7 +481,6 @@ def _seed_first_run_defaults(path: Path) -> None:
             parser.read(path)
         if _COLLECTIONS_SECTION not in parser:
             parser[_COLLECTIONS_SECTION] = {}
-        parser[_COLLECTIONS_SECTION]["download_order"] = _FIRST_RUN_DOWNLOAD_ORDER
         parser[_COLLECTIONS_SECTION]["max_concurrent"] = str(_FIRST_RUN_MAX_CONCURRENT)
         parser[_COLLECTIONS_SECTION]["max_extract_workers"] = str(_FIRST_RUN_MAX_EXTRACT_WORKERS)
         if _COLUMNS_SECTION not in parser:
@@ -557,28 +556,32 @@ def _clamp(value: float) -> float:
 # ---------------------------------------------------------------------------
 _COLLECTIONS_SECTION = "collections"
 
-_DEFAULT_DOWNLOAD_ORDER = "largest"   # "largest" | "smallest"
+# Download order is no longer configurable — collection downloads always use
+# the double-ended scheduler (one big-first worker + the rest small-first).
 _DEFAULT_MAX_CONCURRENT = 3
 _DEFAULT_MAX_EXTRACT_WORKERS = 4
 
 # First-run defaults — written to the INI only when it is being created for
 # the first time (see load_ui_scale). Existing installs keep whatever defaults
 # they had even if they have never saved these settings explicitly.
-_FIRST_RUN_DOWNLOAD_ORDER = "smallest"
 _FIRST_RUN_MAX_CONCURRENT = 8
 _FIRST_RUN_MAX_EXTRACT_WORKERS = 8
 _FIRST_RUN_HIDDEN_COLUMNS = [2, 5, 8]  # category, installed, size
 
 
 def load_collection_settings() -> dict:
-    """Return collection settings dict with keys: download_order, max_concurrent, max_extract_workers, check_download_locations, clear_archive_after_install."""
+    """Return collection settings dict with keys: max_concurrent, max_extract_workers, check_download_locations, clear_archive_after_install, download_order.
+
+    NB *download_order* is retained ONLY for the legacy Tk settings dialog
+    (gui/status_bar.py) — the Qt download scheduler ignores it (downloads always
+    use the double-ended big-first + small-first policy)."""
     path = get_ui_config_path()
     defaults = {
-        "download_order": _DEFAULT_DOWNLOAD_ORDER,
         "max_concurrent": _DEFAULT_MAX_CONCURRENT,
         "max_extract_workers": _DEFAULT_MAX_EXTRACT_WORKERS,
         "check_download_locations": True,
         "clear_archive_after_install": False,
+        "download_order": "largest",   # legacy Tk key; unused by Qt
     }
     if not path.is_file():
         return defaults
@@ -588,31 +591,38 @@ def load_collection_settings() -> dict:
         if not parser.has_section(_COLLECTIONS_SECTION):
             return defaults
         s = parser[_COLLECTIONS_SECTION]
-        download_order = s.get("download_order", _DEFAULT_DOWNLOAD_ORDER).strip().lower()
-        if download_order not in ("largest", "smallest"):
-            download_order = _DEFAULT_DOWNLOAD_ORDER
         max_concurrent = int(s.get("max_concurrent", str(_DEFAULT_MAX_CONCURRENT)))
         max_concurrent = max(1, min(8, max_concurrent))
         max_extract_workers = int(s.get("max_extract_workers", str(_DEFAULT_MAX_EXTRACT_WORKERS)))
         max_extract_workers = max(1, min(8, max_extract_workers))
         check_download_locations = s.getboolean("check_download_locations", True)
         clear_archive_after_install = s.getboolean("clear_archive_after_install", False)
+        download_order = s.get("download_order", "largest").strip().lower()
+        if download_order not in ("largest", "smallest"):
+            download_order = "largest"
         return {
-            "download_order": download_order,
             "max_concurrent": max_concurrent,
             "max_extract_workers": max_extract_workers,
             "check_download_locations": check_download_locations,
             "clear_archive_after_install": clear_archive_after_install,
+            "download_order": download_order,
         }
     except Exception:
         return defaults
 
 
-def save_collection_settings(download_order: str, max_concurrent: int,
+def save_collection_settings(max_concurrent: int,
                               check_download_locations: bool = True,
                               clear_archive_after_install: bool = False,
-                              max_extract_workers: int = _DEFAULT_MAX_EXTRACT_WORKERS) -> None:
-    """Persist collection settings to amethyst.ini."""
+                              max_extract_workers: int = _DEFAULT_MAX_EXTRACT_WORKERS,
+                              download_order: str | None = None) -> None:
+    """Persist collection settings to amethyst.ini.
+
+    *download_order* is accepted for backward-compatibility (the Tk settings
+    dialog still passes it) but the Qt download scheduler ignores it — downloads
+    always use the double-ended (big-first + small-first) policy. When given, it
+    is still written through so the Tk UI round-trips.
+    """
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     parser = _new_parser()
@@ -620,7 +630,8 @@ def save_collection_settings(download_order: str, max_concurrent: int,
         parser.read(path)
     if _COLLECTIONS_SECTION not in parser:
         parser[_COLLECTIONS_SECTION] = {}
-    parser[_COLLECTIONS_SECTION]["download_order"] = download_order
+    if download_order is not None:
+        parser[_COLLECTIONS_SECTION]["download_order"] = download_order
     parser[_COLLECTIONS_SECTION]["max_concurrent"] = str(max(1, min(8, max_concurrent)))
     parser[_COLLECTIONS_SECTION]["max_extract_workers"] = str(max(1, min(8, max_extract_workers)))
     parser[_COLLECTIONS_SECTION]["check_download_locations"] = "true" if check_download_locations else "false"

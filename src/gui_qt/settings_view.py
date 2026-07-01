@@ -241,7 +241,6 @@ class SettingsView(QWidget):
         except Exception:
             cs = {}
         self._cs = {
-            "download_order": cs.get("download_order", "largest"),
             "max_concurrent": int(cs.get("max_concurrent", 3)),
             "max_extract_workers": int(cs.get("max_extract_workers", 4)),
             "check_download_locations": bool(cs.get("check_download_locations", True)),
@@ -260,10 +259,6 @@ class SettingsView(QWidget):
                  "when 'Clear archive after install' is on.")
 
         # Collection settings — all persisted together via save_collection_settings.
-        self._combo(
-            g, "Collection download order",
-            [("Smallest first", "smallest"), ("Largest first", "largest")],
-            self._cs["download_order"], self._save_download_order)
         self._slider(
             g, "Max concurrent downloads", 1, 8, self._cs["max_concurrent"],
             self._save_max_concurrent)
@@ -357,14 +352,10 @@ class SettingsView(QWidget):
     def _persist_collection(self):
         self._safe_save(
             uc.save_collection_settings,
-            self._cs["download_order"], self._cs["max_concurrent"],
+            self._cs["max_concurrent"],
             self._cs["check_download_locations"],
             self._cs["clear_archive_after_install"],
             self._cs["max_extract_workers"])
-
-    def _save_download_order(self, value: str):
-        self._cs["download_order"] = value
-        self._persist_collection()
 
     def _save_max_concurrent(self, value: int):
         self._cs["max_concurrent"] = int(value)

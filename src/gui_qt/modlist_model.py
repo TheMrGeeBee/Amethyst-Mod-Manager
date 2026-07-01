@@ -613,28 +613,6 @@ class ModListModel(QAbstractTableModel):
             end += 1
         return range(sep_row + 1, end)
 
-    def _locked_block_of(self, row: int) -> "range | None":
-        """If *row* sits inside a locked separator's block, return that block's
-        mod-row range, else None. (The separator row itself is not included.)
-
-        *row* may be a real entry row or a drop-insert position. A position
-        landing on a separator's own row is the boundary BEFORE that block —
-        i.e. the END of the preceding block — not inside the locked one, so it
-        scans from the entry just above it."""
-        start = min(row, len(self._entries) - 1)
-        if 0 <= start < len(self._entries) and self._entries[start].is_separator:
-            start -= 1
-        sep = None
-        for i in range(start, -1, -1):
-            if self._entries[i].is_separator:
-                sep = i
-                break
-        if sep is None:
-            return None
-        if not self.is_sep_locked(self._entries[sep].display_name):
-            return None
-        return self.sep_block_rows(sep)
-
     # ---- persistence ------------------------------------------------------
     def save(self) -> None:
         """Write the current entries back to modlist.txt (no-op if no path).
@@ -836,22 +814,9 @@ class ModListModel(QAbstractTableModel):
         lo, hi = self._movable_span()
         if first < lo or last >= hi or not (lo <= dest <= hi):
             return False
-        # Block confinement applies only when moving MODS, not when relocating a
-        # whole separator+block as a unit (a locked OR collapsed separator that
-        # carries its mods — first row is the separator, the rest are its block).
-        moving_sep_block = (
-            self._entries[first].is_separator
-            and last in self.sep_block_rows(first)
-            and all(not self._entries[r].is_separator
-                    for r in range(first + 1, last + 1)))
-        if not moving_sep_block:
-            src_block = self._locked_block_of(first)
-            if src_block is not None:
-                if (last not in src_block or dest < src_block.start
-                        or dest > src_block.stop):
-                    return False
-            elif self._locked_block_of(dest) is not None:
-                return False
+        # Mods may be dragged freely into or out of a locked separator's block
+        # (locking now only means the separator carries its block when the
+        # SEPARATOR itself is dragged — it no longer traps loose mods).
         # Qt's beginMoveRows requires dest outside the moved range.
         if first <= dest <= last + 1:
             return False
@@ -895,15 +860,8 @@ class ModListModel(QAbstractTableModel):
                               for r in range(first + 1, last + 1)))
         ins = resolve_reverse_drop(self._entries, slot, set(src_rows),
                                    full_block, hidden=hidden)
-        # Confine mod drags inside a locked separator's block (Tk clamps).
-        if not full_block:
-            src_block = self._locked_block_of(first)
-            if src_block is not None:
-                if last not in src_block:
-                    return False
-                ins = max(src_block.start, min(ins, src_block.stop))
-            elif self._locked_block_of(ins) is not None:
-                return False
+        # Mods drag freely into/out of a locked separator's block (locking only
+        # keeps the separator's block together when the SEPARATOR is dragged).
         ins = max(lo, min(ins, hi + 1))
         if first <= ins <= last + 1:
             return False

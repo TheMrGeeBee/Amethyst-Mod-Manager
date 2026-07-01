@@ -510,7 +510,6 @@ class NexusDownloader:
         cancel: threading.Event | None = None,
         known_file_name: str = "",
         expected_size_bytes: int = 0,
-        prefetched_links: "list[NexusDownloadLink] | None" = None,
     ) -> DownloadResult:
         """
         Download a file directly (premium users only — no key needed).
@@ -571,24 +570,19 @@ class NexusDownloader:
                 except Exception:
                     pass
 
-        # Use pre-fetched CDN links when the caller supplied them (collection
-        # installs fetch every link up-front so the download workers never block
-        # on the per-file API round-trip). Otherwise fetch now.
-        if prefetched_links:
-            links = prefetched_links
-        else:
-            try:
-                links = self._api.get_download_links(
-                    game_domain=game_domain,
-                    mod_id=mod_id,
-                    file_id=file_id,
-                )
-            except NexusAPIError as exc:
-                return DownloadResult(
-                    success=False, error=str(exc),
-                    game_domain=game_domain,
-                    mod_id=mod_id, file_id=file_id,
-                )
+        # Fetch a fresh signed CDN link (one rate-limited API call per download).
+        try:
+            links = self._api.get_download_links(
+                game_domain=game_domain,
+                mod_id=mod_id,
+                file_id=file_id,
+            )
+        except NexusAPIError as exc:
+            return DownloadResult(
+                success=False, error=str(exc),
+                game_domain=game_domain,
+                mod_id=mod_id, file_id=file_id,
+            )
 
         if not links:
             return DownloadResult(
@@ -618,27 +612,6 @@ class NexusDownloader:
             mod_id=mod_id,
             file_id=file_id,
         )
-        # Pre-fetched CDN links are signed with an expiry; on a long collection
-        # install an early-fetched link can go stale (403/expired) before its
-        # turn. If a PREFETCHED link failed, fetch a fresh one and retry once so
-        # the mod isn't dropped. (A cancel is not a failure to retry.)
-        if (prefetched_links and not result.success
-                and not (cancel is not None and cancel.is_set())):
-            app_log(f"Pre-fetched link failed for file {file_id}; refetching a "
-                    f"fresh download link and retrying.")
-            try:
-                fresh = self._api.get_download_links(
-                    game_domain=game_domain, mod_id=mod_id, file_id=file_id)
-            except NexusAPIError as exc:
-                return DownloadResult(
-                    success=False, error=str(exc), game_domain=game_domain,
-                    mod_id=mod_id, file_id=file_id)
-            if fresh:
-                result = self._download_from_links(
-                    links=fresh, file_name=file_name,
-                    dest_dir=dest_dir or self._download_dir,
-                    progress_cb=progress_cb, cancel=cancel,
-                    game_domain=game_domain, mod_id=mod_id, file_id=file_id)
         return result
 
     # -- Internal -----------------------------------------------------------

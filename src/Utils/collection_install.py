@@ -24,7 +24,6 @@ are ported but not yet wired (see ``overwrite_existing`` / ``update_context``).
 
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import json
 import queue as _queue
 import re
@@ -38,6 +37,7 @@ from Utils.collection_reset import (
 from Utils.config_paths import get_download_cache_dir_for_game, list_all_cache_dirs
 from Utils.download_locations import (
     is_default_downloads_disabled, load_extra_download_locations)
+from Utils.download_scheduler import order_by_size, run_double_ended
 from Utils.extract_budget import ExtractionMemoryBudget, get_uncompressed_size
 from Utils.mod_install import (
     install_collection_archive, FOMOD_DEFERRED, BAIN_DEFERRED)
@@ -535,10 +535,6 @@ def run_collection_install(
     _dl_lock = threading.Lock()
     _dl_done = 0
     _dl_total = len(to_download)
-    # file_id → prefetched CDN download links (populated up-front so download
-    # workers don't each block on a per-file get_download_links API round-trip —
-    # for many tiny archives that API latency, not the transfer, gates throughput).
-    _prefetched_links: "dict[int, list]" = {}
 
     _to_download_fids = {getattr(m, "file_id", None) for m in to_download}
     _total_bytes = sum(getattr(m, "size_bytes", 0) or 0 for m in ordered_mods)
@@ -695,8 +691,7 @@ def run_collection_install(
                     progress_cb=_progress_cb, cancel=_col_stop,
                     known_file_name=mod.file_name or "",
                     expected_size_bytes=getattr(mod, "size_bytes", 0) or 0,
-                    dest_dir=get_download_cache_dir_for_game(getattr(game, "name", "") or ""),
-                    prefetched_links=_prefetched_links.get(mod.file_id))
+                    dest_dir=get_download_cache_dir_for_game(getattr(game, "name", "") or ""))
         except Exception as exc:
             import traceback as _tb
             log(f"Collection install: download exception for '{mod.mod_name}' "
@@ -873,58 +868,19 @@ def run_collection_install(
     if to_download:
         _set_status(f"Downloading & installing {_dl_total} mod(s)…")
         _set_progress(0.0)
-        _to_download_sorted = sorted(
-            to_download, key=lambda m: getattr(m, "size_bytes", 0) or 0,
-            reverse=(_col_cfg["download_order"] == "largest"))
+        # Sort smallest→largest; the double-ended scheduler dedicates ONE
+        # worker to the largest-remaining mods (keeps bandwidth saturated on
+        # long transfers) while the rest chew through the smallest-remaining
+        # from the other end — hiding the per-file link-fetch latency of tiny
+        # archives behind the big worker's ongoing download (fixes the
+        # "download 8, stutter, download 8" stall).
+        _to_download_sorted = order_by_size(to_download)
         if _total_bytes > 0:
             cb.on_agg_download(_dl_bytes_done, _total_bytes, 0.0)
 
-        # ---- pre-fetch CDN download links up-front -----------------------
-        # Each download normally begins with a get_download_links API round-trip
-        # (~100-300ms) to obtain a fresh signed CDN URL; for the many tiny
-        # archives in a collection that latency, not the transfer, gates
-        # throughput (the "download 8, hitch, download 8" rhythm). Fetch every
-        # link concurrently BEFORE the transfers start — skipping mods whose
-        # archive is already cached (no download needed) — so the download
-        # workers always have a ready URL and stay saturated. Same total number
-        # of link calls as before (one per file), just pipelined ahead → no
-        # extra rate-limit cost. Best-effort: any link that fails to prefetch
-        # falls back to the per-file fetch inside download_file.
-        def _prefetch_link(mod):
-            if _col_stop.is_set():
-                return
-            fid = getattr(mod, "file_id", 0) or 0
-            if not fid:
-                return
-            # Skip if the archive is already cached anywhere (no download).
-            _mdomain = (getattr(mod, "domain_name", "") or "").strip() or game_domain
-            try:
-                for _cdir in list_all_cache_dirs(getattr(game, "name", "") or ""):
-                    _f, _ok = _find_cached_archive(
-                        _cdir, mod.file_name or mod.mod_name or "",
-                        getattr(mod, "size_bytes", 0) or 0, mod.mod_id, fid,
-                        expected_md5=getattr(mod, "md5", "") or "")
-                    if _f and _ok:
-                        return
-            except Exception:
-                pass
-            try:
-                _links = api.get_download_links(
-                    game_domain=_mdomain, mod_id=mod.mod_id, file_id=fid)
-                if _links:
-                    _prefetched_links[fid] = _links
-            except Exception:
-                pass  # fall back to per-file fetch in download_file
-
-        if api is not None:
-            _set_status(f"Fetching download links for {_dl_total} mod(s)…")
-            try:
-                with _cf.ThreadPoolExecutor(max_workers=_DL_WORKERS) as _lpool:
-                    list(_lpool.map(_prefetch_link, _to_download_sorted))
-            except Exception as _pf_exc:
-                log(f"Collection install: link prefetch skipped ({_pf_exc}).")
-            log(f"Collection install: prefetched {len(_prefetched_links)} "
-                f"download link(s).")
+        # Each download fetches its own signed CDN link lazily inside
+        # download_file (exactly one get_download_links call per mod actually
+        # downloaded — cached mods cost nothing).
 
         _consumer_threads: list[threading.Thread] = []
         for _ci in range(_INSTALL_WORKERS):
@@ -933,8 +889,8 @@ def run_collection_install(
             t.start()
             _consumer_threads.append(t)
 
-        with _cf.ThreadPoolExecutor(max_workers=_DL_WORKERS) as _pool:
-            list(_pool.map(_download_one, _to_download_sorted))
+        run_double_ended(_to_download_sorted, _download_one, _DL_WORKERS,
+                         stop=_col_stop)
 
         _dl_finished.set()
         cb.on_agg_download(_total_bytes, _total_bytes, 0.0)
