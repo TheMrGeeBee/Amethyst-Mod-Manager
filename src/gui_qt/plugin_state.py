@@ -12,6 +12,7 @@ checks) is deferred — the Flags column is structured to receive them later.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,12 @@ class PluginRow:
     enabled: bool
     flags: int = 0
     vanilla: bool = False
+    # Per-flag detail captured while computing the flag bits, so the Flags-column
+    # tooltip can show the same content the Tk app shows (Tk parity).
+    missing_masters: list[str] | None = None
+    late_masters: list[str] | None = None
+    vmm_masters: list[str] | None = None
+    loot_info: dict | None = None
 
 
 _EXT_ORDER = {".esm": 0, ".esp": 1, ".esl": 2}
@@ -268,12 +275,18 @@ def _apply_master_checks(rows: list[PluginRow], resolved: dict[str, Path],
     except Exception:
         return
     for r in rows:
-        if missing.get(r.name):
+        m = missing.get(r.name)
+        if m:
             r.flags |= PF_MISSING
-        if late.get(r.name):
+            r.missing_masters = list(m)
+        lt = late.get(r.name)
+        if lt:
             r.flags |= PF_LATE
-        if vmm.get(r.name):
+            r.late_masters = list(lt)
+        vm = vmm.get(r.name)
+        if vm:
             r.flags |= PF_VMM
+            r.vmm_masters = list(vm)
 
 
 def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
@@ -295,12 +308,19 @@ def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
         d = info.get(r.name.lower())
         if not d:
             continue
+        matched = False
         if d.get("messages") or d.get("requirements") or d.get("incompatibilities"):
             r.flags |= PF_LOOT
+            matched = True
         if d.get("dirty"):
             r.flags |= PF_DIRTY
+            matched = True
         if d.get("tags"):
             r.flags |= PF_TAGS
+            matched = True
+        if matched:
+            # Keep the raw per-plugin dict so the Flags tooltip can render it.
+            r.loot_info = d
 
 
 def _apply_userlist_flags(rows: list[PluginRow], profile_dir: Path) -> None:
@@ -319,6 +339,117 @@ def _apply_userlist_flags(rows: list[PluginRow], profile_dir: Path) -> None:
             r.flags |= PF_USERLIST
             if low in state.cycle_plugins:
                 r.flags |= PF_UL_CYCLE
+
+
+_FILENAME_RE = re.compile(r'^Filename\(["\'](.+?)["\']\)$')
+
+
+def format_loot_tooltip(info: dict, enabled_lower: set[str]) -> str:
+    """Render a loot.json plugin-info dict into the multi-section tooltip string
+    (messages / missing requirements / active incompatibilities / dirty edits /
+    bash tags). Ported from Tk gui/plugin_panel_loot.py:_format_loot_tooltip.
+
+    *enabled_lower* is the set of enabled plugin filenames (lowercase); it filters
+    requirements to those not met by an enabled plugin, and incompatibilities to
+    those whose conflicting plugin is currently enabled. The Tk app additionally
+    resolves requirements against staged files / Nexus mod ids / script-extender
+    detection — that refinement is deferred here (Qt v1)."""
+    if not info:
+        return ""
+    sections: list[str] = []
+
+    msgs = info.get("messages") or []
+    if msgs:
+        lines = []
+        for m in msgs:
+            prefix = {"error": "[!]", "warn": "[!]", "say": "[i]"}.get(
+                m.get("type", "say"), "[i]")
+            lines.append(f"{prefix} {m.get('text', '')}")
+        sections.append("LOOT messages:\n" + "\n".join(lines))
+
+    reqs = info.get("requirements") or []
+    if reqs:
+        lines = []
+        for r in reqs:
+            raw = r.get("name", "")
+            display = r.get("display_name") or raw
+            m = _FILENAME_RE.match(raw)
+            fname = m.group(1) if m else raw
+            fname_lower = fname.replace("\\", "/").lstrip("./").lstrip("../").lower()
+            if fname_lower in enabled_lower:
+                continue
+            dm = _FILENAME_RE.match(display)
+            if dm:
+                display = dm.group(1)
+            line = f"  - {display}"
+            detail = r.get("detail", "")
+            if detail:
+                line += f" ({detail})"
+            lines.append(line)
+        if lines:
+            sections.append("Requires (missing):\n" + "\n".join(lines))
+
+    incs = info.get("incompatibilities") or []
+    if incs:
+        lines = []
+        for i in incs:
+            raw = i.get("name", "")
+            display = i.get("display_name") or raw
+            m = _FILENAME_RE.match(raw)
+            fname = m.group(1) if m else raw
+            fname_lower = fname.lower().lstrip("./").lstrip("../")
+            if fname_lower not in enabled_lower:
+                continue
+            dm = _FILENAME_RE.match(display)
+            if dm:
+                display = dm.group(1)
+            line = f"  - {display}"
+            detail = i.get("detail", "")
+            if detail:
+                line += f" ({detail})"
+            lines.append(line)
+        if lines:
+            sections.append("Incompatible with (currently active):\n" + "\n".join(lines))
+
+    dirty = info.get("dirty") or []
+    if dirty:
+        lines = []
+        for d in dirty:
+            parts = []
+            if d.get("itm"):
+                parts.append(f"{d['itm']} ITM")
+            if d.get("udr"):
+                parts.append(f"{d['udr']} UDR")
+            if d.get("nav"):
+                parts.append(f"{d['nav']} deleted navmesh")
+            counts = ", ".join(parts) if parts else "needs cleaning"
+            line = f"  - {counts}"
+            util = d.get("utility", "")
+            if util:
+                um = re.match(r'^\[(.+?)\]\(.+?\)$', util)
+                line += f" — clean with {um.group(1) if um else util}"
+            lines.append(line)
+            detail = d.get("detail", "")
+            if detail:
+                lines.append(f"    {detail}")
+        sections.append("Dirty edits:\n" + "\n".join(lines))
+
+    tags = info.get("tags") or {}
+    if tags:
+        lines = []
+        cur = tags.get("current") or []
+        add = tags.get("add") or []
+        rem = tags.get("remove") or []
+        if cur:
+            lines.append("  Current: " + ", ".join(cur))
+        if add:
+            lines.append("  Suggested (add): " + ", ".join(f"+{t}" for t in add))
+        if rem:
+            lines.append("  Suggested (remove): " + ", ".join(f"-{t}" for t in rem))
+        if lines:
+            sections.append("Bash Tags:\n" + "\n".join(lines))
+
+    return "\n\n".join(sections)
 
 
 def apply_loot_sort(rows: list[PluginRow], locked_indices: dict[int, PluginRow],

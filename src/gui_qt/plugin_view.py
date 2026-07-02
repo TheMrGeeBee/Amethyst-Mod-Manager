@@ -8,10 +8,13 @@ toggle (persists to plugins.txt).
 
 from __future__ import annotations
 
+import textwrap
+
 from PySide6.QtCore import Qt, QRect, QSize, QEvent, QTimer
 from PySide6.QtGui import QColor, QFont, QPen, QBrush, QPainter
 from PySide6.QtWidgets import (
     QTreeView, QStyledItemDelegate, QStyle, QAbstractItemView, QHeaderView,
+    QToolTip,
 )
 
 from gui_qt.theme_qt import active_palette, _c
@@ -23,8 +26,18 @@ from gui_qt.plugin_model import (
 )
 from gui_qt.plugin_state import (
     PF_MISSING, PF_LATE, PF_VMM, PF_ESL, PF_LOOT, PF_DIRTY, PF_TAGS, PF_MASTER,
-    PF_USERLIST, PF_UL_CYCLE,
+    PF_USERLIST, PF_UL_CYCLE, format_loot_tooltip,
 )
+
+_FLAG_SZ = 18
+_FLAG_GAP = 4
+
+# Header line for each master-check flag's bulleted tooltip (Tk parity).
+_MASTER_TIP_HEADERS = {
+    PF_MISSING: "Missing masters:",
+    PF_LATE: "Masters loaded after this plugin:",
+    PF_VMM: "Version mismatched masters:",
+}
 
 # Flag bit → icon filename, painted left→right (order matches the Tk app:
 # missing, late, vmm, userlist dot, esl, loot, dirty, tags). The userlist dot
@@ -39,6 +52,9 @@ _PLUGIN_FLAG_ICONS_POST = [
     (PF_DIRTY, "brush.png"),
     (PF_TAGS, "tag.png"),
 ]
+
+# Bash-tag flag hidden by default (mostly clutter); flip to True to show it.
+SHOW_TAG_FLAG = False
 
 ROW_H = 33
 CHECK_BOX = 17
@@ -169,28 +185,37 @@ class PluginDelegate(QStyledItemDelegate):
                                             Qt.ElideRight, name_rect.width())
         p.drawText(name_rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
 
-    def _paint_flags(self, p, r, bits):
-        # Ordered flag glyphs in the Tk draw order: warning icons, the userlist
-        # dot, the ESL 'L' badge, then the LOOT/dirty/tags icons. (There is no
-        # master indicator — Tk doesn't show one; masters are implied by ext.)
+    @staticmethod
+    def _flag_items(bits):
+        """Ordered flag glyphs in the Tk draw order — (kind, bit, icon_name):
+        warning icons, the userlist dot, the ESL 'L' badge, then LOOT/dirty/tags.
+        Shared by _paint_flags and _hit_flag_bit so hover and hit-test agree."""
         items = []
         for bit, name in _PLUGIN_FLAG_ICONS_PRE:
             if bits & bit:
-                items.append(("icon", name))
+                items.append(("icon", bit, name))
         if bits & PF_USERLIST:
-            items.append(("uldot", None))
+            items.append(("uldot", PF_USERLIST, None))
         if bits & PF_ESL:
-            items.append(("esl", None))
+            items.append(("esl", PF_ESL, None))
         for bit, name in _PLUGIN_FLAG_ICONS_POST:
+            if bit == PF_TAGS and not SHOW_TAG_FLAG:
+                continue
             if bits & bit:
-                items.append(("icon", name))
+                items.append(("icon", bit, name))
+        return items
+
+    def _paint_flags(self, p, r, bits):
+        # (There is no master indicator — Tk doesn't show one; masters are
+        # implied by extension.)
+        items = self._flag_items(bits)
         if not items:
             return
-        sz = 18
-        total = len(items) * sz + (len(items) - 1) * 4
+        sz = _FLAG_SZ
+        total = len(items) * sz + (len(items) - 1) * _FLAG_GAP
         x = r.left() + max(4, (r.width() - total) // 2)
         cy = r.center().y()
-        for kind, name in items:
+        for kind, _bit, name in items:
             cell = QRect(x, cy - sz // 2, sz, sz)
             if kind == "esl":
                 f = QFont(); f.setBold(True); f.setPixelSize(13); p.setFont(f)
@@ -210,7 +235,104 @@ class PluginDelegate(QStyledItemDelegate):
                 ic = icon(name, sz)
                 if not ic.isNull():
                     ic.paint(p, cell)
-            x += sz + 4
+            x += sz + _FLAG_GAP
+
+    def _hit_flag_bit(self, pos, r, bits):
+        """Which PF_* bit's glyph (if any) is under *pos* within the Flags cell
+        rect *r*. Recomputes the same centred geometry as _paint_flags so the
+        hover lands on the glyph the user sees."""
+        items = self._flag_items(bits)
+        if not items:
+            return 0
+        sz = _FLAG_SZ
+        total = len(items) * sz + (len(items) - 1) * _FLAG_GAP
+        x = r.left() + max(4, (r.width() - total) // 2)
+        y = r.center().y() - sz // 2
+        for _kind, bit, _name in items:
+            if QRect(x, y, sz, sz).contains(pos):
+                return bit
+            x += sz + _FLAG_GAP
+        return 0
+
+    def _flag_tip(self, hit, index):
+        """Tooltip text for the hovered flag bit *hit* (Tk parity). Master-check
+        and LOOT flags render the captured per-plugin detail; ESL/userlist use
+        fixed strings. Returns None when there's nothing to show."""
+        if hit == PF_ESL:
+            return "This plugin is marked as Light (ESL)"
+
+        row = index.data(RowRole)
+        if hit == PF_USERLIST:
+            bits = index.data(PFlagsRole) or 0
+            if bits & PF_UL_CYCLE:
+                msg = ("This plugin has a broken cycle, "
+                       "Right click > Show cycle for info")
+            else:
+                msg = "This plugin is managed by userlist.yaml"
+            model = index.model()
+            grp = None
+            if row is not None and hasattr(model, "userlist_group"):
+                grp = model.userlist_group(row.name)
+            if grp:
+                msg += f"\nGroup: {grp}"
+            return msg
+
+        if hit in _MASTER_TIP_HEADERS:
+            names = None
+            if row is not None:
+                names = {PF_MISSING: row.missing_masters,
+                         PF_LATE: row.late_masters,
+                         PF_VMM: row.vmm_masters}.get(hit)
+            if names:
+                body = "\n".join(f"  - {n}" for n in names)
+                return f"{_MASTER_TIP_HEADERS[hit]}\n{body}"
+            return _MASTER_TIP_HEADERS[hit]
+
+        if hit in (PF_LOOT, PF_DIRTY, PF_TAGS):
+            if row is None or not row.loot_info:
+                return None
+            model = index.model()
+            enabled_lower = (model.enabled_lower()
+                             if hasattr(model, "enabled_lower") else set())
+            return format_loot_tooltip(row.loot_info, enabled_lower) or None
+        return None
+
+    @staticmethod
+    def _wrap_tip(text, width=100):
+        """Cap tooltip line length: Qt doesn't word-wrap plain-text tooltips, so
+        a long LOOT message stretches the tip across the screen. Wrap each line
+        to *width* chars, indenting continuations past the bullet/leading
+        whitespace so the section structure stays readable."""
+        out = []
+        for line in text.split("\n"):
+            if len(line) <= width:
+                out.append(line)
+                continue
+            lead = line[:len(line) - len(line.lstrip())]
+            cont = lead + ("  " if line.lstrip().startswith(("-", "[")) else "")
+            out.append(textwrap.fill(line, width=width, subsequent_indent=cont,
+                                     break_long_words=False, break_on_hyphens=False))
+        return "\n".join(out)
+
+    def helpEvent(self, event, view, opt, index):
+        """Show the per-flag tooltip when hovering a flag glyph (Tk parity)."""
+        try:
+            if (event.type() == QEvent.ToolTip
+                    and index.isValid() and index.column() == COL_FLAGS):
+                bits = index.data(PFlagsRole) or 0
+                if bits:
+                    hit = self._hit_flag_bit(event.pos(), opt.rect, bits)
+                    tip = self._flag_tip(hit, index)
+                    if tip:
+                        # Pass the flags-cell rect so Qt hides the tooltip as soon
+                        # as the cursor leaves the cell.
+                        QToolTip.showText(event.globalPos(), self._wrap_tip(tip),
+                                          view, opt.rect)
+                        return True
+                QToolTip.hideText()
+        except Exception:
+            pass
+        return super().helpEvent(event, view, opt, index)
 
     def editorEvent(self, event, model, opt, index):
         if event.type() != QEvent.MouseButtonRelease:

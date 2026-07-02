@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, Signal
 
-from gui_qt.plugin_state import PluginRow, save_plugins, PF_USERLIST, PF_UL_CYCLE
+from gui_qt.plugin_state import PluginRow, save_plugins
 
 COL_NAME = 0
 COL_FLAGS = 1
@@ -65,6 +65,16 @@ class PluginModel(QAbstractTableModel):
         Feeds the Flags-column tooltip (Tk parity)."""
         self._ul_groups = dict(groups or {})
 
+    def userlist_group(self, name: str) -> str | None:
+        """Non-default userlist group for *name* (or None). Read by the delegate
+        to append a 'Group: …' line to the userlist-dot tooltip."""
+        return self._ul_groups.get(name.lower())
+
+    def enabled_lower(self) -> set[str]:
+        """Set of enabled plugin filenames (lowercase). Feeds the LOOT tooltip's
+        requirement/incompatibility filtering."""
+        return {r.name.lower() for r in self._rows if r.enabled}
+
     def set_highlights(self, highlights: dict[str, int]) -> None:
         """highlights maps plugin name (lower) → code (3 master / 2 anchor /
         1 higher / -1 lower). Replaces the whole map and repaints."""
@@ -117,18 +127,8 @@ class PluginModel(QAbstractTableModel):
             if col == COL_INDEX:
                 return f"{index.row():03d}"
             return ""
-        if role == Qt.ToolTipRole and col == COL_FLAGS:
-            if r.flags & PF_USERLIST:
-                if r.flags & PF_UL_CYCLE:
-                    msg = ("This plugin has a broken cycle, "
-                           "Right click > Show cycle for info")
-                else:
-                    msg = "This plugin is managed by userlist.yaml"
-                grp = self._ul_groups.get(r.name.lower())
-                if grp:
-                    msg += f"\nGroup: {grp}"
-                return msg
-            return None
+        # Flags-column tooltips are handled per-icon by PluginDelegate.helpEvent
+        # (Tk parity), not via a whole-cell Qt.ToolTipRole.
         return None
 
     def flags(self, index):
