@@ -3563,13 +3563,14 @@ class MainWindow(QMainWindow):
         if self._install_running:
             self._notify("An install is already in progress.", "warning")
             return
-        from PySide6.QtWidgets import QFileDialog
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select mod archive(s)", str(Path.home()),
-            "Mod archives (*.zip *.7z *.rar *.fomod *.tar *.tar.gz *.tgz);;All files (*)")
-        if not paths:
-            return
-        self._install_paths(paths)
+        from Utils.portal_filechooser import pick_files
+
+        def _on_picked(paths):
+            if paths:
+                self._install_paths([str(p) for p in paths])
+
+        pick_files("Select mod archive(s)",
+                   lambda ps: QTimer.singleShot(0, lambda: _on_picked(ps)))
 
     # ---- Proton tools ------------------------------------------------------
     def _proton_game(self):

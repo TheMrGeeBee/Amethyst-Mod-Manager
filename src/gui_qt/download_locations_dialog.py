@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QListWidget,
-    QPushButton, QFileDialog, QFrame,
+    QPushButton, QFrame,
 )
 
 import Utils.download_locations as dl
@@ -69,13 +69,18 @@ class DownloadLocationsDialog(QDialog):
             self._list.addItem(p)
 
     def _add(self):
-        folder = QFileDialog.getExistingDirectory(
-            self, "Add download folder", str(Path.home()))
-        if folder:
+        from Utils.portal_filechooser import pick_folder
+
+        def _chosen(path):
+            if not path:
+                return
+            folder = str(path)
             existing = {self._list.item(i).text()
                         for i in range(self._list.count())}
             if folder not in existing:
                 self._list.addItem(folder)
+
+        pick_folder("Add download folder", _chosen)
 
     def _remove(self):
         for it in self._list.selectedItems():

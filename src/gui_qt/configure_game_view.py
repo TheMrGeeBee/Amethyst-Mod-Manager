@@ -22,7 +22,7 @@ from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QFrame, QRadioButton, QCheckBox, QButtonGroup, QFileDialog,
+    QScrollArea, QFrame, QRadioButton, QCheckBox, QButtonGroup,
     QMessageBox,
 )
 
@@ -398,25 +398,35 @@ class ConfigureGameView(QWidget):
 
     # ---- browse / open ----------------------------------------------------
     def _browse_game(self):
-        d = QFileDialog.getExistingDirectory(self, "Select game install folder",
-                                             self._game_edit.text() or str(Path.home()))
-        if d:
-            self._set_game(Path(d), source="manual")
+        from Utils.portal_filechooser import pick_folder
+
+        def _chosen(path):
+            if path:
+                self._set_game(Path(path), source="manual")
+
+        pick_folder("Select game install folder", _chosen)
 
     def _browse_prefix(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Proton/Wine prefix (pfx)",
-                                             self._prefix_edit.text() or str(Path.home()))
-        if d:
-            self._set_prefix(Path(d))
+        from Utils.portal_filechooser import pick_folder
+
+        def _chosen(path):
+            if path:
+                self._set_prefix(Path(path))
+
+        pick_folder("Select Proton/Wine prefix (pfx)", _chosen)
 
     def _browse_staging(self):
-        d = QFileDialog.getExistingDirectory(self, "Select mod staging folder",
-                                             self._staging_edit.text() or str(Path.home()))
-        if d:
-            self._custom_staging = Path(d)
-            self._staging_edit.setText(d)
+        from Utils.portal_filechooser import pick_folder
+
+        def _chosen(path):
+            if not path:
+                return
+            self._custom_staging = Path(path)
+            self._staging_edit.setText(str(path))
             self._staging_status.setText("Custom staging folder selected.")
             self._staging_status.setStyleSheet(f"color:{self._c('TEXT_OK')};")
+
+        pick_folder("Select mod staging folder", _chosen)
 
     def _open_path(self, path):
         if path and Path(path).exists():
