@@ -151,7 +151,7 @@ class CollectionInstallCallbacks:
     on_paused: Callable[[int, str], None] = _noop              # installed,profile
     on_cancelled: Callable[[object], None] = _noop             # profile_dir (Path)
     # interactive resolvers (BLOCK the worker; caller marshals a wizard)
-    resolve_fomod: "Callable | None" = None   # (config, base, name, inst, act, loose) -> dict|None
+    resolve_fomod: "Callable | None" = None   # (config, base, name, inst, act, loose, saved) -> dict|None
     resolve_bain: "Callable | None" = None     # (subpkgs, root, name) -> {"selected":[...]}|None
 
 

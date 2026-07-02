@@ -23,11 +23,29 @@ class MarkerScrollBar(QScrollBar):
     _C_ANCHOR = QColor("#e08a2a")   # anchor (orange)
     _C_HIGHER = QColor("#3ad13a")   # selection beats this row (green)
     _C_LOWER = QColor("#e05050")    # this row beats selection (red)
+    _C_MISSING = QColor("#e05050")  # plugin has missing masters (red)
+    _C_MASTER = QColor("#3ad13a")   # master of the selected plugin (green)
 
     def __init__(self, view, highlight_role: int):
         super().__init__(Qt.Vertical, view)
         self._view = view
         self._role = highlight_role
+        # Persistent, selection-independent overlays (plugins panel). Rows are
+        # model row indices. Painted on top of the role-driven conflict ticks,
+        # so they mirror the Tk marker-strip priority: missing (red) beats the
+        # cross-panel highlight, which beats master (green). See paintEvent.
+        self._missing_rows: set[int] = set()   # plugins with missing masters
+        self._master_rows: set[int] = set()    # masters of the selected plugin
+
+    def set_persistent_rows(self, missing=None, master=None) -> None:
+        """Set the persistent overlay row sets (missing masters / selected
+        plugin's masters) and repaint. Pass a set to replace, None to leave a
+        given overlay unchanged."""
+        if missing is not None:
+            self._missing_rows = set(missing)
+        if master is not None:
+            self._master_rows = set(master)
+        self.update()
 
     def _row_offsets(self, model):
         """Return (offsets, total) where offsets[row] is the row's content-space
@@ -60,32 +78,44 @@ class MarkerScrollBar(QScrollBar):
         # Ticks paint UNDER the scrollbar handle: draw them first, then let the
         # styled groove + handle paint on top (the handle hides ticks only where
         # it currently sits; the rest of the track shows every tick).
+        marks = []
         if n > 0:
-            marks = []
             for r in range(n):
                 code = model.data(model.index(r, 0), self._role) or 0
                 if code:
                     marks.append((r, code))
-            if marks:
-                opt = QStyleOptionSlider()
-                self.initStyleOption(opt)
-                groove = self.style().subControlRect(
-                    QStyle.CC_ScrollBar, opt, QStyle.SC_ScrollBarGroove, self)
-                top = groove.top()
-                h = max(1, groove.height())
-                w = self.width()
-                offsets, total = self._row_offsets(model)
-                p = QPainter(self)
-                # lower → higher → anchor so the anchor wins on coincidence.
-                for wanted in (-1, 1, 2):
-                    col = (self._C_ANCHOR if wanted == 2 else
-                           self._C_HIGHER if wanted == 1 else self._C_LOWER)
-                    for r, code in marks:
-                        if code != wanted:
-                            continue
-                        y = top + int(offsets[r] / total * h)
-                        p.fillRect(0, max(top, y - 1), w, 3, col)
-                p.end()
+        if n > 0 and (marks or self._missing_rows or self._master_rows):
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            groove = self.style().subControlRect(
+                QStyle.CC_ScrollBar, opt, QStyle.SC_ScrollBarGroove, self)
+            top = groove.top()
+            h = max(1, groove.height())
+            w = self.width()
+            offsets, total = self._row_offsets(model)
+            p = QPainter(self)
+
+            def tick(r, col):
+                if 0 <= r < n:
+                    y = top + int(offsets[r] / total * h)
+                    p.fillRect(0, max(top, y - 1), w, 3, col)
+
+            # Draw low→high priority so higher-priority ticks overpaint on
+            # coincidence, mirroring the Tk marker-strip order:
+            # master(green) < conflict_lower(red) < conflict_higher(green)
+            #   < highlighted/anchor(orange) < missing(red).
+            for r in self._master_rows:
+                tick(r, self._C_MASTER)
+            # lower → higher → anchor so the anchor wins on coincidence.
+            for wanted in (-1, 1, 2):
+                col = (self._C_ANCHOR if wanted == 2 else
+                       self._C_HIGHER if wanted == 1 else self._C_LOWER)
+                for r, code in marks:
+                    if code == wanted:
+                        tick(r, col)
+            for r in self._missing_rows:
+                tick(r, self._C_MISSING)
+            p.end()
 
         # Groove + handle on top → ticks read as being "under" the scrollbar.
         super().paintEvent(event)

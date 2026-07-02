@@ -637,11 +637,23 @@ def _single_root_unwrap(extract_dir: Path) -> Path:
     return extract_dir
 
 
-def _looks_like_fomod(root: Path) -> Path | None:
-    """Return the folder containing a fomod/ModuleConfig.xml if present."""
-    for p in root.rglob("ModuleConfig.xml"):
-        if p.parent.name.lower() == "fomod":
-            return p.parent.parent
+def _find_fomod_archive(extract_dir: Path) -> Path | None:
+    """Return the path to a `.fomod` file inside *extract_dir* if the archive
+    is just a wrapper around one (optionally peeling a single top-level
+    folder). A `.fomod` is itself a renamed 7z/zip — Nexus packages older
+    Fallout/Oblivion mods this way and they need a second extraction pass
+    before FOMOD detection can find `fomod/ModuleConfig.xml` (Tk parity)."""
+    root = _single_root_unwrap(extract_dir)
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return None
+    fomods = [p for p in entries if p.is_file() and p.suffix.lower() == ".fomod"]
+    if len(fomods) == 1:
+        siblings = [p for p in entries if p != fomods[0]]
+        if all(s.is_file() and s.suffix.lower() in
+               (".txt", ".md", ".rtf", ".jpg", ".png", ".pdf") for s in siblings):
+            return fomods[0]
     return None
 
 
@@ -682,6 +694,12 @@ class PreparedInstall:
         self.bain_root = None
         self.readme_text = None
         self.saved_bain_selections = None
+        # FOMOD wizard context (set at prepare time when a FOMOD is detected):
+        # saved selections from the previous install of this mod (global config
+        # JSON, restores + green-highlights prior choices — Tk parity) and the
+        # (installed, active, loose) file sets its conditions evaluate against.
+        self.saved_fomod_selections = None
+        self.fomod_context = (set(), set(), set())
         # Set by finish_install when the user chose to Replace an existing mod:
         # keep its modlist position + carry its endorsed flag onto the new install.
         self._preserve_position = False
@@ -730,24 +748,62 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
         shutil.rmtree(extract_dir, ignore_errors=True)
         return None
 
+    # A `.fomod`-wrapper archive needs a second extraction pass before FOMOD
+    # detection can find fomod/ModuleConfig.xml (Tk parity).
+    fomod_wrapper = _find_fomod_archive(extract_dir)
+    if fomod_wrapper is not None:
+        log_fn(f"Archive contains a .fomod wrapper — extracting {fomod_wrapper.name}…")
+        inner_dir = Path(tempfile.mkdtemp(prefix="mm_install_",
+                                          dir=str(extract_dir.parent)))
+        if _extract_archive(str(fomod_wrapper), str(inner_dir), log_fn):
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            extract_dir = inner_dir
+        else:
+            log_fn("Install failed: could not extract the inner .fomod archive.")
+            shutil.rmtree(inner_dir, ignore_errors=True)
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            return None
+
     src_root = _single_root_unwrap(extract_dir)
-    fomod_base = _looks_like_fomod(extract_dir)
+    # Shared Tk detection: case-insensitive fomod/moduleconfig.xml lookup with
+    # wrapper-peel + bounded BFS. (Rebuilding the config path with a lowercase
+    # "fomod" broke uppercase FOMOD/ dirs on case-sensitive filesystems and
+    # misrouted such archives to the BAIN probe.)
+    from Utils.fomod_parser import (detect_fomod, detect_scripted_fomod,
+                                    parse_module_config)
+    fomod_base: Path | None = None
     config = None
-    if fomod_base is not None:
+    fomod_result = detect_fomod(str(extract_dir))
+    if fomod_result is not None:
+        mod_root, config_path = fomod_result
         try:
-            from Utils.fomod_parser import parse_module_config
-            config = parse_module_config(str(fomod_base / "fomod" / "ModuleConfig.xml"))
+            config = parse_module_config(config_path)
+            fomod_base = Path(mod_root)
         except Exception as exc:
             log_fn(f"FOMOD parse failed ({exc}); will install verbatim.")
-            fomod_base = None
+    elif detect_scripted_fomod(str(extract_dir)):
+        log_fn("WARNING: This is a scripted (C#) FOMOD installer, which this "
+               "manager cannot run. All files will be installed without "
+               "showing any install options. If you need to choose optional "
+               "components, look for an XML-based or manually-packaged "
+               "version of this mod on Nexus.")
     prepared = PreparedInstall(archive, game, profile_dir, mod_name,
                                extract_dir, src_root, fomod_base, config,
                                prebuilt_meta=prebuilt_meta,
                                on_need_prefix=on_need_prefix)
+    if fomod_base is not None:
+        prepared.saved_fomod_selections = _read_saved_fomod_selections(
+            game, mod_name, log_fn)
+        try:
+            prepared.fomod_context = _collection_plugin_context(game, profile_dir)
+        except Exception:
+            pass
 
-    # BAIN is mutually exclusive with FOMOD (Tk parity): only probe a non-FOMOD
-    # archive. Detect a complex BAIN layout so the caller can show the picker.
-    if fomod_base is None and getattr(game, "supports_bain", True):
+    # BAIN is mutually exclusive with FOMOD (Tk parity): only probe an archive
+    # with no FOMOD installer at all (a detected-but-unparseable FOMOD installs
+    # verbatim, it must not fall into the BAIN picker). Detect a complex BAIN
+    # layout so the caller can show the picker.
+    if fomod_result is None and getattr(game, "supports_bain", True):
         try:
             from Utils.bain_installer import detect_bain, bain_unwrap_single_folder
             bain_root = bain_unwrap_single_folder(str(extract_dir))
@@ -838,8 +894,13 @@ def finish_install(prepared: "PreparedInstall", fomod_selections, *,
     bain_selected: "list[str] | None" = None
     try:
         if p.is_fomod():
+            # Persist the wizard's choices (restored + highlighted next time).
+            # None = headless defaults install → nothing to remember (Tk parity).
+            if fomod_selections is not None:
+                _persist_fomod_selection(p.game, p.mod_name, fomod_selections)
             ok = _install_fomod(p.fomod_base, p.fomod_config, dest_root,
-                                fomod_selections, log_fn, _pp)
+                                fomod_selections, log_fn, _pp,
+                                context=p.fomod_context)
             if not ok:
                 log_fn("FOMOD resolve failed — installing all files verbatim.")
                 _copy_tree(p.src_root, dest_root, log_fn, _pp)
@@ -994,7 +1055,8 @@ def install_collection_archive(
     one-by-one, passing ``resolve_fomod`` / ``resolve_bain`` to show the wizard),
     or ``None`` on failure / user-cancel.
 
-    resolve_fomod(config, fomod_base, mod_name, installed, active, loose) -> dict|None
+    resolve_fomod(config, fomod_base, mod_name, installed, active, loose,
+                  saved_selections) -> dict|None
     resolve_bain(subpackages, mod_root, mod_name) -> {"selected":[...]}|None
         (return None to cancel that mod). ``on_installed(is_fomod: bool)`` fires
         after a successful stage so the orchestrator's archive-keep logic works.
@@ -1066,12 +1128,20 @@ def install_collection_archive(
                 final_selections = fomod_auto_selections
             elif resolve_fomod is not None:
                 log_fn("FOMOD installer detected — opening wizard...")
+                saved_sel = _read_saved_fomod_selections(
+                    game, prepared.mod_name, log_fn)
                 final_selections = resolve_fomod(
                     config, fomod_base, prepared.mod_name,
-                    installed_files, active_files, loose_files)
+                    installed_files, active_files, loose_files, saved_sel)
                 if final_selections is None:
                     log_fn("FOMOD install cancelled.")
                     cancelled = True
+                else:
+                    # Interactive wizard result → also remember it globally for
+                    # the next install of this mod (Tk parity; the profile
+                    # mirror is written below for every non-cancelled path).
+                    _persist_fomod_selection(game, prepared.mod_name,
+                                             final_selections, profile=False)
             else:
                 # No auto-selections and no resolver → FOMOD defaults (parity with
                 # the non-interactive single-mod fallback).
@@ -1307,6 +1377,48 @@ def _read_bain_readme(bain_root: str) -> "str | None":
     return None
 
 
+def _read_saved_fomod_selections(game, mod_name: str, log_fn: LogFn) -> "dict | None":
+    """Load a previously-saved FOMOD selection for *mod_name* (global config) so
+    the wizard restores + highlights the user's last choices (Tk parity)."""
+    game_name = getattr(game, "name", "")
+    if not game_name:
+        return None
+    try:
+        import json
+        from Utils.config_paths import get_fomod_selections_path
+        sel_path = get_fomod_selections_path(game_name, mod_name)
+        if sel_path.is_file():
+            with open(sel_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            log_fn("Restored previous FOMOD selections.")
+            return data
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _persist_fomod_selection(game, mod_name: str, selections,
+                             profile: bool = True) -> None:
+    """Write the wizard's selections to the global per-game JSON (restored on
+    the next install of this mod) and optionally mirror them into the profile
+    (Tk parity: interactive installs write both; the collection orchestrator
+    mirrors to the profile itself, so it passes profile=False)."""
+    if selections is None:
+        return
+    game_name = getattr(game, "name", "")
+    if game_name:
+        try:
+            import json
+            from Utils.config_paths import get_fomod_selections_path
+            sel_path = get_fomod_selections_path(game_name, mod_name)
+            with open(sel_path, "w", encoding="utf-8") as f:
+                json.dump(selections, f, indent=2)
+        except OSError:
+            pass
+    if profile:
+        _write_profile_fomod_selection(game, mod_name, selections)
+
+
 def _read_saved_bain_selections(game, mod_name: str, log_fn: LogFn) -> "dict | None":
     """Load a previously-saved BAIN selection for *mod_name* (global config) so
     the picker restores the user's last choices (Tk parity)."""
@@ -1389,31 +1501,36 @@ def _copy_tree(src_root: Path, dest_root: Path, log_fn: LogFn, _p) -> None:
 
 
 def _install_fomod(fomod_base: Path, config, dest_root: Path,
-                   selections, log_fn: LogFn, _p) -> bool:
+                   selections, log_fn: LogFn, _p,
+                   context: "tuple[set, set, set] | None" = None) -> bool:
     """Stage a FOMOD's files. *selections* is the wizard's
     {step_idx_str: {group_name: [plugin_names]}} dict; None → the FOMOD's own
-    default selections. Uses the neutral `resolve_files` to map src→dst and
-    apply requiredInstallFiles + conditional installs. Returns False on failure
-    (caller falls back to verbatim copy)."""
+    default selections. *context* is the (installed, active, loose) file sets
+    its conditions evaluate against. Uses the neutral `resolve_files` to map
+    src→dst and apply requiredInstallFiles + conditional installs. Returns
+    False on failure (caller falls back to verbatim copy)."""
     try:
         from Utils.fomod_installer import (
             resolve_files, get_default_selections, update_flags)
     except Exception as exc:
         log_fn(f"FOMOD installer unavailable ({exc}).")
         return False
+    installed, active, loose = context or (set(), set(), set())
 
     if not selections:
         # Build default selections per step, threading flag state through.
         selections = {}
         flag_state: dict = {}
         for i, step in enumerate(getattr(config, "steps", []) or []):
-            sels = get_default_selections(step, flag_state, set())
+            sels = get_default_selections(step, flag_state, installed,
+                                          active, loose)
             selections[str(i)] = sels
             flag_state = update_flags(step, sels, flag_state)
         log_fn("FOMOD: using default/recommended options.")
 
     try:
-        files = resolve_files(config, selections)   # [(src_rel, dst_rel, is_folder)]
+        # [(src_rel, dst_rel, is_folder)]
+        files = resolve_files(config, selections, installed, active, loose)
     except Exception as exc:
         log_fn(f"FOMOD resolve_files failed ({exc}).")
         return False

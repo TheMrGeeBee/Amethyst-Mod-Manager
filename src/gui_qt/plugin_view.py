@@ -322,6 +322,32 @@ class PluginView(QTreeView):
                 mods.add(mod)
         return mods
 
+    # ---- persistent marker-strip overlays (Tk parity) --------------------
+    def refresh_missing_marker(self) -> None:
+        """Repaint the persistent red marker-strip ticks for every plugin that
+        has missing masters (PF_MISSING flag). Selection-independent — mirrors
+        the Tk marker strip's top-priority 'missing masters' band. Call after
+        the model's rows change (reload)."""
+        sb = getattr(self, "_marker_strip", None)
+        if sb is None:
+            return
+        m = self.model()
+        rows = {i for i in range(m.rowCount())
+                if (m.row(i).flags & PF_MISSING)}
+        sb.set_persistent_rows(missing=rows)
+
+    def set_master_highlight(self, master_names_lower: set) -> None:
+        """Green-tick the marker strip for the rows whose plugin is a master of
+        the currently-selected plugin (Tk parity). Pass an empty set to clear."""
+        sb = getattr(self, "_marker_strip", None)
+        if sb is None:
+            return
+        wanted = {n.lower() for n in (master_names_lower or ())}
+        m = self.model()
+        rows = {i for i in range(m.rowCount())
+                if m.row(i).name.lower() in wanted}
+        sb.set_persistent_rows(master=rows)
+
     def set_highlight_from_mods(self, mod_names: set, bsa_higher: set,
                                 bsa_lower: set, owner: dict,
                                 bsa_index_path=None):

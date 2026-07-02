@@ -25,13 +25,15 @@ from PySide6.QtWidgets import (
 from gui_qt.theme_qt import active_palette, _c
 from Utils.fomod_installer import (
     get_visible_steps, get_default_selections, update_flags,
-    validate_selections,
+    validate_selections, resolve_plugin_type,
 )
 
 
 class FomodWizardView(QWidget):
     def __init__(self, config, mod_base: Path, mod_name: str,
-                 on_finish, on_cancel, parent=None):
+                 on_finish, on_cancel, parent=None, *,
+                 saved_selections=None, selections_path=None,
+                 installed_files=None, active_files=None, loose_files=None):
         super().__init__(parent)
         self._config = config
         self._base = Path(mod_base)
@@ -43,7 +45,17 @@ class FomodWizardView(QWidget):
         # Per-config-step selections: {step_idx_str: {group_name: [plugin_name]}}.
         self._all_selections: dict[str, dict] = {}
         self._flag_state: dict = {}
-        self._installed: set = set()
+        # Context sets FOMOD conditions evaluate against (plugins.txt /
+        # loadorder.txt / filemap — see mod_install._collection_plugin_context).
+        self._installed: set = installed_files or set()
+        self._active: set = active_files or set()
+        self._loose: set = loose_files or set()
+        # Selections saved by the previous install of this mod (global config
+        # JSON): pre-checked (merged with defaults) + highlighted in green so
+        # the user can spot prior choices (Tk parity). Accepts both index-keyed
+        # (new) and step-name-keyed (old on-disk JSON) formats.
+        self._saved_selections: dict = saved_selections or {}
+        self._selections_path = selections_path   # Path|None — Reset button
         self._visible_steps = []
         self._cur = 0
         # Live widget state for the current step: group_name → controls info.
@@ -117,6 +129,12 @@ class FomodWizardView(QWidget):
         # Button bar.
         bar = QWidget(); bar.setObjectName("BottomBar")
         bb = QHBoxLayout(bar); bb.setContentsMargins(12, 8, 12, 8)
+        reset_btn = QPushButton("Reset Selections"); reset_btn.setObjectName("FormButton")
+        reset_btn.setCursor(Qt.PointingHandCursor)
+        reset_btn.setToolTip("Forget the saved selections for this mod and "
+                             "restart the wizard with its defaults")
+        reset_btn.clicked.connect(self._on_reset)
+        bb.addWidget(reset_btn)
         self._err = QLabel("")
         self._err.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
         bb.addWidget(self._err)
@@ -145,11 +163,25 @@ class FomodWizardView(QWidget):
     def _refresh_visible_steps(self):
         try:
             self._visible_steps = get_visible_steps(
-                self._config, self._flag_state, self._installed)
+                self._config, self._flag_state, self._installed,
+                self._active, self._loose)
         except Exception:
             self._visible_steps = list(self._config.steps)
         if not self._visible_steps:
             self._visible_steps = list(self._config.steps)
+
+    def _plugin_type(self, plugin) -> str:
+        try:
+            return resolve_plugin_type(plugin, self._flag_state, self._installed,
+                                       self._active, self._loose)
+        except Exception:
+            return "Optional"
+
+    def _plugin_type_by_name(self, group, name: str) -> str:
+        for p in group.plugins:
+            if p.name == name:
+                return self._plugin_type(p)
+        return "Optional"
 
     def _load_step(self, idx: int):
         self._cur = max(0, min(idx, len(self._visible_steps) - 1))
@@ -163,21 +195,57 @@ class FomodWizardView(QWidget):
                 w.deleteLater()
         self._group_state = {}
 
-        # Default selections for this step if not already chosen.
-        saved = self._all_selections.get(step_key)
-        if saved is None:
+        # Restore or compute default selections for this step.
+        # Priority: current session > saved from previous install > computed
+        # defaults. Saved selections are merged with auto-detected defaults so
+        # that newly installed mods still get their compatibility patches
+        # auto-selected (Tk parity — gui/fomod_dialog._load_step).
+        existing = self._all_selections.get(step_key)
+        if existing is None:
             try:
-                saved = get_default_selections(step, self._flag_state, self._installed)
+                defaults = get_default_selections(
+                    step, self._flag_state, self._installed,
+                    self._active, self._loose)
             except Exception:
-                saved = {}
+                defaults = {}
+            saved = (self._saved_selections.get(step_key)
+                     or self._saved_selections.get(step.name))
+            if saved is not None:
+                existing = {}
+                group_map = {g.name: g for g in step.groups}
+                for group_name, default_plugins in defaults.items():
+                    saved_plugins = saved.get(group_name, [])
+                    group = group_map.get(group_name)
+                    if group and saved_plugins:
+                        # Drop any saved plugin whose type is now NotUsable; if
+                        # that empties the group, fall back to the defaults.
+                        filtered = [
+                            p for p in saved_plugins
+                            if self._plugin_type_by_name(group, p) != "NotUsable"
+                        ]
+                        if not filtered and saved_plugins:
+                            existing[group_name] = default_plugins
+                        else:
+                            existing[group_name] = filtered
+                    else:
+                        existing[group_name] = saved_plugins or default_plugins
+            else:
+                existing = defaults
+
+        # Prior-install choices per group — highlighted in green so the user
+        # can revert if they change their mind. Empty on a fresh install.
+        saved_for_step = (self._saved_selections.get(step_key)
+                          or self._saved_selections.get(step.name)
+                          or {})
 
         # Show the description/image of the first SELECTED option (so a restored
         # choice is reflected on the left), falling back to the first plugin.
         selected_plugin = None
         first_plugin = None
         for group in step.groups:
-            sel_names = saved.get(group.name, [])
-            self._build_group(group, sel_names)
+            sel_names = existing.get(group.name, [])
+            self._build_group(group, sel_names,
+                              set(saved_for_step.get(group.name, [])))
             if first_plugin is None and group.plugins:
                 first_plugin = group.plugins[0]
             if selected_plugin is None:
@@ -193,7 +261,7 @@ class FomodWizardView(QWidget):
         self._next_btn.setText("Finish" if self._cur >= total - 1 else "Next")
         self._err.setText("")
 
-    def _build_group(self, group, selected_names):
+    def _build_group(self, group, selected_names, previously_saved=frozenset()):
         gtype = group.group_type
         box = QFrame(); box.setObjectName("FomodGroup")
         box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -202,13 +270,25 @@ class FomodWizardView(QWidget):
         gl.setObjectName("FomodGroupTitle")
         bl.addWidget(gl)
 
+        def _style(control, locked: bool, plugin):
+            # Tk parity: Required/NotUsable options are locked + dimmed; a
+            # choice saved by the previous install shows in green so the user
+            # can revert if they change their mind.
+            if locked:
+                control.setEnabled(False)
+                control.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
+            elif plugin.name in previously_saved:
+                control.setStyleSheet(f"color:{self._c('TEXT_OK')};")
+
         controls = []
         if gtype in ("SelectExactlyOne", "SelectAtMostOne"):
             bg = QButtonGroup(box)
             bg.setExclusive(gtype == "SelectExactlyOne")
             for plugin in group.plugins:
+                ptype = self._plugin_type(plugin)
                 rb = QRadioButton(plugin.name)
                 rb.setChecked(plugin.name in selected_names)
+                _style(rb, ptype in ("Required", "NotUsable"), plugin)
                 self._hook_hover(rb, plugin)
                 bg.addButton(rb)
                 bl.addWidget(rb)
@@ -216,11 +296,17 @@ class FomodWizardView(QWidget):
             self._group_state[group.name] = ("radio", gtype, controls)
         else:   # SelectAtLeastOne / SelectAny / SelectAll
             for plugin in group.plugins:
+                ptype = self._plugin_type(plugin)
                 cb = QCheckBox(plugin.name)
-                checked = plugin.name in selected_names or gtype == "SelectAll"
-                cb.setChecked(checked)
-                if gtype == "SelectAll":
-                    cb.setEnabled(False)
+                if gtype == "SelectAll" or ptype == "Required":
+                    cb.setChecked(True)
+                elif ptype == "NotUsable":
+                    cb.setChecked(False)
+                else:
+                    cb.setChecked(plugin.name in selected_names)
+                locked = (gtype == "SelectAll"
+                          or ptype in ("Required", "NotUsable"))
+                _style(cb, locked, plugin)
                 self._hook_hover(cb, plugin)
                 bl.addWidget(cb)
                 controls.append((plugin, cb))
@@ -322,6 +408,22 @@ class FomodWizardView(QWidget):
         self._flag_state = flag_state
 
     # ---- buttons ----------------------------------------------------------
+    def _on_reset(self):
+        """Delete the saved-selections file and restart the wizard from step 0
+        with the FOMOD's own defaults (Tk parity)."""
+        if self._selections_path is not None:
+            try:
+                import os
+                os.remove(self._selections_path)
+            except OSError:
+                pass
+        self._saved_selections = {}
+        self._all_selections = {}
+        self._flag_state = {}
+        self._err.setText("")
+        self._refresh_visible_steps()
+        self._load_step(0)
+
     def _on_back(self):
         if self._cur <= 0:
             return
@@ -334,7 +436,9 @@ class FomodWizardView(QWidget):
         step = self._visible_steps[self._cur]
         sels = self._all_selections.get(str(self._config_step_idx(step)), {})
         try:
-            errors = validate_selections(step, sels, self._flag_state, self._installed)
+            errors = validate_selections(step, sels, self._flag_state,
+                                         self._installed, self._active,
+                                         self._loose)
         except Exception:
             errors = []
         if errors:

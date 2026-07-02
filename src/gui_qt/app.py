@@ -81,6 +81,8 @@ class MainWindow(QMainWindow):
     _col_extract = Signal(str, object)         # ("queue"|"add"|"remove", payload)
     _col_row = Signal(int)                     # file_id installed
     _col_finished = Signal(str, object)        # ("done"|"paused"|"cancelled", payload)
+    _col_import_done = Signal(object)          # (profile_name, installed, total, skipped)
+    _import_file_picked = Signal(object)       # portal picker result (Path|None) → UI thread
     # Worker blocks on these to show the deferred FOMOD / BAIN pickers (holder+Event).
     _col_fomod = Signal(object)
     _col_bain = Signal(object)
@@ -162,7 +164,7 @@ class MainWindow(QMainWindow):
         self._vsplit.addWidget(self._log_view)
         self._vsplit.setStretchFactor(0, 1)
         self._vsplit.setStretchFactor(1, 0)
-        self._vsplit.setCollapsible(0, False)
+        self._vsplit.setCollapsible(0, True)     # drag past min → log fills window
         self._vsplit.setCollapsible(1, True)     # log collapses to 0; handle stays
         self._vsplit.setHandleWidth(4)
         self._vsplit.splitterMoved.connect(lambda *_: self._sync_log_controls())
@@ -224,6 +226,7 @@ class MainWindow(QMainWindow):
         self._col_install_overlay = None
         self._col_install_control = None
         self._col_install_slug = ""
+        self._col_bundle_zip = ""      # local .amethyst pending bundle extraction
         self._col_status.connect(self._on_col_status)
         self._col_progress.connect(self._on_col_progress)
         self._col_agg.connect(self._on_col_agg)
@@ -231,6 +234,8 @@ class MainWindow(QMainWindow):
         self._col_extract.connect(self._on_col_extract)
         self._col_row.connect(self._on_col_row)
         self._col_finished.connect(self._on_col_finished)
+        self._col_import_done.connect(self._on_import_bundle_done)
+        self._import_file_picked.connect(self._on_import_file_picked)
         self._col_fomod.connect(self._on_col_fomod_ui)
         self._col_bain.connect(self._on_col_bain_ui)
         QTimer.singleShot(0, self._ensure_nexus_api)
@@ -466,8 +471,35 @@ class MainWindow(QMainWindow):
             # Plugin selected → orange its owning mod, clear mod conflict tint.
             mv.set_highlighted_mods(mods)
             mv.clearSelection()
+            # Green-tick the selected plugin's masters in the plugin marker
+            # strip (Tk parity).
+            pv.set_master_highlight(self._selected_plugin_masters())
         finally:
             self._xpanel_busy = False
+
+    def _selected_plugin_masters(self) -> set:
+        """Lowercase master filenames of the currently-selected plugin(s), read
+        from each plugin's resolved on-disk path. Empty if nothing selected or
+        paths are unavailable."""
+        pv = self._plugin_view
+        rows = pv.selectionModel().selectedRows()
+        if not rows:
+            return set()
+        paths = getattr(self, "_plugin_paths", None)
+        if not paths:
+            return set()
+        from Utils.plugin_parser import read_masters
+        masters: set = set()
+        for idx in rows:
+            r = self._plugin_model.row(idx.row())
+            p = paths.get(r.name.lower())
+            if p is None:
+                continue
+            try:
+                masters.update(m.lower() for m in read_masters(p))
+            except Exception:
+                pass
+        return masters
 
     def _on_data_select_mod(self, mod):
         """A Data-tab file row was selected → orange-highlight its winning mod in
@@ -944,6 +976,8 @@ class MainWindow(QMainWindow):
             actions=[
                 ("Add new profile…", lambda: self._on_profile_action("add")),
                 ("Profile settings…", lambda: self._on_profile_action("settings")),
+                ("Export profile…", lambda: self._on_profile_action("export")),
+                ("Import profile…", lambda: self._on_profile_action("import")),
             ],
             on_select=self._on_profile_changed,
         )
@@ -1347,6 +1381,11 @@ class MainWindow(QMainWindow):
         revision_number = getattr(detail_view, "_revision_number", None)
         # Manifest rule: this collection must be installed as a NEW profile.
         recommend_new = bool(getattr(detail_view, "_recommend_new_profile", False))
+        # Local-manifest import (Import profile): a parsed manifest to feed straight
+        # into the orchestrator + a local .amethyst whose bundled mods/profile files
+        # are extracted after install. Both empty for a normal Nexus collection.
+        local_manifest = getattr(detail_view, "_local_manifest", None)
+        bundle_zip = getattr(detail_view, "_bundle_zip_path", "") or ""
         mods = detail_view.install_mods(skipped)
         if not mods:
             self._notify("This collection has no installable mods.", "info")
@@ -1378,7 +1417,9 @@ class MainWindow(QMainWindow):
                              "slug": slug, "dl_path": dl_path,
                              "revision": revision_number, "mods": mods,
                              "skipped": set(skipped), "game": game, "api": api,
-                             "recommend_new": recommend_new, "intent": intent})
+                             "recommend_new": recommend_new, "intent": intent,
+                             "local_manifest": local_manifest,
+                             "bundle_zip": bundle_zip})
 
         threading.Thread(target=_premium_worker, daemon=True,
                          name="col-premium").start()
@@ -1624,6 +1665,11 @@ class MainWindow(QMainWindow):
         skipped = info["skipped"]; dl_path = info["dl_path"]
         self._col_install_slug = slug
         update_context = info.get("update_context")
+        # Local-manifest import: feed the parsed manifest to the orchestrator (no
+        # Nexus fetch) and remember the .amethyst so its bundled mods + profile
+        # files are extracted once the Nexus mods finish installing.
+        local_manifest = info.get("local_manifest")
+        self._col_bundle_zip = info.get("bundle_zip") or ""
 
         # Resolve the install mode chosen in the mode overlay (default: new).
         mode_result = info.get("mode_result") or ("new", None, False, False)
@@ -1712,6 +1758,7 @@ class MainWindow(QMainWindow):
                     revision_number=revision_number, skipped_fids=skipped,
                     skipped_mods=skipped_mods, overwrite_existing=overwrite_existing,
                     skip_existing=skip_existing_arg, update_context=update_context,
+                    collection_schema_cache=local_manifest,
                     callbacks=callbacks, control=control)
             except Exception as exc:
                 import traceback
@@ -1812,10 +1859,12 @@ class MainWindow(QMainWindow):
         UI to open the FOMOD wizard, and BLOCKS until the user Finishes/Cancels."""
         import threading
 
-        def _cb(config, base, name, installed, active, loose):
+        def _cb(config, base, name, installed, active, loose, saved=None):
             holder = {"result": None}
             ev = threading.Event()
             self._col_fomod.emit({"config": config, "base": base, "name": name,
+                                  "installed": installed, "active": active,
+                                  "loose": loose, "saved": saved,
                                   "holder": holder, "event": ev})
             ev.wait()
             return holder["result"]
@@ -1843,9 +1892,19 @@ class MainWindow(QMainWindow):
             self._show_col_overlay()
             ev.set()
 
+        _sel_path = None
+        _game_name = getattr(getattr(self._gs, "game", None), "name", "")
+        if _game_name:
+            from Utils.config_paths import get_fomod_selections_path
+            _sel_path = get_fomod_selections_path(_game_name, payload["name"])
         view = FomodWizardView(payload["config"], payload["base"], payload["name"],
                                on_finish=lambda sel: _finish_ev(sel),
-                               on_cancel=lambda: _finish_ev(None))
+                               on_cancel=lambda: _finish_ev(None),
+                               saved_selections=payload.get("saved"),
+                               selections_path=_sel_path,
+                               installed_files=payload.get("installed"),
+                               active_files=payload.get("active"),
+                               loose_files=payload.get("loose"))
         # Closing the tab (or a stop request) counts as cancel so we never hang.
         view.destroyed.connect(lambda *_: _finish_ev(None))
         self._tabs.open_tab(view, f"Install: {payload['name']}",
@@ -2017,6 +2076,15 @@ class MainWindow(QMainWindow):
 
         # done
         installed, skipped_n, total, profile_name = payload
+        # Local-manifest import: extract bundled mods + profile files from the
+        # .amethyst over the freshly-installed profile, then reload. Handled on a
+        # worker (unzipping can be sizeable) → reload marshaled back via a Signal.
+        bundle_zip = getattr(self, "_col_bundle_zip", "") or ""
+        self._col_bundle_zip = ""
+        if bundle_zip and Path(bundle_zip).is_file():
+            self._finish_import_bundle(bundle_zip, profile_name, ov,
+                                       installed, total, skipped_n)
+            return
         if ov is not None:
             ov.finish(f"Done — {installed}/{total} installed.")
             QTimer.singleShot(1500, self._dismiss_col_overlay)
@@ -2024,14 +2092,66 @@ class MainWindow(QMainWindow):
         msg = f"Collection installed — {installed}/{total} mod(s)"
         self._notify(msg + (f" ({skipped_n} skipped)" if skipped_n else ""), "success")
 
+    # ---- Import profile: local-bundle extraction -------------------------
+    def _finish_import_bundle(self, bundle_zip, profile_name, ov,
+                              installed, total, skipped_n):
+        """Extract a local .amethyst's bundled mods + profile files into the
+        just-installed profile on a worker, then reload on the UI thread."""
+        import threading
+        game = self._gs.game
+        if game is None:
+            self._select_installed_collection_profile(profile_name)
+            return
+        profile_dir = game.get_profile_root() / "profiles" / profile_name
+        if ov is not None:
+            ov.set_status("Restoring bundled mods + profile files…")
+
+        def _worker():
+            try:
+                # Resolve the imported profile's own mods/overwrite dirs (it's a
+                # profile_specific_mods profile → <profile_dir>/mods + /overwrite).
+                # Set it active first so get_effective_*_path resolves to it.
+                prev = getattr(game, "_active_profile_dir", None)
+                try:
+                    game.set_active_profile_dir(profile_dir)
+                    game.load_paths()
+                    mods_dir = game.get_effective_mod_staging_path()
+                    overwrite_dir = game.get_effective_overwrite_path()
+                finally:
+                    game.set_active_profile_dir(prev)
+                    game.load_paths()
+                from Utils import profile_export
+                profile_export.install_local_bundle(
+                    bundle_zip, profile_dir, mods_dir, overwrite_dir,
+                    log_fn=lambda m: self._op_log.emit(str(m)))
+            except Exception as exc:
+                self._op_log.emit(f"[import] bundle extraction failed: {exc}")
+            self._col_import_done.emit(
+                (profile_name, int(installed), int(total), int(skipped_n)))
+
+        threading.Thread(target=_worker, daemon=True, name="import-bundle").start()
+
+    def _on_import_bundle_done(self, payload):
+        profile_name, installed, total, skipped_n = payload
+        ov = self._col_install_overlay
+        if ov is not None:
+            ov.finish(f"Imported — {installed}/{total} installed.")
+            QTimer.singleShot(1500, self._dismiss_col_overlay)
+        # Rebuild the mod index for the imported bundle mods, then reload.
+        self._select_installed_collection_profile(profile_name, rescan_index=True)
+        msg = f"Profile imported — {installed}/{total} mod(s)"
+        self._notify(msg + (f" ({skipped_n} skipped)" if skipped_n else ""),
+                     "success")
+
     def _dismiss_col_overlay(self):
         if self._col_install_overlay is not None:
             self._col_install_overlay.dismiss()
             self._col_install_overlay = None
 
-    def _select_installed_collection_profile(self, profile_name):
+    def _select_installed_collection_profile(self, profile_name, rescan_index=False):
         """Switch the profile selector to the freshly-installed collection profile
-        and reload the panels + Open-Current."""
+        and reload the panels + Open-Current. *rescan_index* forces a full mod-index
+        rebuild (needed after an import extracts bundle mods straight to disk)."""
         try:
             profs = self._gs.profiles()
             self._profile_selector.set_items(profs, current=profile_name)
@@ -2039,7 +2159,7 @@ class MainWindow(QMainWindow):
             self._profile_selector.set_current(profile_name)
         except Exception as exc:
             self._append_log(f"[collection] profile switch failed: {exc}")
-        self._reload_modlist()
+        self._reload_modlist(rescan_index=rescan_index)
         self._reload_plugins()
         try:
             self._update_deployed_profile_highlight()
@@ -3240,8 +3360,112 @@ class MainWindow(QMainWindow):
             self._new_profile_bar.open_for()
         elif which == "settings":
             self._open_profile_settings_tab()
+        elif which == "export":
+            self._open_export_profile_tab()
+        elif which == "import":
+            self._import_profile()
         else:
             self._append_log(f"[profile] {which} (not wired yet)")
+
+    def _open_export_profile_tab(self):
+        """Open the Export Profile panel scoped over the MODLIST panel (like Profile
+        Settings): per-mod source/version/optional config + Export to a .amethyst."""
+        if self._gs.game_name is None:
+            self._notify("No game selected.", "warning")
+            return
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        if self._tabs.has_key("export_profile"):
+            self._tabs.focus_key("export_profile")
+            return
+        api = self._ensure_nexus_api()   # optional — version/size fetch needs it
+        from gui_qt.export_profile_view import ExportProfileView
+        view = ExportProfileView(self, game, api, log_fn=self._append_log)
+        self._export_profile_view = view
+        self._tabs.open_scoped_tab(
+            view, "Export Profile", self._modlist_panel_stack,
+            key="export_profile")
+
+    def _import_profile(self):
+        """Import a .amethyst / manifest: parse it, then reuse the collection detail
+        + install pipeline (via CollectionDetailView with a local manifest) to build
+        a new profile from it. Requires a configured game matching the manifest."""
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            return
+        # Native picker via the XDG portal (portal_filechooser). The callback fires
+        # on a WORKER thread — QTimer.singleShot(0, …) from there never fires (no
+        # event loop on that thread), so marshal to the GUI thread with a Signal
+        # (auto-queued to the receiver's thread).
+        from Utils.portal_filechooser import pick_file
+        pick_file(
+            "Import profile",
+            lambda p: self._import_file_picked.emit(p),
+            filters=[("Amethyst Manifest (*.amethyst *.zip *.json)",
+                      ["*.amethyst", "*.zip", "*.json"]),
+                     ("All files", ["*"])])
+
+    def _on_import_file_picked(self, picked):
+        """GUI thread: continue the import once a file was chosen in the portal."""
+        if not picked:
+            return
+        path = str(picked)
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            return
+        from Utils import profile_export
+        try:
+            manifest = profile_export.read_manifest(path)
+        except Exception as exc:
+            self._notify(f"Could not read manifest: {exc}", "error")
+            return
+        if not isinstance(manifest, dict) or not manifest.get("mods"):
+            self._notify("That file doesn't look like an Amethyst manifest.",
+                         "warning")
+            return
+        # Game-domain guard: v1 requires the selected game to match the manifest.
+        man_domain = ((manifest.get("info") or {}).get("domainName") or "").strip()
+        game_domain = (getattr(game, "nexus_game_domain", "") or "").strip()
+        if man_domain and game_domain and man_domain.lower() != game_domain.lower():
+            self._notify(
+                f"This profile targets '{man_domain}', but the selected game is "
+                f"'{game_domain}'. Switch games first, then import.", "warning")
+            return
+
+        # Build a bare NexusCollection + open the detail tab populated from the
+        # manifest; the bundle zip (if a .amethyst) restores mods/profile after.
+        from Nexus.nexus_api import NexusCollection
+        name = (manifest.get("info") or {}).get("name") or Path(path).stem
+        collection = NexusCollection(
+            id=0, slug=f"import_{Path(path).stem}", name=name,
+            game_domain=man_domain or game_domain)
+        bundle_zip = path if Path(path).suffix.lower() in (".amethyst", ".zip") else ""
+        key = f"import_profile_{Path(path).stem}"
+        if self._tabs.has_key(key):
+            self._tabs.focus_key(key)
+            return
+        from gui_qt.collection_detail_view import CollectionDetailView
+        view = CollectionDetailView(
+            api, collection, game, log_fn=self._append_log,
+            local_manifest=manifest, bundle_zip=bundle_zip)
+        view.set_install_handler(
+            lambda chosen, skipped, intent="install": self._install_collection(
+                collection, view, chosen, skipped, intent))
+        self._tabs.open_tab(view, f"Import: {name}", key=key)
 
     def _open_profile_settings_tab(self):
         """Open the Profile Settings panel scoped over the MODLIST panel (like the
@@ -3946,9 +4170,20 @@ class MainWindow(QMainWindow):
                 self._notify(f"Install cancelled: {prepared.mod_name}", "info")
                 self._one_install_done.emit(None)
 
+            _sel_path = None
+            _game_name = getattr(prepared.game, "name", "")
+            if _game_name:
+                from Utils.config_paths import get_fomod_selections_path
+                _sel_path = get_fomod_selections_path(_game_name,
+                                                      prepared.mod_name)
+            _inst, _act, _loose = prepared.fomod_context
             view = FomodWizardView(prepared.fomod_config, prepared.fomod_base,
                                    prepared.mod_name, on_finish=_finish,
-                                   on_cancel=_cancel)
+                                   on_cancel=_cancel,
+                                   saved_selections=prepared.saved_fomod_selections,
+                                   selections_path=_sel_path,
+                                   installed_files=_inst, active_files=_act,
+                                   loose_files=_loose)
             # Closing the tab (× / detached-window close) cancels the install.
             view.destroyed.connect(lambda *_: _cancel())
             self._tabs.open_tab(view, f"Install: {prepared.mod_name}",
@@ -5063,6 +5298,15 @@ class MainWindow(QMainWindow):
         self._plugin_view.profile_dir = self._gs.profile_dir()
         self._plugin_view.on_plugins_changed = self._reload_plugins
         self._apply_plugin_search()
+        # Persistent red marker-strip ticks for plugins with missing masters
+        # (Tk parity) — recomputed from the freshly-loaded PF_MISSING flags.
+        self._plugin_view.refresh_missing_marker()
+        # Resolved plugin paths (name.lower → on-disk path) power the master-
+        # highlight on plugin selection; clear any stale master ticks.
+        from gui_qt.plugin_state import resolve_plugin_paths_for_game
+        self._plugin_paths = (resolve_plugin_paths_for_game(self._gs.game)
+                              if self._gs.game is not None else {})
+        self._plugin_view.set_master_highlight(set())
         # Row indices/flags changed — re-apply any active plugin filter.
         if getattr(self, "_plugin_filter_panel", None) is not None:
             self._apply_plugin_filters()

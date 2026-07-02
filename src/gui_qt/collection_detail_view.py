@@ -89,7 +89,8 @@ class CollectionDetailView(QWidget):
     _manifest_ready = Signal(object)    # list[(name, url)]
 
     def __init__(self, api, collection, game, log_fn=None, on_install=None,
-                 revision_number=None, parent=None):
+                 revision_number=None, local_manifest=None, bundle_zip=None,
+                 parent=None):
         super().__init__(parent)
         self._api = api
         self._collection = collection
@@ -100,7 +101,12 @@ class CollectionDetailView(QWidget):
                         or getattr(collection, "game_domain", "") or "")
         self._mods = []
         self._dl_path = ""                          # collection-archive download link
-        self._recommend_new_profile = False         # manifest rule: force new profile
+        # Local-manifest import: populate from a parsed manifest dict instead of the
+        # API, and (optionally) restore bundled mods + profile files from a local
+        # .amethyst zip after install. Forces a NEW profile (no revision on Nexus).
+        self._local_manifest = local_manifest
+        self._bundle_zip_path = str(bundle_zip) if bundle_zip else ""
+        self._recommend_new_profile = bool(local_manifest)  # imports → new profile
         self._opt_boxes: list[tuple[QCheckBox, int]] = []   # (checkbox, file_id)
         self._revision_number = revision_number    # None = latest published
         # A ctor-requested revision (e.g. Open Current) — the FIRST fetch is still
@@ -114,7 +120,53 @@ class CollectionDetailView(QWidget):
         self._detail_ready.connect(self._on_detail_ready)
         self._manifest_ready.connect(self._on_manifest_ready)
         self._build()
-        self._start_detail_fetch()
+        if self._local_manifest is not None:
+            self._populate_from_local_manifest()
+        else:
+            self._start_detail_fetch()
+
+    # -- local-manifest import ---------------------------------------------
+    def _populate_from_local_manifest(self):
+        """Fill the mod table + off-site panel from a parsed local manifest dict
+        (no API). Port of the Tk CollectionsDialog._fetch_from_local_manifest."""
+        from Nexus.nexus_api import NexusCollectionMod as _NCM
+        cj = self._local_manifest or {}
+        schema_mods = cj.get("mods", [])
+        mods = []
+        total_size = 0
+        offsite: list[tuple[str, str]] = []
+        for m in schema_mods:
+            src = m.get("source") or {}
+            src_type = (src.get("type") or "nexus").lower()
+            mod_name = m.get("name") or ""
+            fid = int(src.get("fileId") or 0)
+            mid = int(src.get("modId") or 0)
+            file_size = int(src.get("fileSize") or 0)
+            total_size += file_size
+            if src.get("bundle") is True or src_type == "bundle":
+                mods.append(_NCM(mod_name=mod_name,
+                                 file_name=mod_name, source_type="bundle"))
+                continue
+            if src_type in ("browse", "direct"):
+                url = src.get("url") or src.get("fileUrl") or ""
+                if url:
+                    offsite.append((mod_name, url))
+                continue
+            cat = m.get("category") or {}
+            mods.append(_NCM(
+                mod_id=mid, file_id=fid, mod_name=mod_name,
+                file_name=src.get("logicalFilename") or mod_name,
+                size_bytes=file_size, optional=bool(m.get("optional", False)),
+                source_type="nexus", version=m.get("version") or "",
+                category_id=int(cat.get("id") or 0),
+                category_name=(cat.get("name") or "").strip(),
+                domain_name=(m.get("domainName") or "").strip()))
+        self._mods = mods
+        self._size_lbl.setText(
+            f"Total size: {fmt_size(total_size)}  |  {len(mods)} mods")
+        self._fill_table()
+        self._fill_optional()
+        self._on_manifest_ready(offsite)
 
     # -- construction -------------------------------------------------------
     def _build(self):
