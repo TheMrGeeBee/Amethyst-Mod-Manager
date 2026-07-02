@@ -295,6 +295,15 @@ class MainWindow(QMainWindow):
         self._col_fomod.connect(self._on_col_fomod_ui)
         self._col_bain.connect(self._on_col_bain_ui)
         QTimer.singleShot(0, self._ensure_nexus_api)
+        # First-run onboarding: show it (as a fullscreen tab) when the flag is
+        # unset/0 OR no games are configured (Tk parity — re-appears after the
+        # last game is removed). Deferred so the window finishes building first.
+        self._onboarding_view = None
+        from Utils.ui_config import load_onboarding_complete
+        from gui.game_helpers import _GAMES
+        configured = sum(1 for g in _GAMES.values() if g.is_configured())
+        if not load_onboarding_complete() or configured == 0:
+            QTimer.singleShot(0, self._open_onboarding_tab)
 
     def _populate_selectors(self):
         """Fill the game/profile selectors from the current GameState."""
@@ -1348,6 +1357,39 @@ class MainWindow(QMainWindow):
             self._append_log(f"[nexus] logged in as {name}")
         if hasattr(self, "_nexus_footer"):
             self._nexus_footer.set_username(name)
+
+    def _open_onboarding_tab(self):
+        """Open first-run onboarding as a fullscreen detachable tab (like the
+        Nexus browser). Any dismissal — Skip, Add-a-Game, tab X, detach-close —
+        persists onboarding_complete=1 via the view's destroyed handler."""
+        if self._tabs.has_key("onboarding"):
+            self._tabs.focus_key("onboarding")
+            return
+        from gui_qt.onboarding_view import OnboardingView
+        view = OnboardingView(
+            on_login=self._nexus_login_sso,
+            on_add_game=self._open_add_game_tab,
+            on_done=self._finish_onboarding,
+            already_logged_in=self._ensure_nexus_api() is not None,
+        )
+        self._onboarding_view = view
+        # ANY dismissal (Skip, Add-Game, tab X, detach-close) tears the view
+        # down → mark onboarding done + drop the ref.
+        view.destroyed.connect(self._on_onboarding_destroyed)
+        self._tabs.open_tab(view, "Welcome", key="onboarding")
+
+    def _finish_onboarding(self):
+        """Called by the view's on_done (Skip / Add-a-Game). Just close the tab;
+        the destroyed handler persists the flag."""
+        self._tabs.close_tab("onboarding")
+
+    def _on_onboarding_destroyed(self, *_):
+        from Utils.ui_config import save_onboarding_complete
+        try:
+            save_onboarding_complete(True)
+        except Exception:
+            pass
+        self._onboarding_view = None
 
     def _open_nexus_browser_tab(self):
         """Open the Nexus Mods browser as a detachable tab. Needs a configured
@@ -2459,6 +2501,13 @@ class MainWindow(QMainWindow):
             self._ensure_nexus_api()   # rebuild api + kick the validate() worker
             self._notify("Logged in to Nexus Mods.", "info")
             self._append_log("[nexus] OAuth login complete")
+            # If onboarding is open, update its Nexus page (Skip → Next).
+            ov = getattr(self, "_onboarding_view", None)
+            if ov is not None:
+                try:
+                    ov.on_logged_in()
+                except Exception:
+                    pass
 
     # ---- Check for updates -------------------------------------------------
     # Reuses the toolkit-neutral Nexus.nexus_update_checker.check_for_updates,

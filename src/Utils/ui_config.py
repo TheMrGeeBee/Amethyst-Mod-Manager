@@ -23,6 +23,8 @@ _META_SECTION = "meta"
 _APP_INI_VERSION = 2
 # Last-used game + profile (restored at startup).
 _SESSION_SECTION = "session"
+# First-run onboarding completion flag (missing/0 → show onboarding on launch).
+_ONBOARDING_SECTION = "onboarding"
 _INI_OPTION = "scale"
 _INI_AUTO = "auto"
 _DEFAULT_SCALE = 1.0
@@ -1282,6 +1284,37 @@ def save_download_cache_path(value: str) -> None:
     if _PATHS_SECTION not in parser:
         parser[_PATHS_SECTION] = {}
     parser[_PATHS_SECTION]["download_cache_path"] = value.strip()
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_onboarding_complete() -> bool:
+    """Return True once first-run onboarding has been finished/dismissed.
+
+    False when the file / section / key is missing (covers 'missing or 0'), so
+    a fresh amethyst.ini shows the onboarding on launch exactly once.
+    """
+    path = get_ui_config_path()
+    if not path.is_file():
+        return False
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.getboolean(_ONBOARDING_SECTION, "complete", fallback=False)
+    except Exception:
+        return False
+
+
+def save_onboarding_complete(value: bool) -> None:
+    """Persist the onboarding completion flag to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _ONBOARDING_SECTION not in parser:
+        parser[_ONBOARDING_SECTION] = {}
+    parser[_ONBOARDING_SECTION]["complete"] = "1" if value else "0"
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
