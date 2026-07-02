@@ -28,6 +28,8 @@ PF_LOOT = 1 << 4       # LOOT masterlist messages/requirements/incompatibilities
 PF_DIRTY = 1 << 5      # dirty edits (needs cleaning)
 PF_TAGS = 1 << 6       # bash tags
 PF_MASTER = 1 << 7     # master (.esm or master-flagged)
+PF_USERLIST = 1 << 8   # managed in userlist.yaml (white dot)
+PF_UL_CYCLE = 1 << 9   # userlist rules form a broken cycle (dot turns red)
 
 
 @dataclass
@@ -211,6 +213,7 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
     rows = [_to_row(e, vanilla, resolved, data_dir) for e in ordered]
     _apply_master_checks(rows, resolved, data_dir)
     _apply_loot_flags(rows, p.parent)
+    _apply_userlist_flags(rows, p.parent)
     return rows
 
 
@@ -298,6 +301,24 @@ def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
             r.flags |= PF_DIRTY
         if d.get("tags"):
             r.flags |= PF_TAGS
+
+
+def _apply_userlist_flags(rows: list[PluginRow], profile_dir: Path) -> None:
+    """Flag plugins managed by <profile>/userlist.yaml (white dot; red when
+    their rules form a cycle). Mirrors Tk _refresh_userlist_set + _predraw."""
+    try:
+        from Utils.userlist import read_userlist_state
+        state = read_userlist_state(profile_dir / "userlist.yaml")
+    except Exception:
+        return
+    if not state.plugins:
+        return
+    for r in rows:
+        low = r.name.lower()
+        if low in state.plugins:
+            r.flags |= PF_USERLIST
+            if low in state.cycle_plugins:
+                r.flags |= PF_UL_CYCLE
 
 
 def apply_loot_sort(rows: list[PluginRow], locked_indices: dict[int, PluginRow],

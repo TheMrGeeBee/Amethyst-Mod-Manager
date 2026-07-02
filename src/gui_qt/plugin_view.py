@@ -23,14 +23,18 @@ from gui_qt.plugin_model import (
 )
 from gui_qt.plugin_state import (
     PF_MISSING, PF_LATE, PF_VMM, PF_ESL, PF_LOOT, PF_DIRTY, PF_TAGS, PF_MASTER,
+    PF_USERLIST, PF_UL_CYCLE,
 )
 
-# Flag bit → icon filename, painted left→right (order matches the Tk app).
-# ESL is drawn as a cyan "L" text badge (handled specially), not an icon.
-_PLUGIN_FLAG_ICONS = [
+# Flag bit → icon filename, painted left→right (order matches the Tk app:
+# missing, late, vmm, userlist dot, esl, loot, dirty, tags). The userlist dot
+# and the ESL cyan "L" badge are drawn specially, not as icons.
+_PLUGIN_FLAG_ICONS_PRE = [
     (PF_MISSING, "warning2.png"),
     (PF_LATE, "warning.png"),
     (PF_VMM, "info.png"),
+]
+_PLUGIN_FLAG_ICONS_POST = [
     (PF_LOOT, "Loot_info.png"),
     (PF_DIRTY, "brush.png"),
     (PF_TAGS, "tag.png"),
@@ -63,6 +67,10 @@ class PluginDelegate(QStyledItemDelegate):
         self.c_check_off = QColor(_c(p, "BG_DEEP"))
         self.c_esl = QColor(_c(p, "TONE_BLUE_SOFT"))
         self.c_master = QColor(_c(p, "TEXT_WARN"))
+        # Userlist dot (Tk parity: TEXT_WHITE fill, STATUS_BADGE_RED when the
+        # plugin's userlist rules form a cycle).
+        self.c_ul_dot = QColor(_c(p, "TEXT_WHITE"))
+        self.c_ul_dot_cycle = QColor(_c(p, "STATUS_BADGE_RED"))
         # Cross-panel highlight tints (exact Tk conflict colours).
         self.c_hl_higher = QColor("#108d00")
         self.c_hl_lower = QColor("#9a0e0e")
@@ -157,14 +165,20 @@ class PluginDelegate(QStyledItemDelegate):
         p.drawText(name_rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
 
     def _paint_flags(self, p, r, bits):
-        # Ordered flag glyphs: the icon flags, then the ESL 'L' badge. (There is
-        # no master indicator — Tk doesn't show one; masters are implied by ext.)
+        # Ordered flag glyphs in the Tk draw order: warning icons, the userlist
+        # dot, the ESL 'L' badge, then the LOOT/dirty/tags icons. (There is no
+        # master indicator — Tk doesn't show one; masters are implied by ext.)
         items = []
-        for bit, name in _PLUGIN_FLAG_ICONS:
+        for bit, name in _PLUGIN_FLAG_ICONS_PRE:
             if bits & bit:
                 items.append(("icon", name))
+        if bits & PF_USERLIST:
+            items.append(("uldot", None))
         if bits & PF_ESL:
             items.append(("esl", None))
+        for bit, name in _PLUGIN_FLAG_ICONS_POST:
+            if bits & bit:
+                items.append(("icon", name))
         if not items:
             return
         sz = 18
@@ -177,6 +191,16 @@ class PluginDelegate(QStyledItemDelegate):
                 f = QFont(); f.setBold(True); f.setPixelSize(13); p.setFont(f)
                 p.setPen(self.c_esl)
                 p.drawText(cell, Qt.AlignCenter, "L")
+            elif kind == "uldot":
+                # Small filled circle: white = managed in userlist.yaml,
+                # red = its rules currently form a broken cycle (Tk parity).
+                dot_r = 4
+                p.setRenderHint(p.RenderHint.Antialiasing, True)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QBrush(self.c_ul_dot_cycle if (bits & PF_UL_CYCLE)
+                                  else self.c_ul_dot))
+                p.drawEllipse(cell.center(), dot_r, dot_r)
+                p.setRenderHint(p.RenderHint.Antialiasing, False)
             else:
                 ic = icon(name, sz)
                 if not ic.isNull():

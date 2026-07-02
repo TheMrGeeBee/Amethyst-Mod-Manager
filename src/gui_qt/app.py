@@ -296,6 +296,15 @@ class MainWindow(QMainWindow):
         pp.setSpacing(0)
         pp.addWidget(plugins_body, 1)
         pp.addWidget(self._plugin_footer_stack)
+        # Inline userlist edit bars (hidden until opened from the plugins
+        # context menu — Tk parity: rows 5/6 at the bottom of the plugins tab).
+        from gui_qt.userlist_bars import UserlistBar, GroupBar
+        self._ul_bar = UserlistBar(self._userlist_path,
+                                   self._on_userlist_bar_saved)
+        self._grp_bar = GroupBar(self._userlist_path,
+                                 self._on_userlist_bar_saved)
+        pp.addWidget(self._ul_bar)
+        pp.addWidget(self._grp_bar)
         self._plugins_panel_stack = QStackedWidget()
         self._plugins_panel_stack.addWidget(plugins_panel)               # page 0
         rc.addWidget(self._plugins_panel_stack, 1)
@@ -480,6 +489,14 @@ class MainWindow(QMainWindow):
             pv.set_master_highlight(self._selected_plugin_masters())
         finally:
             self._xpanel_busy = False
+        # Follow the selection in the open Plugin Rules tab (Tk parity:
+        # _on_plugin_row_selected_cb → set_selected_plugin).
+        if self._tabs.has_key("plugin_rules"):
+            rules_view = getattr(self, "_plugin_rules_view", None)
+            sel = self._plugin_view.selectionModel().selectedRows()
+            if rules_view is not None and sel:
+                rules_view.set_selected_plugin(
+                    self._plugin_model.row(sel[0].row()).name)
 
     def _selected_plugin_masters(self) -> set:
         """Lowercase master filenames of the currently-selected plugin(s), read
@@ -640,13 +657,13 @@ class MainWindow(QMainWindow):
             self._plugin_footer_btns.append(b)
         btns.addStretch(1)
         v.addLayout(btns)
-        # Store + wire the buttons that are implemented (Groups / Plugin Rules
-        # are deferred — they stay as inert placeholders for now).
         self._plugin_sort_btn = _made["Sort Plugins"]
         self._plugin_groups_btn = _made["Groups"]
         self._plugin_rules_btn = _made["Plugin Rules"]
         self._plugin_filters_btn = _made["Filters"]
         self._plugin_sort_btn.clicked.connect(self._on_sort_plugins)
+        self._plugin_groups_btn.clicked.connect(self._open_plugin_groups_tab)
+        self._plugin_rules_btn.clicked.connect(self._open_plugin_rules_tab)
         self._plugin_filters_btn.clicked.connect(self._toggle_plugin_filters)
 
         search = QLineEdit()
@@ -1103,6 +1120,8 @@ class MainWindow(QMainWindow):
         if self._tabs.has_key("dll_overrides"):
             self._tabs.close_tab("dll_overrides")
             self._dll_overrides_view = None
+        # Userlist tabs/bars hold the previous profile's userlist path.
+        self._close_userlist_ui()
         # Retarget the Nexus / Collections browsers (if open) at the new game so
         # they show the new game's mods instead of holding a stale domain. A
         # missing/empty Nexus domain closes them (nothing to show).
@@ -1164,6 +1183,8 @@ class MainWindow(QMainWindow):
             return
         self._gs.set_profile(name)
         self._profile_selector.set_current(name)
+        # Userlist tabs/bars are profile-scoped (userlist.yaml lives there).
+        self._close_userlist_ui()
         self._clear_search_boxes()
         self._reload_modlist()
         self._reload_plugins()
@@ -5403,7 +5424,237 @@ class MainWindow(QMainWindow):
             self._apply_plugin_filters()
         self._refresh_plugin_stats()
         self._refresh_framework_banner()
+        # Userlist state → PF_USERLIST/PF_UL_CYCLE bits were already applied by
+        # load_plugins; push the membership sets (context-menu predicates), the
+        # group map (flags tooltip), and the userlist action callbacks.
+        from Utils.userlist import read_userlist_state
+        state = read_userlist_state(self._userlist_path())
+        self._userlist_state = state
+        self._plugin_view.userlist_plugins = state.plugins
+        self._plugin_view.userlist_cycles = state.cycle_plugins
+        self._plugin_model.set_userlist_groups(state.group_map)
+        self._plugin_view.on_userlist_add = self._on_userlist_add
+        self._plugin_view.on_group_add = self._on_group_add
+        self._plugin_view.on_userlist_remove = self._on_userlist_remove
+        self._plugin_view.on_show_cycle = self._open_plugin_cycle_tab
         print(f"[gui_qt] plugins: {len(rows)} entries")
+
+    # ---- LOOT userlist (groups / rules / cycle / flag) ---------------------
+    def _userlist_path(self):
+        """<active profile>/userlist.yaml, or None without a profile (matches
+        the Tk _get_userlist_path and the Sort Plugins path resolution)."""
+        pdir = self._gs.profile_dir()
+        return (pdir / "userlist.yaml") if pdir else None
+
+    def _refresh_userlist_flags(self):
+        """Light refresh after a userlist.yaml edit: re-read the state and
+        update each plugin row's PF_USERLIST/PF_UL_CYCLE bits + the menu sets +
+        the tooltip group map, without a full plugin reload (Tk parity:
+        _refresh_userlist_set + _predraw)."""
+        from gui_qt.plugin_state import PF_USERLIST, PF_UL_CYCLE
+        from gui_qt.plugin_model import COL_FLAGS, PFlagsRole
+        from Utils.userlist import read_userlist_state
+        state = read_userlist_state(self._userlist_path())
+        self._userlist_state = state
+        self._plugin_view.userlist_plugins = state.plugins
+        self._plugin_view.userlist_cycles = state.cycle_plugins
+        m = self._plugin_model
+        m.set_userlist_groups(state.group_map)
+        for r in m._rows:
+            r.flags &= ~(PF_USERLIST | PF_UL_CYCLE)
+            low = r.name.lower()
+            if low in state.plugins:
+                r.flags |= PF_USERLIST
+                if low in state.cycle_plugins:
+                    r.flags |= PF_UL_CYCLE
+        if m._rows:
+            m.dataChanged.emit(m.index(0, COL_FLAGS),
+                               m.index(len(m._rows) - 1, COL_FLAGS),
+                               [PFlagsRole, Qt.ToolTipRole])
+
+    def _on_userlist_bar_saved(self, message: str):
+        """An inline bar (Add to userlist / Add to group) wrote userlist.yaml."""
+        self._notify(message, "success")
+        self._refresh_userlist_flags()
+
+    def _close_userlist_ui(self):
+        """Close the userlist-scoped tabs + hide the inline bars — they hold
+        the previous game/profile's userlist path."""
+        for key in ("plugin_groups", "plugin_rules", "plugin_cycle"):
+            if self._tabs.has_key(key):
+                self._tabs.close_tab(key)
+        self._plugin_rules_view = None
+        self._plugin_cycle_view = None
+        self._cycle_anchor = ""
+        self._cycle_scope = frozenset()
+        for bar in (getattr(self, "_ul_bar", None),
+                    getattr(self, "_grp_bar", None)):
+            if bar is not None:
+                bar.cancel()
+
+    def _open_plugin_groups_tab(self):
+        """Footer 'Groups' button → LOOT Groups tab over the modlist panel."""
+        ul_path = self._userlist_path()
+        if ul_path is None:
+            self._notify("No active profile — cannot configure groups.",
+                         "warning")
+            return
+        # Tk closes any existing overlay first so the view reflects the file.
+        if self._tabs.has_key("plugin_groups"):
+            self._tabs.close_tab("plugin_groups")
+        from gui_qt.plugin_groups_view import PluginGroupsView
+        view = PluginGroupsView(
+            ul_path,
+            on_close=lambda: self._tabs.close_tab("plugin_groups"),
+            on_saved=self._refresh_userlist_flags,
+        )
+        self._tabs.open_scoped_tab(view, "LOOT Groups",
+                                   self._modlist_panel_stack,
+                                   key="plugin_groups")
+
+    def _open_plugin_rules_tab(self):
+        """Footer 'Plugin Rules' button → per-plugin rules tab over the
+        modlist panel. Follows the plugins-panel selection while open."""
+        ul_path = self._userlist_path()
+        if ul_path is None:
+            self._notify("No active profile — cannot configure plugin rules.",
+                         "warning")
+            return
+        if self._tabs.has_key("plugin_rules"):
+            self._tabs.close_tab("plugin_rules")
+        plugin_names = [r.name for r in self._plugin_model._rows]
+        sel_rows = self._plugin_view.selectionModel().selectedRows()
+        sel_name = (self._plugin_model.row(sel_rows[0].row()).name
+                    if sel_rows else "")
+        from gui_qt.plugin_rules_view import PluginRulesView
+        view = PluginRulesView(
+            plugin_names, ul_path, selected_plugin=sel_name,
+            on_close=lambda: self._tabs.close_tab("plugin_rules"),
+            on_saved=self._refresh_userlist_flags,
+        )
+        self._plugin_rules_view = view
+        self._tabs.open_scoped_tab(view, "LOOT Plugin Rules",
+                                   self._modlist_panel_stack,
+                                   key="plugin_rules")
+
+    def _open_plugin_cycle_tab(self, plugin_name: str):
+        """'Show cycle…' / 'Show userlist rules…' → cycle tab over the modlist
+        panel, pinned to the plugin's SCC (or its whole rule component)."""
+        ul_path = self._userlist_path()
+        if ul_path is None:
+            return
+        from Utils.userlist import parse_userlist, userlist_rule_component
+        name_lower = plugin_name.lower()
+        state = getattr(self, "_userlist_state", None)
+        component = (state.cycle_components.get(name_lower)
+                     if state is not None else None)
+        if not component:
+            data = (parse_userlist(ul_path) if ul_path.is_file()
+                    else {"plugins": [], "groups": []})
+            component = userlist_rule_component(data, name_lower)
+        if not component:
+            self._notify(f"{plugin_name} has no userlist rules to display.",
+                         "info")
+            return
+        if self._tabs.has_key("plugin_cycle"):
+            self._tabs.close_tab("plugin_cycle")
+        # Freeze the plugin set at open time. Subsequent flips keep showing
+        # these plugins' rules even if the cycle is gone, so the user can
+        # revert or adjust further (Tk parity).
+        self._cycle_anchor = name_lower
+        self._cycle_scope = component
+        from gui_qt.plugin_cycle_view import PluginCycleView
+        view = PluginCycleView(
+            plugin_name,
+            on_close=lambda: self._tabs.close_tab("plugin_cycle"),
+            on_flip=self._on_flip_plugin_rule,
+        )
+        self._plugin_cycle_view = view
+        self._tabs.open_scoped_tab(view, "Plugin Cycle",
+                                   self._modlist_panel_stack,
+                                   key="plugin_cycle")
+        self._refresh_cycle_tab_data()
+
+    def _refresh_cycle_tab_data(self):
+        """Push the pinned scope's current rules to the open cycle tab."""
+        if not self._tabs.has_key("plugin_cycle"):
+            return
+        view = getattr(self, "_plugin_cycle_view", None)
+        anchor = getattr(self, "_cycle_anchor", "")
+        scope = getattr(self, "_cycle_scope", frozenset())
+        if view is None or not anchor or not scope:
+            return
+        from Utils.userlist import parse_userlist, build_cycle_scope_data
+        ul_path = self._userlist_path()
+        data = (parse_userlist(ul_path) if (ul_path and ul_path.is_file())
+                else {"plugins": [], "groups": []})
+        display: dict[str, str] = {}
+        for r in self._plugin_model._rows:
+            display[r.name.lower()] = r.name
+        for entry in data.get("plugins", []):
+            raw = entry.get("name") or ""
+            if raw:
+                display.setdefault(raw.lower(), raw)
+        info = build_cycle_scope_data(data, scope, display)
+        view.update_cycle(
+            starting_plugin=display.get(anchor, anchor),
+            scope_plugins=scope,
+            display_names=display,
+            **info,
+        )
+
+    def _on_flip_plugin_rule(self, owner: str, field: str, target: str):
+        """Cycle-tab Flip button: move target between the owner entry's
+        after/before lists, save, refresh flag + tab."""
+        from Utils.userlist import (parse_userlist, write_userlist,
+                                    flip_plugin_rule)
+        ul_path = self._userlist_path()
+        if ul_path is None or not ul_path.is_file():
+            self._notify("userlist.yaml not found — cannot flip rule.",
+                         "warning")
+            return
+        data = parse_userlist(ul_path)
+        if not flip_plugin_rule(data, owner, field, target):
+            self._notify(f"Rule {owner} '{field}' {target} not found in "
+                         "userlist.yaml.", "warning")
+            return
+        write_userlist(ul_path, data)
+        other = "before" if field == "after" else "after"
+        self._notify(f"Flipped: {owner} now '{other}' {target}", "success")
+        self._refresh_userlist_flags()
+        self._refresh_cycle_tab_data()
+
+    # ---- userlist context-menu actions (plugin_menu callbacks) -------------
+    def _on_userlist_add(self, plugin_name: str, row: int):
+        """'Add to userlist…' — open the inline bar prefilled with the
+        plugin's current load-order neighbours (Tk _add_plugin_to_userlist)."""
+        if self._userlist_path() is None:
+            self._notify("No active profile — cannot edit userlist.", "warning")
+            return
+        rows = self._plugin_model._rows
+        after_plugin = rows[row - 1].name if row > 0 else ""
+        before_plugin = rows[row + 1].name if row + 1 < len(rows) else ""
+        self._ul_bar.open_for(plugin_name, after_plugin, before_plugin)
+
+    def _on_group_add(self, plugin_names: list):
+        """'Add to group…' — open the inline group-assignment bar."""
+        if self._userlist_path() is None:
+            self._notify("No active profile — cannot assign group.", "warning")
+            return
+        self._grp_bar.open_for(plugin_names)
+
+    def _on_userlist_remove(self, plugin_names: list):
+        """'Remove from userlist' — drop the plugins' entries and refresh."""
+        from Utils.userlist import parse_userlist, write_userlist, remove_plugins
+        ul_path = self._userlist_path()
+        if ul_path is None:
+            return
+        data = parse_userlist(ul_path)
+        remove_plugins(data, plugin_names)
+        write_userlist(ul_path, data)
+        self._notify(f"Removed from userlist: {len(plugin_names)} plugin(s)",
+                     "success")
+        self._refresh_userlist_flags()
 
     # ---- Sort Plugins (LOOT) ----------------------------------------------
     def _on_sort_plugins(self):

@@ -4,15 +4,17 @@ Mirrors the Tk menu (gui/plugin_panel.py `_show_plugin_context_menu`, 4760-4935)
 and follows the same show-vs-hide convention as the modlist menu
 (gui_qt/modlist_menu.py): each item is SHOWN only when its Tk condition holds and
 HIDDEN otherwise. The only greyed items are the ones still awaiting a Qt backend
-(userlist / groups / cycles / BOS-SP / overlapping-plugins / LOOT links), and even
-those appear only when their Tk show-condition passes.
+(BOS-SP / overlapping-plugins / LOOT links), and even those appear only when
+their Tk show-condition passes.
 
 Vanilla (base-game) plugins are always-on and can't be toggled — right-clicking a
 vanilla-only selection shows NO menu (Tk parity: it filters to non-vanilla rows and
 returns early if none remain).
 
-Core items wired now: Enable / Disable (single + multi) and the ESL flag toggle
-(single + multi). The rest are gated greyed stubs to fill in 1-by-1 later.
+Core items wired: Enable / Disable (single + multi), the ESL flag toggle
+(single + multi), and the userlist items (Add to userlist / Add to group /
+Remove from userlist / Show cycle / Show userlist rules — via view callbacks
+set by app._reload_plugins). The rest are gated greyed stubs.
 """
 
 from __future__ import annotations
@@ -129,25 +131,34 @@ def _build_plugin_menu(view, model, row, toggleable, multi,
             divider()
             _build_esl_items(view, model, esl_rows, multi, act, stub)
 
-    # ---- userlist / groups / cycles (stubs — LOOT userlist.yaml) ----------
-    # All gated on userlist backend not ported to Qt → predicates false → hidden.
+    # ---- userlist / groups / cycles (LOOT userlist.yaml) -------------------
+    # The app sets the callbacks + membership sets on the view in
+    # _reload_plugins; hide the whole block when they're absent (no profile).
     divider()
+    ul_add = getattr(view, "on_userlist_add", None)
+    grp_add = getattr(view, "on_group_add", None)
+    ul_remove = getattr(view, "on_userlist_remove", None)
+    show_cycle = getattr(view, "on_show_cycle", None)
     if not multi:
         name = model.row(row).name
-        if not _in_userlist(view, name):
-            stub("Add to userlist…")
-        stub("Add to group…")
-        if _in_userlist(view, name):
-            stub("Remove from userlist")
-        if _in_cycle(view, name):
-            stub("Show cycle…")
-        elif _in_userlist(view, name):
-            stub("Show userlist rules…")
+        if not _in_userlist(view, name) and callable(ul_add):
+            act("Add to userlist…",
+                lambda n=name, r=row: ul_add(n, r))
+        if callable(grp_add):
+            act("Add to group…", lambda n=name: grp_add([n]))
+        if _in_userlist(view, name) and callable(ul_remove):
+            act("Remove from userlist", lambda n=name: ul_remove([n]))
+        if _in_cycle(view, name) and callable(show_cycle):
+            act("Show cycle…", lambda n=name: show_cycle(n))
+        elif _in_userlist(view, name) and callable(show_cycle):
+            act("Show userlist rules…", lambda n=name: show_cycle(n))
     else:
         names = [model.row(i).name for i in toggleable]
-        stub("Add selected to group…")
-        if any(_in_userlist(view, n) for n in names):
-            stub("Remove selected from userlist")
+        if callable(grp_add):
+            act("Add selected to group…", lambda ns=names: grp_add(ns))
+        if any(_in_userlist(view, n) for n in names) and callable(ul_remove):
+            act("Remove selected from userlist",
+                lambda ns=names: ul_remove(ns))
 
     # ---- Show overlapping plugins… (stub — gated on loot_sort_enabled) ----
     if not multi and getattr(game, "loot_sort_enabled", False):
@@ -273,11 +284,13 @@ def _bos_sp_rows(view, indices) -> list:
 
 
 def _in_userlist(view, name: str) -> bool:
-    return False
+    """Plugin has an entry in userlist.yaml (set pushed by app._reload_plugins)."""
+    return name.lower() in (getattr(view, "userlist_plugins", None) or set())
 
 
 def _in_cycle(view, name: str) -> bool:
-    return False
+    """Plugin's userlist rules form a broken cycle (set pushed by the app)."""
+    return name.lower() in (getattr(view, "userlist_cycles", None) or set())
 
 
 def _loot_locations(view, name: str) -> list:
