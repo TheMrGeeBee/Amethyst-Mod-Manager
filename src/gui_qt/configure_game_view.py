@@ -726,7 +726,110 @@ class ConfigureGameView(QWidget):
         except Exception as exc:
             print(f"[gui_qt] profile structure create failed: {exc}", flush=True)
 
+        # Silently install this game's prefix dependencies (vcredist /
+        # d3dcompiler_47) in the background, exactly like the Tk add dialog did.
+        self._install_prefix_deps()
+
         self._on_done(True, False)
+
+    def _install_prefix_deps(self) -> None:
+        """Silently install this game's prefix dependencies in the background.
+
+        Two mechanisms, both skipped when no Proton prefix is available:
+          * ``auto_install_deps`` — vcredist / d3dcompiler_47 via the same
+            installers the Proton Tools menu uses (preferred; see base_game).
+          * ``winetricks_components`` — legacy winetricks verbs.
+
+        Progress is reported via ``Utils.app_log.app_log`` (thread-safe; wired
+        into the Qt log panel by gui_qt.glue), so this worker touches no widgets.
+        """
+        game = self._game
+        prefix = game.get_prefix_path() if hasattr(game, "get_prefix_path") else None
+        if not (prefix and Path(prefix).is_dir()):
+            return
+        prefix = Path(prefix)
+
+        deps = list(getattr(game, "auto_install_deps", []))
+        components = list(getattr(game, "winetricks_components", []))
+        if not deps and not components:
+            return
+
+        def _worker():
+            from Utils.app_log import app_log
+            from Utils.protontricks import (
+                D3D_DEP_KEY,
+                VCREDIST_DEP_KEY,
+                _install_via_winetricks,
+                build_proton_env_for_game,
+                install_d3dcompiler_47,
+                install_vcredist,
+                is_dep_installed,
+            )
+            from Utils.steam_finder import game_steam_id
+
+            _proton: tuple = ()
+
+            def _ensure_proton():
+                nonlocal _proton
+                if not _proton:
+                    _proton = build_proton_env_for_game(game)
+                return _proton
+
+            installed: list[str] = []
+            skipped: list[str] = []
+            failed: list[str] = []
+
+            app_log(f"{game.name}: checking prefix dependencies …")
+
+            for dep in deps:
+                if dep == "vcredist":
+                    if is_dep_installed(prefix, VCREDIST_DEP_KEY):
+                        app_log(f"{game.name}: VC++ Redistributable already installed — skipping.")
+                        skipped.append("vcredist")
+                        continue
+                    proton_script, env = _ensure_proton()
+                    if proton_script is None:
+                        app_log(f"{game.name}: skipping vcredist — no Proton prefix available.")
+                        skipped.append("vcredist")
+                        continue
+                    app_log(f"{game.name}: auto-installing VC++ Redistributable …")
+                    ok = install_vcredist(proton_script, env, log_fn=app_log, prefix_path=prefix)
+                    (installed if ok else failed).append("vcredist")
+                elif dep == "d3dcompiler_47":
+                    if is_dep_installed(prefix, D3D_DEP_KEY):
+                        app_log(f"{game.name}: d3dcompiler_47 already installed — skipping.")
+                        skipped.append("d3dcompiler_47")
+                        continue
+                    app_log(f"{game.name}: auto-installing d3dcompiler_47 …")
+                    ok = install_d3dcompiler_47(
+                        game_steam_id(game), log_fn=app_log, prefix_path=prefix)
+                    (installed if ok else failed).append("d3dcompiler_47")
+                else:
+                    app_log(f"{game.name}: unknown auto_install dep '{dep}' — skipping.")
+                    skipped.append(dep)
+
+            for comp in components:
+                app_log(f"{game.name}: installing {comp} via winetricks …")
+                if _install_via_winetricks(prefix, comp, app_log):
+                    installed.append(comp)
+                else:
+                    app_log(f"{game.name}: {comp} install failed (see log above).")
+                    failed.append(comp)
+
+            summary = []
+            if installed:
+                summary.append(f"installed {', '.join(installed)}")
+            if skipped:
+                summary.append(f"skipped {', '.join(skipped)}")
+            if failed:
+                summary.append(f"FAILED {', '.join(failed)}")
+            app_log(
+                f"{game.name}: prefix dependency setup done"
+                + (f" — {'; '.join(summary)}." if summary else ".")
+            )
+
+        threading.Thread(target=_worker, daemon=True,
+                         name="install-prefix-deps").start()
 
     # ---- destructive actions ----------------------------------------------
     def _confirm(self, title, text, on_yes):
