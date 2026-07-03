@@ -1,0 +1,235 @@
+name: Build Artifacts
+
+# Reusable build workflow — called by release.yml (tag publish) and
+# test-build.yml (manual test builds). Produces the AppImage and/or
+# Flatpak bundle as run artifacts; publishing is the caller's job.
+on:
+  workflow_call:
+    inputs:
+      build_appimage:
+        description: Build the AppImage
+        type: boolean
+        default: true
+      build_flatpak:
+        description: Build the Flatpak bundle
+        type: boolean
+        default: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # libloot must be built once per target Python ABI:
+  #   - Arch container (AppImage): Python 3.14 → cp314 .so
+  #   - KDE 6.9 runtime (Flatpak): Python 3.12 → cp312 .so
+  #     (freedesktop-sdk 24.08, which KDE 6.9 inherits, ships Python 3.12)
+  # Each is cached independently keyed on libloot HEAD + Python version.
+  # ────────────────────────────────────────────────────────────────────
+  libloot-arch:
+    name: libloot (Arch / cp314)
+    if: ${{ inputs.build_appimage }}
+    runs-on: ubuntu-latest
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    outputs:
+      so-name: ${{ steps.detect.outputs.so-name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          pacman -Syy --noconfirm
+          pacman -S --noconfirm \
+              python python-pip base-devel rust git unzip
+
+      - name: Resolve libloot revision and Python ABI
+        id: detect
+        run: |
+          LIBLOOT_REV=$(git ls-remote https://github.com/loot/libloot.git HEAD | awk '{print substr($1,1,12)}')
+          PY_TAG=$(python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
+          SO_NAME="loot.cpython-${PY_TAG#cp}-x86_64-linux-gnu.so"
+          echo "libloot-rev=$LIBLOOT_REV"  >> "$GITHUB_OUTPUT"
+          echo "py-tag=$PY_TAG"            >> "$GITHUB_OUTPUT"
+          echo "so-name=$SO_NAME"          >> "$GITHUB_OUTPUT"
+
+      - name: Cache built extension
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: src/LOOT/${{ steps.detect.outputs.so-name }}
+          key: libloot-${{ steps.detect.outputs.libloot-rev }}-${{ steps.detect.outputs.py-tag }}
+
+      - name: Build extension
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash src/LOOT/rebuild_libloot.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libloot-cp314
+          path: src/LOOT/loot.cpython-*-x86_64-linux-gnu.so
+          if-no-files-found: error
+          retention-days: 1
+
+  # libloot for Python 3.12 — needed by the Flatpak (KDE 6.9 runtime
+  # ships Python 3.12). Built on a plain Ubuntu runner with
+  # actions/setup-python because the Flathub container has no usable
+  # package manager and the Arch container ships Python 3.14.
+  libloot-flatpak:
+    name: libloot (KDE 6.9 / cp312)
+    if: ${{ inputs.build_flatpak }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve libloot revision
+        id: detect
+        run: |
+          LIBLOOT_REV=$(git ls-remote https://github.com/loot/libloot.git HEAD | awk '{print substr($1,1,12)}')
+          PY_TAG=$(python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
+          SO_NAME="loot.cpython-${PY_TAG#cp}-x86_64-linux-gnu.so"
+          echo "libloot-rev=$LIBLOOT_REV" >> "$GITHUB_OUTPUT"
+          echo "py-tag=$PY_TAG"           >> "$GITHUB_OUTPUT"
+          echo "so-name=$SO_NAME"         >> "$GITHUB_OUTPUT"
+
+      - name: Cache built extension
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: src/LOOT/${{ steps.detect.outputs.so-name }}
+          key: libloot-${{ steps.detect.outputs.libloot-rev }}-${{ steps.detect.outputs.py-tag }}
+
+      - name: Build extension
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash src/LOOT/rebuild_libloot.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libloot-cp312
+          path: src/LOOT/loot.cpython-*-x86_64-linux-gnu.so
+          if-no-files-found: error
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────
+  # AppImage build (quick-sharun in the Arch container).
+  # ────────────────────────────────────────────────────────────────────
+  appimage:
+    name: AppImage
+    if: ${{ inputs.build_appimage }}
+    needs: libloot-arch
+    runs-on: ubuntu-latest
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - uses: actions/checkout@v4
+
+      - name: Prepare anylinux container
+        uses: pkgforge-dev/anylinux-setup-action@v2
+
+      - name: Install build dependencies
+        run: |
+          # pyside6: the Qt GUI — installed as a system package (not pip)
+          # so quick-sharun traces the shared Qt libs and deploys their
+          # plugins. qt6-wayland: explicit because pyside6 doesn't hard-
+          # depend on it and quick-sharun only deploys wayland plugin dirs
+          # that exist on disk.
+          # libarchive: bsdtar + libarchive.so.13 for fast extraction.
+          # sudo: needed for `sudo -u builder` makepkg invocation.
+          # (base-devel is already pulled in by anylinux-setup-action.)
+          # zenity is bundled from zenity-rs-bin (static) by the PKGBUILD;
+          # not installed here.
+          pacman -Syu --noconfirm \
+              pyside6 \
+              qt6-wayland \
+              python-pip \
+              libarchive \
+              wget \
+              sudo
+
+      - name: Install debloated packages
+        run: |
+          # icu-mini: ICU is qt6-base's largest dependency; libxml2-mini:
+          # small, still a transitive dep.
+          get-debloated-pkgs \
+              icu-mini \
+              libxml2-mini
+
+      - name: Create makepkg build user
+        run: |
+          # makepkg refuses to run as root. The container is root by
+          # default, so create a user the script can sudo to.
+          if ! id builder >/dev/null 2>&1; then
+              useradd -m -G wheel builder
+              echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+              chmod 0440 /etc/sudoers.d/builder
+          fi
+
+      - name: Download libloot extension
+        uses: actions/download-artifact@v4
+        with:
+          name: libloot-cp314
+          path: src/LOOT/
+
+      - name: Disk space before build
+        run: df -h && du -sh /tmp 2>/dev/null || true
+
+      - name: Build AppImage
+        env:
+          ANYLINUX_LIB: '1'
+        run: bash src/appimage/make-appimage.sh
+
+      - name: Disk space after build
+        if: always()
+        run: df -h && du -sh /tmp/amethyst-mm-build 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AmethystModManager-AppImage
+          path: src/appimage/dist/*.AppImage
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────────────
+  # Flatpak bundle (KDE 6.9 runtime + PySide BaseApp).
+  # Pulls the cp312 libloot from libloot-flatpak, drops it into src/LOOT/
+  # so the manifest's `cp -a src/LOOT` step picks it up.
+  # ────────────────────────────────────────────────────────────────────
+  flatpak:
+    name: Flatpak
+    if: ${{ inputs.build_flatpak }}
+    needs: libloot-flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.9
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download libloot extension
+        uses: actions/download-artifact@v4
+        with:
+          name: libloot-cp312
+          path: src/LOOT/
+
+      - name: Build Flatpak bundle
+        uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+        with:
+          bundle: AmethystModManager.flatpak
+          manifest-path: flatpak/io.github.Amethyst.ModManager.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AmethystModManager-flatpak
+          path: AmethystModManager.flatpak
+          if-no-files-found: error

@@ -1,0 +1,23 @@
+name: Test Build
+
+# Manual test builds of the AppImage / Flatpak without publishing a
+# release. Artifacts land on the workflow run page — download from there.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to build
+        type: choice
+        options:
+          - both
+          - appimage
+          - flatpak
+        default: both
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+    with:
+      build_appimage: ${{ inputs.target != 'flatpak' }}
+      build_flatpak: ${{ inputs.target != 'appimage' }}
