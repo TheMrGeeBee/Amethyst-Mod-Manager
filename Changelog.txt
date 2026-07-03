@@ -4,6 +4,9 @@
 - Yes/no confirmations, text inputs, the colour picker and the download locations window now open as borderless overlays centered in the app instead of separate OS windows
 - Removed the generate separators function, Personally I didn't find it that usefull and was wasted splashscreen
 - Removed the bepinex wizard as this is just a mod that can be installed normally
+- Added localisation support and several languages (Translated via the deepl api)
+- Better theme support
+
 
 - v1.3.13
 - Runtime generated files that appear in a games root folder are now rescued and sent to the profiles root folder (the root folder separator)

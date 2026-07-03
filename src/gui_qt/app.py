@@ -7674,6 +7674,12 @@ class MainWindow(QMainWindow):
 
         h.addStretch(1)
 
+        # Changelog button — sits just left of the Nexus info; opens the
+        # bundled Changelog.txt as a detachable tab.
+        self._changelog_btn = self._text_button(self.tr("Changelog"), compact=True)
+        self._changelog_btn.clicked.connect(self._open_changelog_tab)
+        h.addWidget(self._changelog_btn)
+
         # Nexus username at the far right; hover shows API rate-limit usage.
         from gui_qt.nexus_footer import NexusFooterLabel
         self._nexus_footer = NexusFooterLabel(lambda: getattr(self, "_nexus_api", None))
@@ -7760,6 +7766,46 @@ class MainWindow(QMainWindow):
         view.destroyed.connect(
             lambda *_: setattr(self, "_log_tab_view", None))
         self._tabs.open_tab(view, self.tr("Log"), key="log")
+
+    def _find_changelog_file(self):
+        """Locate the bundled Changelog.txt across the from-source and
+        packaged (flatpak / AppImage) layouts.
+
+        From source it lives at the repo root — a level above ``src/`` (which
+        holds ``gui_qt``). In the flatpak/AppImage the tree is flattened, so it
+        sits right beside ``gui_qt``. Check both, plus the current working dir
+        (the launcher ``cd``s into the share dir before running)."""
+        from pathlib import Path
+        here = Path(__file__).resolve().parent  # .../gui_qt
+        candidates = [
+            here.parent / "Changelog.txt",         # flattened (flatpak/appimage)
+            here.parent.parent / "Changelog.txt",  # from source (repo root)
+            Path.cwd() / "Changelog.txt",
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
+        return None
+
+    def _open_changelog_tab(self):
+        """Open the bundled Changelog.txt as a read-only detachable tab."""
+        if self._tabs.has_key("changelog"):
+            self._tabs.focus_key("changelog")
+            return
+        path = self._find_changelog_file()
+        if path is not None:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                text = self.tr("Could not read the changelog:\n{0}").format(exc)
+        else:
+            text = self.tr("Changelog file not found.")
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setObjectName("LogView")
+        view.setPlainText(text)
+        view.moveCursor(QTextCursor.Start)
+        self._tabs.open_tab(view, self.tr("Changelog"), key="changelog")
 
 
 def _apply_app_identity(app) -> None:
