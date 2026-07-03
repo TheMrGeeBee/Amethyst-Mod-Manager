@@ -20,9 +20,10 @@ Usage:
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, QPoint, Signal, QCoreApplication
 from PySide6.QtWidgets import (
     QTabWidget, QTabBar, QWidget, QVBoxLayout, QMainWindow, QStackedWidget,
+    QLabel,
 )
 
 
@@ -529,9 +530,12 @@ class DetachableTabWidget(QTabWidget):
         ind = getattr(self, "_drop_ind", None)
         if show:
             if ind is None:
-                from PySide6.QtWidgets import QLabel
                 ind = QLabel(self)
-                ind.setText("Drop to redock")
+                # Explicit context: pyside6-lupdate can't statically resolve
+                # self's class here, so self.tr() would land in an empty ("")
+                # context and never match at runtime. Pin it to the class name.
+                ind.setText(QCoreApplication.translate(
+                    "DetachableTabWidget", "Drop to redock"))
                 ind.setAlignment(Qt.AlignCenter)
                 from gui_qt.theme_qt import active_palette, _c
                 acc = _c(active_palette(), "ACCENT")

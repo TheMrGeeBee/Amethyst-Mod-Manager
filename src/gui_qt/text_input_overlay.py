@@ -65,7 +65,7 @@ class TextInputOverlay(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))

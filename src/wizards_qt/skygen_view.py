@@ -66,11 +66,11 @@ class SkyGenView(WizardViewBase):
 
     # ---- page 1: scan ----------------------------------------------------------
     def _build_scan_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Scan Active Plugins")
+        page, lay = self._step_page(self.tr("Step 1: Scan Active Plugins"))
         self._make_note(lay, (
-            "SkyGen scans your active load order to find plugins that add "
+            self.tr("SkyGen scans your active load order to find plugins that add "
             "objects/records eligible for Base Object Swapper or SkyPatcher "
-            "patches, and flags those already patched."))
+            "patches, and flags those already patched.")))
         self._scan_status = self._make_status(lay)
         self._scan_bar = QProgressBar()
         self._scan_bar.setRange(0, 100)
@@ -80,12 +80,12 @@ class SkyGenView(WizardViewBase):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        self._scan_cancel_btn = QPushButton("Cancel")
+        self._scan_cancel_btn = QPushButton(self.tr("Cancel"))
         self._scan_cancel_btn.setCursor(Qt.PointingHandCursor)
         self._scan_cancel_btn.setEnabled(False)
         self._scan_cancel_btn.clicked.connect(self._request_cancel)
         rh.addWidget(self._scan_cancel_btn)
-        self._scan_btn = self._accent_btn("Scan →")
+        self._scan_btn = self._accent_btn(self.tr("Scan →"))
         self._scan_btn.clicked.connect(self._start_scan)
         rh.addWidget(self._scan_btn)
         rh.addStretch(1)
@@ -99,7 +99,7 @@ class SkyGenView(WizardViewBase):
         self._cancel = False
         self._scan_btn.setEnabled(False)
         self._scan_cancel_btn.setEnabled(True)
-        self._set_status(self._scan_status, "Scanning…")
+        self._set_status(self._scan_status, self.tr("Scanning…"))
         game = self._game
 
         def worker():
@@ -128,8 +128,8 @@ class SkyGenView(WizardViewBase):
             if not self._cancel:
                 self._set_status(
                     self._scan_status,
-                    "No active plugins found.\nMake sure a profile is loaded "
-                    "and has an active load order.", RED)
+                    self.tr("No active plugins found.\nMake sure a profile is loaded "
+                    "and has an active load order."), RED)
             return
         self._dna_map, self._lo_map, summary = result
         self._set_status(self._scan_status, summary, GREEN)
@@ -138,18 +138,18 @@ class SkyGenView(WizardViewBase):
 
     # ---- page 2: generate ---------------------------------------------------------
     def _build_generate_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Generate Patches")
+        page, lay = self._step_page(self.tr("Step 2: Generate Patches"))
         p = active_palette()
 
         mode_row = QWidget()
         mh = QHBoxLayout(mode_row); mh.setContentsMargins(0, 0, 0, 0)
-        mlbl = QLabel("Mode:")
+        mlbl = QLabel(self.tr("Mode:"))
         mlbl.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')};")
         mh.addWidget(mlbl)
         self._mode_group = QButtonGroup(self)
-        self._rb_bos = QRadioButton("Base Object Swapper")
+        self._rb_bos = QRadioButton(self.tr("Base Object Swapper"))
         self._rb_bos.setChecked(True)
-        self._rb_sp = QRadioButton("SkyPatcher")
+        self._rb_sp = QRadioButton(self.tr("SkyPatcher"))
         self._mode_group.addButton(self._rb_bos)
         self._mode_group.addButton(self._rb_sp)
         self._rb_bos.toggled.connect(lambda _c: self._populate_generate())
@@ -159,10 +159,10 @@ class SkyGenView(WizardViewBase):
 
         btn_row = QWidget()
         bh = QHBoxLayout(btn_row); bh.setContentsMargins(0, 0, 0, 0); bh.setSpacing(8)
-        sel_all = QPushButton("Select All")
+        sel_all = QPushButton(self.tr("Select All"))
         sel_all.setCursor(Qt.PointingHandCursor)
         sel_all.clicked.connect(lambda: self._set_all_checks(True))
-        des_all = QPushButton("Deselect All")
+        des_all = QPushButton(self.tr("Deselect All"))
         des_all.setCursor(Qt.PointingHandCursor)
         des_all.clicked.connect(lambda: self._set_all_checks(False))
         bh.addWidget(sel_all); bh.addWidget(des_all)
@@ -182,11 +182,11 @@ class SkyGenView(WizardViewBase):
         arow = QWidget()
         ah = QHBoxLayout(arow); ah.setContentsMargins(0, 8, 0, 0); ah.setSpacing(8)
         ah.addStretch(1)
-        back = QPushButton("← Back")
+        back = QPushButton(self.tr("← Back"))
         back.setCursor(Qt.PointingHandCursor)
         back.clicked.connect(lambda: self._stack.setCurrentIndex(_PG_SCAN))
         ah.addWidget(back)
-        self._gen_btn = self._accent_btn("Generate →")
+        self._gen_btn = self._accent_btn(self.tr("Generate →"))
         self._gen_btn.clicked.connect(self._start_generate)
         ah.addWidget(self._gen_btn)
         ah.addStretch(1)
@@ -220,7 +220,7 @@ class SkyGenView(WizardViewBase):
             iv.addWidget(chk)
         iv.addStretch(1)
         self._plugin_scroll.setWidget(inner)
-        self._plugin_count.setText(f"{len(self._plugin_checks)} eligible plugin(s)")
+        self._plugin_count.setText(self.tr("{0} eligible plugin(s)").format(len(self._plugin_checks)))
 
     def _set_all_checks(self, on: bool):
         for chk in self._plugin_checks.values():
@@ -229,7 +229,7 @@ class SkyGenView(WizardViewBase):
     def _start_generate(self):
         self._cancel = False
         self._gen_btn.setEnabled(False)
-        self._set_status(self._gen_status, "Generating…")
+        self._set_status(self._gen_status, self.tr("Generating…"))
         game = self._game
         mode = self._mode()
         dna_map, lo_map = self._dna_map, self._lo_map
@@ -256,22 +256,21 @@ class SkyGenView(WizardViewBase):
         self._out_dir = out_dir
         self._ran = True   # new mod added — refresh on close
         self._done_summary.setText(
-            f"Generated {written} {mode} patch INI(s).\n\n"
-            f"Output mod: {out_dir.name}\n{out_dir}")
+            self.tr('Generated {0} {1} patch INI(s).\n\nOutput mod: {2}\n{3}').format(written, mode, out_dir.name, out_dir))
         self._stack.setCurrentIndex(_PG_DONE)
         if getattr(self._ctx, "refresh_modlist", None):
             self._ctx.refresh_modlist()
 
     # ---- page 3: done -------------------------------------------------------------
     def _build_done_page(self) -> QWidget:
-        page, lay = self._step_page("Patch generation complete")
+        page, lay = self._step_page(self.tr("Patch generation complete"))
         self._done_summary = self._make_status(lay)
         lay.addStretch(1)
-        open_btn = QPushButton("Open output folder")
+        open_btn = QPushButton(self.tr("Open output folder"))
         open_btn.setCursor(Qt.PointingHandCursor)
         open_btn.clicked.connect(self._open_output)
         lay.addWidget(open_btn, 0, Qt.AlignHCenter)
-        done = self._green_btn("Close")
+        done = self._green_btn(self.tr("Close"))
         done.setEnabled(True)
         done.clicked.connect(self._finish)
         lay.addWidget(done, 0, Qt.AlignHCenter)

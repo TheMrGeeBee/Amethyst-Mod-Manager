@@ -88,26 +88,26 @@ class TTWView(WizardViewBase):
 
     # ---- page 0: download ------------------------------------------------------
     def _build_download_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Install the TTW MPI Installer")
+        page, lay = self._step_page(self.tr("Step 1: Install the TTW MPI Installer"))
         self._make_note(lay, (
-            "The native Linux TTW installer will be downloaded from GitHub\n"
+            self.tr("The native Linux TTW installer will be downloaded from GitHub\n"
             "and placed in this game's Applications folder.\n\n"
-            "Click Install to begin."))
-        self._make_note(lay, "Installer by SulfurNitride (TTW_Linux_Installer)")
-        gh = QPushButton("View on GitHub")
+            "Click Install to begin.")))
+        self._make_note(lay, self.tr("Installer by SulfurNitride (TTW_Linux_Installer)"))
+        gh = QPushButton(self.tr("View on GitHub"))
         gh.setCursor(Qt.PointingHandCursor)
         gh.clicked.connect(lambda: self._open_url(GITHUB_REPO_URL))
         lay.addWidget(gh, 0, Qt.AlignHCenter)
         self._dl_status = self._make_status(lay)
         lay.addStretch(1)
-        self._install_btn = self._accent_btn("Install")
+        self._install_btn = self._accent_btn(self.tr("Install"))
         self._install_btn.clicked.connect(self._start_install)
         lay.addWidget(self._install_btn, 0, Qt.AlignHCenter)
         return page
 
     def _start_install(self):
         self._install_btn.setEnabled(False)
-        self._set_status(self._dl_status, "Contacting GitHub…")
+        self._set_status(self._dl_status, self.tr("Contacting GitHub…"))
         game = self._game
 
         def worker():
@@ -183,22 +183,17 @@ class TTWView(WizardViewBase):
 
     # ---- page 1: already installed ---------------------------------------------
     def _build_already_page(self) -> QWidget:
-        page, lay = self._step_page("Tale of Two Wastelands is already installed")
+        page, lay = self._step_page(self.tr("Tale of Two Wastelands is already installed"))
         note = QLabel(
-            f"The '{OUTPUT_NAME}' mod is already in your mod list, so the "
-            "~18 GB build can be skipped.\n\n"
-            "• Re-apply setup only — re-runs the profile INI + "
-            "FalloutCustom.ini setup without rebuilding (fast).\n\n"
-            "• Rebuild from scratch — restores to vanilla and runs the full "
-            "installer again (needs the .mpi + both games).")
+            self.tr("The '{0}' mod is already in your mod list, so the ~18 GB build can be skipped.\n\n• Re-apply setup only — re-runs the profile INI + FalloutCustom.ini setup without rebuilding (fast).\n\n• Rebuild from scratch — restores to vanilla and runs the full installer again (needs the .mpi + both games).").format(OUTPUT_NAME))
         note.setWordWrap(True)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
         lay.addStretch(1)
-        reapply = self._accent_btn("Re-apply setup only")
+        reapply = self._accent_btn(self.tr("Re-apply setup only"))
         reapply.clicked.connect(self._start_setup_only)
         lay.addWidget(reapply, 0, Qt.AlignHCenter)
-        rebuild = QPushButton("Rebuild from scratch")
+        rebuild = QPushButton(self.tr("Rebuild from scratch"))
         rebuild.setCursor(Qt.PointingHandCursor)
         rebuild.clicked.connect(self._rebuild_from_scratch)
         lay.addWidget(rebuild, 0, Qt.AlignHCenter)
@@ -213,20 +208,20 @@ class TTWView(WizardViewBase):
 
     def _start_setup_only(self):
         self._goto_step(_PG_RUN)
-        self._set_status(self._run_status, "Re-applying TTW setup…")
+        self._set_status(self._run_status, self.tr("Re-applying TTW setup…"))
         threading.Thread(target=lambda: self._post_install_setup(rebuilt=False),
                          daemon=True, name="ttw-setup").start()
 
     # ---- page 2: paths ------------------------------------------------------------
     def _build_paths_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Game folders & TTW package")
+        page, lay = self._step_page(self.tr("Step 2: Game folders & TTW package"))
         self._make_note(lay, (
-            "TTW merges assets from both Fallout 3 and Fallout New Vegas, so "
+            self.tr("TTW merges assets from both Fallout 3 and Fallout New Vegas, so "
             "both games must be installed. Confirm the folders below, then "
             "select the TTW .mpi package.\n\n"
             "Get the latest TTW .mpi from mod.pub (free account required) — "
-            "extract the download and the .mpi is inside."))
-        modpub = QPushButton("Open mod.pub TTW page")
+            "extract the download and the .mpi is inside.")))
+        modpub = QPushButton(self.tr("Open mod.pub TTW page"))
         modpub.setCursor(Qt.PointingHandCursor)
         modpub.clicked.connect(lambda: self._open_url(MODPUB_URL))
         lay.addWidget(modpub, 0, Qt.AlignHCenter)
@@ -244,7 +239,7 @@ class TTWView(WizardViewBase):
 
         self._paths_status = self._make_status(lay)
         lay.addStretch(1)
-        cont = self._accent_btn("Continue")
+        cont = self._accent_btn(self.tr("Continue"))
         cont.clicked.connect(self._validate_and_run)
         lay.addWidget(cont, 0, Qt.AlignHCenter)
         return page
@@ -265,7 +260,7 @@ class TTWView(WizardViewBase):
         browse.clicked.connect(browse_cmd)
         hh.addWidget(browse)
         rl.addWidget(header)
-        val = QLabel(str(value) if value else "— not set —")
+        val = QLabel(str(value) if value else self.tr("— not set —"))
         val.setWordWrap(True)
         val.setStyleSheet(self._dim if value else f"color:{RED};")
         rl.addWidget(val)
@@ -297,32 +292,27 @@ class TTWView(WizardViewBase):
     def _validate_and_run(self):
         if self._mpi_path is None or not self._mpi_path.is_file():
             self._set_status(self._paths_status,
-                             "Please select the TTW .mpi package.", RED)
+                             self.tr("Please select the TTW .mpi package."), RED)
             return
         if self._fnv_path is None or not self._fnv_path.is_dir():
             self._set_status(self._paths_status,
-                             "Fallout New Vegas folder is not set.", RED)
+                             self.tr("Fallout New Vegas folder is not set."), RED)
             return
         if self._fo3_path is None or not self._fo3_path.is_dir():
             self._set_status(self._paths_status,
-                             "Fallout 3 folder is not set. TTW requires "
-                             "Fallout 3 to be installed.", RED)
+                             self.tr("Fallout 3 folder is not set. TTW requires "
+                             "Fallout 3 to be installed."), RED)
             return
         self._goto_step(_PG_RUN)
-        self._set_status(self._run_status, "Starting…")
+        self._set_status(self._run_status, self.tr("Starting…"))
         threading.Thread(target=self._do_run, daemon=True,
                          name="ttw-build").start()
 
     # ---- page 3: run (restore → build → register) --------------------------------
     def _build_ttw_run_page(self) -> QWidget:
-        page, lay = self._step_page("Step 3: Building Tale of Two Wastelands")
+        page, lay = self._step_page(self.tr("Step 3: Building Tale of Two Wastelands"))
         self._make_note(lay, (
-            "The game is first restored to a vanilla state, then the installer\n"
-            "merges Fallout 3 and Fallout New Vegas assets. This produces "
-            "~18 GB of output and can take a long while — please leave it "
-            "running.\n"
-            f"Output is written directly into your mod list as the "
-            f"'{OUTPUT_NAME}' mod."))
+            self.tr("The game is first restored to a vanilla state, then the installer\nmerges Fallout 3 and Fallout New Vegas assets. This produces ~18 GB of output and can take a long while — please leave it running.\nOutput is written directly into your mod list as the '{0}' mod.").format(OUTPUT_NAME)))
         self._run_status = self._make_status(lay)
         p = active_palette()
         self._run_output = QPlainTextEdit()
@@ -331,7 +321,7 @@ class TTWView(WizardViewBase):
             f"QPlainTextEdit{{background:{_c(p,'BG_PANEL')};"
             f" color:{_c(p,'TEXT_MAIN')}; border:none;}}")
         lay.addWidget(self._run_output, 1)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)

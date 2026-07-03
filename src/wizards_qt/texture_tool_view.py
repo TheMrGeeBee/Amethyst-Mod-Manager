@@ -95,7 +95,7 @@ class TextureToolView(WizardViewBase):
             self._stack.setCurrentIndex(_PG_DOWNLOAD)
 
     def _build_run_page(self) -> QWidget:
-        page, lay = self._step_page(f"Step 5: Run {self._name}")
+        page, lay = self._step_page(self.tr("Step 5: Run {0}").format(self._name))
         self._make_note(lay, self._run_desc)
 
         if self._has_presets:
@@ -123,17 +123,17 @@ class TextureToolView(WizardViewBase):
             lay.addWidget(box)
 
         staging = self._game.get_effective_mod_staging_path()
-        out_lbl = QLabel(f"Output: {staging / self._output_dir}")
+        out_lbl = QLabel(self.tr("Output: {0}").format(staging / self._output_dir))
         out_lbl.setWordWrap(True)
         out_lbl.setStyleSheet(self._dim)
         lay.addWidget(out_lbl)
 
         self._run_status = self._make_status(lay)
         lay.addStretch(1)
-        self._run_btn = self._accent_btn(f"▶  Run {self._name}")
+        self._run_btn = self._accent_btn(self.tr("▶  Run {0}").format(self._name))
         self._run_btn.clicked.connect(self._start_run)
         lay.addWidget(self._run_btn, 0, Qt.AlignHCenter)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)
@@ -168,13 +168,12 @@ class TextureToolView(WizardViewBase):
         game = self._game
         if not self._installed:
             self._set_status(self._run_status,
-                             f"{self._name} not found. Please restart the "
-                             "wizard.", RED)
+                             self.tr("{0} not found. Please restart the wizard.").format(self._name), RED)
             return
         game_data_dir = game.get_mod_data_path()
         if game_data_dir is None or not game_data_dir.is_dir():
             self._set_status(self._run_status,
-                             "Game Data folder not found. Deploy first.", RED)
+                             self.tr("Game Data folder not found. Deploy first."), RED)
             return
 
         self._run_btn.setEnabled(False)

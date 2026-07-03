@@ -45,7 +45,7 @@ class NoteEditorOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(8)
 
-        title_lbl = QLabel(f"Note — {title}")
+        title_lbl = QLabel(self.tr("Note — {0}").format(title))
         title_lbl.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:15px;")
         v.addWidget(title_lbl)
@@ -59,18 +59,18 @@ class NoteEditorOverlay(QWidget):
 
         bar = QHBoxLayout()
         if allow_remove:
-            rm = QPushButton("Remove note")
+            rm = QPushButton(self.tr("Remove note"))
             rm.setObjectName("FormButton")
             rm.setCursor(Qt.PointingHandCursor)
             rm.clicked.connect(self._remove)
             bar.addWidget(rm)
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self._close)
         bar.addWidget(cancel)
-        save = QPushButton("Save")
+        save = QPushButton(self.tr("Save"))
         save.setObjectName("PrimaryButton")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._save)

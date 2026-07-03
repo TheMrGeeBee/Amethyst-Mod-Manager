@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import (
     Qt, QAbstractTableModel, QModelIndex, QMimeData, QByteArray, Signal,
+    QT_TRANSLATE_NOOP,
 )
 
 from Utils.modlist import ModEntry, read_modlist
@@ -37,6 +38,22 @@ COL_PRIORITY = 6
 COL_SIZE = 7
 COLUMNS = ["Mod Name", "Category", "Flags", "Conflicts", "Installed",
            "Version", "Priority", "Size"]
+
+# COLUMNS doubles as canonical persistence keys, so it must stay untranslated;
+# headerData() translates each label at display time via self.tr(COLUMNS[i]).
+# lupdate can't see through that dynamic tr(), so register the literals here
+# under the ModListModel context (QT_TRANSLATE_NOOP marks-for-extraction only,
+# returns the string unchanged).
+_COLUMN_TR_MARKERS = [
+    QT_TRANSLATE_NOOP("ModListModel", "Mod Name"),
+    QT_TRANSLATE_NOOP("ModListModel", "Category"),
+    QT_TRANSLATE_NOOP("ModListModel", "Flags"),
+    QT_TRANSLATE_NOOP("ModListModel", "Conflicts"),
+    QT_TRANSLATE_NOOP("ModListModel", "Installed"),
+    QT_TRANSLATE_NOOP("ModListModel", "Version"),
+    QT_TRANSLATE_NOOP("ModListModel", "Priority"),
+    QT_TRANSLATE_NOOP("ModListModel", "Size"),
+]
 
 # Custom roles for the delegate.
 EntryRole = Qt.UserRole + 1        # the ModEntry
@@ -379,10 +396,12 @@ class ModListModel(QAbstractTableModel):
                 return ""
             # The Name column hosts the column-menu button at its left edge;
             # pad the (left-aligned) label so it isn't drawn under the button.
-            # Display-only — persistence keys off the canonical COLUMNS names.
+            # Display-only + TRANSLATED — persistence still keys off the
+            # canonical (untranslated) COLUMNS names elsewhere.
+            label = self.tr(COLUMNS[section])
             if section == COL_NAME:
-                return "    " + COLUMNS[section]
-            return COLUMNS[section]
+                return "    " + label
+            return label
         return None
 
     def _priority_for_row(self, row: int) -> int:

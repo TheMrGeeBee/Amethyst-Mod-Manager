@@ -6,7 +6,7 @@ TkStyleHeader owns column resizing; column state persists via column_state.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, QRect
+from PySide6.QtCore import Qt, QTimer, QRect, QCoreApplication
 from PySide6.QtGui import QPainter, QColor, QPen, QAction
 from PySide6.QtWidgets import (
     QTreeView, QAbstractItemView, QHeaderView, QToolButton, QMenu,
@@ -236,7 +236,7 @@ class ModListView(QTreeView):
         btn.setCursor(Qt.ArrowCursor)
         btn.setFocusPolicy(Qt.NoFocus)
         btn.setAutoRaise(True)
-        btn.setToolTip("Show / hide columns")
+        btn.setToolTip(self.tr("Show / hide columns"))
         # Opaque header-coloured background so it sits cleanly over the Mod Name
         # header text; hover/press come from the global QToolButton QSS.
         bg = _c(active_palette(), "BG_HEADER")
@@ -270,7 +270,8 @@ class ModListView(QTreeView):
         for col, name in enumerate(COLUMNS):
             if col == COL_NAME:
                 continue   # Name is always shown
-            a = QAction(name, menu)
+            # Same translated label as the header (registered under ModListModel).
+            a = QAction(QCoreApplication.translate("ModListModel", name), menu)
             a.setCheckable(True)
             a.setChecked(not self.isColumnHidden(col))
             a.toggled.connect(lambda checked, c=col: self._set_column_visible(c, checked))

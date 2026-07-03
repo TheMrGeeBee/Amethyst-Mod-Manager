@@ -50,13 +50,9 @@ class Fnv4GbView(WizardViewBase):
         self._refresh()
 
     def _build_page(self) -> QWidget:
-        page, lay = self._step_page("Fallout New Vegas 4GB Patch")
+        page, lay = self._step_page(self.tr("Fallout New Vegas 4GB Patch"))
         self._make_note(lay, (
-            "Patches FalloutNV.exe so the game can use 4 GB of memory\n"
-            "and loads NVSE automatically at startup.\n\n"
-            "Under Proton this mostly silences in-game warnings from mods\n"
-            "that check for the patch, but it is safe and recommended.\n\n"
-            f"The original exe is kept as {BACKUP_NAME}."))
+            self.tr('Patches FalloutNV.exe so the game can use 4 GB of memory\nand loads NVSE automatically at startup.\n\nUnder Proton this mostly silences in-game warnings from mods\nthat check for the patch, but it is safe and recommended.\n\nThe original exe is kept as {0}.').format(BACKUP_NAME)))
         lay.addSpacing(8)
         self._exe_status = self._make_status(lay)
         self._backup_status = self._make_status(lay)
@@ -65,7 +61,7 @@ class Fnv4GbView(WizardViewBase):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        self._restore_btn = QPushButton("Restore Backup")
+        self._restore_btn = QPushButton(self.tr("Restore Backup"))
         self._restore_btn.setCursor(Qt.PointingHandCursor)
         self._restore_btn.setEnabled(False)
         self._restore_btn.setStyleSheet(
@@ -75,7 +71,7 @@ class Fnv4GbView(WizardViewBase):
             "QPushButton:disabled{background:#44484f; color:#9aa0a6;}")
         self._restore_btn.clicked.connect(self._on_restore)
         rh.addWidget(self._restore_btn)
-        self._apply_btn = self._accent_btn("Apply 4GB Patch")
+        self._apply_btn = self._accent_btn(self.tr("Apply 4GB Patch"))
         self._apply_btn.setEnabled(False)
         self._apply_btn.clicked.connect(self._on_apply)
         rh.addWidget(self._apply_btn)
@@ -92,9 +88,9 @@ class Fnv4GbView(WizardViewBase):
         game_root = self._game_root
         if game_root is None or not game_root.is_dir():
             self._set_status(self._exe_status,
-                             "Game path is not configured.", RED)
+                             self.tr("Game path is not configured."), RED)
             return
-        self._set_status(self._exe_status, f"Checking {EXE_NAME}…")
+        self._set_status(self._exe_status, self.tr("Checking {0}…").format(EXE_NAME))
         self._set_buttons(False, False)
 
         def worker():
@@ -138,7 +134,7 @@ class Fnv4GbView(WizardViewBase):
             return
         self._busy = True
         self._set_buttons(False, False)
-        self._set_status(self._exe_status, f"Patching {EXE_NAME}…")
+        self._set_status(self._exe_status, self.tr("Patching {0}…").format(EXE_NAME))
         game_root = self._game_root
 
         def worker():
@@ -161,7 +157,7 @@ class Fnv4GbView(WizardViewBase):
             return
         self._busy = True
         self._set_buttons(False, False)
-        self._set_status(self._exe_status, f"Restoring original {EXE_NAME}…")
+        self._set_status(self._exe_status, self.tr("Restoring original {0}…").format(EXE_NAME))
         game_root = self._game_root
 
         def worker():

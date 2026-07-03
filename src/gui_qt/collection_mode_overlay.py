@@ -112,17 +112,17 @@ class ModeOverlay(_BaseModeOverlay):
         v.setContentsMargins(20, 16, 20, 16)
         v.setSpacing(8)
 
-        title = QLabel("Install Collection", self._card)
+        title = QLabel(self.tr("Install Collection"), self._card)
         title.setStyleSheet(
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title)
 
-        sub = QLabel("How would you like to install this collection?", self._card)
+        sub = QLabel(self.tr("How would you like to install this collection?"), self._card)
         sub.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:13px;")
         v.addWidget(sub)
 
         self._group = QButtonGroup(self._card)
-        self._new_radio = QRadioButton("Create a new profile", self._card)
+        self._new_radio = QRadioButton(self.tr("Create a new profile"), self._card)
         self._new_radio.setChecked(True)
         self._group.addButton(self._new_radio)
         v.addWidget(self._new_radio)
@@ -136,23 +136,23 @@ class ModeOverlay(_BaseModeOverlay):
 
         if self._force_new:
             note = QLabel(
-                "This collection requires a new profile and cannot be "
-                "appended to an existing one.", self._card)
+                self.tr("This collection requires a new profile and cannot be "
+                "appended to an existing one."), self._card)
             note.setWordWrap(True)
             note.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:12px;")
             v.addWidget(note)
         else:
             self._append_radio = QRadioButton(
-                "Append to existing profile", self._card)
+                self.tr("Append to existing profile"), self._card)
             self._group.addButton(self._append_radio)
             v.addWidget(self._append_radio)
             # Append controls (indented) — enabled only when Append is selected.
             self._profile_combo = QComboBox(self._card)
             self._profile_combo.addItems(self._profiles or ["(no profiles)"])
             v.addWidget(self._profile_combo)
-            self._overwrite_cb = QCheckBox("Overwrite existing mods", self._card)
+            self._overwrite_cb = QCheckBox(self.tr("Overwrite existing mods"), self._card)
             v.addWidget(self._overwrite_cb)
-            self._skip_cb = QCheckBox("Skip already installed mods", self._card)
+            self._skip_cb = QCheckBox(self.tr("Skip already installed mods"), self._card)
             v.addWidget(self._skip_cb)
             self._new_radio.toggled.connect(self._sync_append_state)
             self._append_radio.toggled.connect(self._sync_append_state)
@@ -162,12 +162,12 @@ class ModeOverlay(_BaseModeOverlay):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel", self._card)
+        cancel = QPushButton(self.tr("Cancel"), self._card)
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))
         bar.addWidget(cancel)
-        install = QPushButton("Install", self._card)
+        install = QPushButton(self.tr("Install"), self._card)
         install.setObjectName("PrimaryButton")
         install.setCursor(Qt.PointingHandCursor)
         install.clicked.connect(self._on_install)
@@ -221,14 +221,13 @@ class ContinueOverlay(_BaseModeOverlay):
         v.setContentsMargins(20, 16, 20, 16)
         v.setSpacing(10)
 
-        title = QLabel("Continue Collection Install", self._card)
+        title = QLabel(self.tr("Continue Collection Install"), self._card)
         title.setStyleSheet(
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title)
 
         msg = QLabel(
-            f"This collection is already installed in profile "
-            f"'{self._profile_name}'.", self._card)
+            self.tr("This collection is already installed in profile '{0}'.").format(self._profile_name), self._card)
         msg.setWordWrap(True)
         msg.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:13px;")
         v.addWidget(msg)
@@ -236,12 +235,12 @@ class ContinueOverlay(_BaseModeOverlay):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel", self._card)
+        cancel = QPushButton(self.tr("Cancel"), self._card)
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))
         bar.addWidget(cancel)
-        cont = QPushButton("Continue Install", self._card)
+        cont = QPushButton(self.tr("Continue Install"), self._card)
         cont.setObjectName("PrimaryButton")
         cont.setCursor(Qt.PointingHandCursor)
         cont.clicked.connect(

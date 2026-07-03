@@ -54,7 +54,7 @@ class _PreviewPane(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
-        header = QLabel("Preview")
+        header = QLabel(self.tr("Preview"))
         header.setStyleSheet(
             f"background:{_c(p,'BG_HEADER')}; color:{_c(p,'TEXT_DIM')};"
             " padding:6px 10px; font-weight:600;")
@@ -71,7 +71,7 @@ class _PreviewPane(QWidget):
 
     def _empty(self):
         self._pm = None
-        self._canvas.setText("No preview")
+        self._canvas.setText(self.tr("No preview"))
 
     def set_image_path(self, path):
         if path is None:
@@ -141,7 +141,7 @@ class BundleOptionsView(QWidget):
         # Header bar: title + ✕ Close (same red close button as ChangeVersionView).
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Bundle Options — {self._mod_name}")
+        title = QLabel(self.tr("Bundle Options — {0}").format(self._mod_name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -182,10 +182,10 @@ class BundleOptionsView(QWidget):
         footer = QWidget(); footer.setObjectName("HeaderBar")
         fb = QHBoxLayout(footer); fb.setContentsMargins(12, 8, 12, 8); fb.setSpacing(8)
         fb.addStretch(1)
-        cancel = QPushButton("Cancel"); cancel.setCursor(Qt.PointingHandCursor)
+        cancel = QPushButton(self.tr("Cancel")); cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._on_close())
         fb.addWidget(cancel)
-        save = QPushButton("Save"); save.setCursor(Qt.PointingHandCursor)
+        save = QPushButton(self.tr("Save")); save.setCursor(Qt.PointingHandCursor)
         save.setStyleSheet(
             f"QPushButton{{background:{_c(p,'ACCENT')}; color:"
             f"{_c(p,'TEXT_ON_ACCENT')}; border:none; padding:5px 16px;"
@@ -221,7 +221,7 @@ class BundleOptionsView(QWidget):
             gl = QLabel(group.name)
             gl.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; margin-top:10px;")
             col.addWidget(gl)
-            sub = QLabel("Select one" if group.select_one else "Optional — any")
+            sub = QLabel(self.tr("Select one") if group.select_one else self.tr("Optional — any"))
             sub.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
             col.addWidget(sub)
 
@@ -280,13 +280,13 @@ class BundleOptionsView(QWidget):
             h.addStretch(1)
             up = QPushButton(); up.setFixedSize(26, 24)
             up.setIcon(icon_rotated("arrow.png", 180, 12, "#ffffff"))  # up
-            up.setToolTip("Move up")
+            up.setToolTip(self.tr("Move up"))
             up.setEnabled(oi > 0)
             up.clicked.connect(lambda _=False, g=group, i=oi: self._move(g, i, -1))
             h.addWidget(up)
             down = QPushButton(); down.setFixedSize(26, 24)
             down.setIcon(icon_rotated("arrow.png", 0, 12, "#ffffff"))  # down
-            down.setToolTip("Move down")
+            down.setToolTip(self.tr("Move down"))
             down.setEnabled(oi < n - 1)
             down.clicked.connect(lambda _=False, g=group, i=oi: self._move(g, i, 1))
             h.addWidget(down)
@@ -393,7 +393,7 @@ class BundleOptionsView(QWidget):
             shadowed = bool(
                 folder in selected and files
                 and not any(winners.get(rel) == folder for rel in files))
-            w["marker"].setText("(overridden)" if shadowed else "")
+            w["marker"].setText(self.tr("(overridden)") if shadowed else "")
 
     def _move(self, group, idx: int, delta: int):
         """Swap option *idx* with its neighbour and rebuild the rows."""

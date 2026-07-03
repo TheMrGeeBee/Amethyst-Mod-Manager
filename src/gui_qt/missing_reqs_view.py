@@ -56,7 +56,7 @@ class _ReqCard(QFrame):
         col.addWidget(desc)
         h.addLayout(col, 1)
 
-        view = QPushButton("View")
+        view = QPushButton(self.tr("View"))
         view.setCursor(Qt.PointingHandCursor)
         view.setStyleSheet(
             "QPushButton{background:#444; color:#fff; border:none;"
@@ -69,7 +69,7 @@ class _ReqCard(QFrame):
         # Install is only meaningful for Nexus-hosted requirements (external
         # ones have no mod page to download from).
         if not is_external:
-            inst = QPushButton("Install")
+            inst = QPushButton(self.tr("Install"))
             inst.setCursor(Qt.PointingHandCursor)
             inst.setStyleSheet(
                 "QPushButton{background:#2e7d32; color:#fff; border:none;"
@@ -117,14 +117,14 @@ class MissingReqsView(QWidget):
         # Toolbar: title + Ignore requirements + Close.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Missing requirements — {self._title_text()}")
+        title = QLabel(self.tr("Missing requirements — {0}").format(self._title_text()))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
 
-        self._ignore_cb = QCheckBox("Ignore requirements")
+        self._ignore_cb = QCheckBox(self.tr("Ignore requirements"))
         self._ignore_cb.setToolTip(
-            "Stop flagging the selected mod(s) for missing requirements.")
+            self.tr("Stop flagging the selected mod(s) for missing requirements."))
         self._ignore_cb.setChecked(self._all_ignored())
         self._ignore_cb.toggled.connect(self._on_ignore_toggled)
         hb.addWidget(self._ignore_cb)
@@ -142,7 +142,7 @@ class MissingReqsView(QWidget):
         self._cards_layout = QVBoxLayout(self._cards_host)
         self._cards_layout.setContentsMargins(12, 10, 12, 10)
         self._cards_layout.setSpacing(8)
-        self._status = QLabel("Loading requirements…")
+        self._status = QLabel(self.tr("Loading requirements…"))
         self._status.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         self._cards_layout.addWidget(self._status)
         self._cards_layout.addStretch(1)
@@ -236,10 +236,10 @@ class MissingReqsView(QWidget):
 
     def _on_reqs_ready(self, reqs, error):
         if error is not None and not reqs:
-            self._status.setText(f"Could not load requirements: {error}")
+            self._status.setText(self.tr("Could not load requirements: {0}").format(error))
             return
         if not reqs:
-            self._status.setText("No missing requirements found.")
+            self._status.setText(self.tr("No missing requirements found."))
             return
         self._status.setVisible(False)
         p = active_palette()
@@ -266,7 +266,7 @@ class MissingReqsView(QWidget):
             self._cards_layout.removeWidget(card)
             card.deleteLater()
         if not self._cards:
-            self._status.setText("No missing requirements found.")
+            self._status.setText(self.tr("No missing requirements found."))
             self._status.setVisible(True)
 
     def _domain(self) -> str:

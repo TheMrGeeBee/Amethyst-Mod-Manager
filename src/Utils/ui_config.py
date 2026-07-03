@@ -38,8 +38,15 @@ _AUTO_MAX_SCALE = 1.5
 _DEFAULT_FONT_FAMILY = "Noto Sans"
 _INI_FONT_OPTION = "font_family"
 
+# Language / locale. Empty string ("") means "follow the system locale"; any
+# other value is a locale code (e.g. "en", "de", "fr") matching a compiled
+# translations/amethyst_<code>.qm file.
+_DEFAULT_LANGUAGE = ""
+_INI_LANGUAGE_OPTION = "language"
+
 _ui_scale: float = _DEFAULT_SCALE
 _font_family: str = _DEFAULT_FONT_FAMILY
+_language: str = _DEFAULT_LANGUAGE
 
 
 def get_ui_config_path() -> Path:
@@ -547,6 +554,50 @@ def save_font_family(family: str) -> None:
 def get_font_family() -> str:
     """Return the current font family (call load_font_family first at startup)."""
     return _font_family
+
+
+def load_language() -> str:
+    """Load the UI language code from amethyst.ini [ui] language.
+
+    Returns "" (follow system locale) when unset. The value is cached so
+    get_language() can be called cheaply after this runs once at startup.
+    """
+    global _language
+    path = get_ui_config_path()
+    if not path.is_file():
+        return _language
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        _language = parser.get(
+            _INI_SECTION, _INI_LANGUAGE_OPTION, fallback="").strip()
+    except Exception:
+        pass
+    return _language
+
+
+def save_language(code: str) -> None:
+    """Persist the UI language code to amethyst.ini [ui] language.
+
+    Pass "" to follow the system locale. Takes effect on next launch.
+    """
+    global _language
+    _language = (code or "").strip()
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _INI_SECTION not in parser:
+        parser[_INI_SECTION] = {}
+    parser[_INI_SECTION][_INI_LANGUAGE_OPTION] = _language
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def get_language() -> str:
+    """Return the current language code (call load_language first at startup)."""
+    return _language
 
 
 def _clamp(value: float) -> float:

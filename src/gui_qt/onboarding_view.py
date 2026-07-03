@@ -20,12 +20,14 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QStackedWidget, QFrame,
+    QStackedWidget, QFrame, QComboBox,
 )
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.safe_emit import safe_emit
+from gui_qt.wheel_guard import no_wheel
 from Utils.config_paths import get_profiles_dir, get_config_dir
+from Utils import ui_config as uc
 from Utils.ui_config import (
     load_default_staging_path, save_default_staging_path,
     load_download_cache_path, save_download_cache_path,
@@ -66,14 +68,21 @@ class OnboardingView(QWidget):
         on_add_game: Optional[Callable] = None,
         on_done: Optional[Callable] = None,
         already_logged_in: bool = False,
+        on_language_change: Optional[Callable] = None,
+        on_sync_languages: Optional[Callable] = None,
         parent=None,
     ):
         super().__init__(parent)
         self._on_login = on_login or (lambda: None)
         self._on_add_game = on_add_game or (lambda: None)
         self._on_done = on_done or (lambda: None)
+        # on_language_change(code) — app re-installs translators + retranslates;
+        # on_sync_languages() — app pulls latest .qm from Resources.
+        self._on_language_change = on_language_change or (lambda _c: None)
+        self._on_sync_languages = on_sync_languages or (lambda: None)
         self._already_logged_in = already_logged_in
         self._logged_in = already_logged_in
+        self._lang_combo: QComboBox | None = None
 
         self._page = 0
         self._pal = active_palette()
@@ -101,12 +110,12 @@ class OnboardingView(QWidget):
         header.setStyleSheet(f"background: {_c(pal, 'BG_HEADER')};")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 0, 16, 0)
-        title = QLabel("Welcome to Amethyst Mod Manager")
+        title = QLabel(self.tr("Welcome to Amethyst Mod Manager"))
         title.setStyleSheet(
             f"color: {_c(pal, 'TEXT_MAIN')}; font-size: 15px; font-weight: 600;")
         hl.addWidget(title)
         hl.addStretch(1)
-        self._step_label = QLabel(f"Step 1 of {_TOTAL_PAGES}")
+        self._step_label = QLabel(self.tr("Step 1 of {0}").format(_TOTAL_PAGES))
         self._step_label.setStyleSheet(
             f"color: {_c(pal, 'TEXT_DIM')}; font-size: 12px;")
         hl.addWidget(self._step_label)
@@ -131,14 +140,14 @@ class OnboardingView(QWidget):
         fl = QHBoxLayout(footer)
         fl.setContentsMargins(12, 10, 12, 10)
 
-        self._prev_btn = QPushButton("← Back")
+        self._prev_btn = QPushButton(self.tr("← Back"))
         self._prev_btn.setFixedWidth(100)
         self._prev_btn.setStyleSheet(self._neutral_btn_qss())
         self._prev_btn.clicked.connect(self._on_prev_btn)
         fl.addWidget(self._prev_btn)
         fl.addStretch(1)
 
-        self._footer_btn = QPushButton("Next →")
+        self._footer_btn = QPushButton(self.tr("Next →"))
         self._footer_btn.setFixedWidth(120)
         self._footer_btn.clicked.connect(self._on_footer_btn)
         fl.addWidget(self._footer_btn)
@@ -196,26 +205,79 @@ class OnboardingView(QWidget):
             v.addWidget(img, 0, Qt.AlignCenter)
             v.addSpacing(20)
 
-        heading = QLabel("Welcome to Amethyst Mod Manager")
+        heading = QLabel(self.tr("Welcome to Amethyst Mod Manager"))
         heading.setAlignment(Qt.AlignCenter)
         heading.setStyleSheet(
             f"color: {_c(pal, 'TEXT_MAIN')}; font-size: 16px; font-weight: 600;")
         v.addWidget(heading)
         v.addSpacing(10)
 
-        body = QLabel("See the wiki for guides on how to use the Manager")
+        body = QLabel(self.tr("See the wiki for guides on how to use the Manager"))
         body.setWordWrap(True)
         body.setAlignment(Qt.AlignCenter)
         body.setStyleSheet(f"color: {_c(pal, 'TEXT_DIM')}; font-size: 13px;")
         v.addWidget(body)
         v.addSpacing(20)
 
-        wiki = QPushButton("Open Wiki")
+        # Language picker + sync — so users can switch language before going on.
+        lang_row = QHBoxLayout()
+        lang_row.setContentsMargins(0, 0, 0, 0)
+        lang_row.addStretch(1)
+        self._lang_label = QLabel(self.tr("Language:"))
+        self._lang_label.setStyleSheet(f"color: {_c(pal, 'TEXT_DIM')};")
+        lang_row.addWidget(self._lang_label)
+        self._lang_combo = QComboBox()
+        no_wheel(self._lang_combo)
+        self._populate_language_combo()
+        self._lang_combo.currentIndexChanged.connect(self._on_lang_selected)
+        lang_row.addWidget(self._lang_combo)
+        self._lang_sync_btn = QPushButton(self.tr("Sync language files"))
+        self._lang_sync_btn.setCursor(Qt.PointingHandCursor)
+        self._lang_sync_btn.setStyleSheet(self._neutral_btn_qss())
+        self._lang_sync_btn.clicked.connect(lambda: self._on_sync_languages())
+        lang_row.addWidget(self._lang_sync_btn)
+        lang_row.addStretch(1)
+        lang_holder = QWidget(); lang_holder.setLayout(lang_row)
+        v.addWidget(lang_holder)
+        v.addSpacing(20)
+
+        wiki = QPushButton(self.tr("Open Wiki"))
         wiki.setFixedWidth(160)
         wiki.setStyleSheet(self._orange_btn_qss())
         wiki.clicked.connect(lambda: open_url(_WIKI_URL))
         v.addWidget(wiki, 0, Qt.AlignCenter)
         return outer
+
+    def _populate_language_combo(self):
+        """(Re)fill the welcome-page language combo from available_languages(),
+        storing each locale code as item-data and preserving the selection."""
+        combo = self._lang_combo
+        if combo is None:
+            return
+        from gui_qt.i18n import available_languages
+        combo.blockSignals(True)
+        current = uc.load_language()
+        combo.clear()
+        sel = 0
+        for i, (disp, code) in enumerate(available_languages()):
+            combo.addItem(disp, userData=code)
+            if code == current:
+                sel = i
+        combo.setCurrentIndex(sel)
+        combo.blockSignals(False)
+
+    def _on_lang_selected(self, idx: int):
+        """User changed the onboarding language: persist + ask the app to apply
+        it immediately (re-install translators + retranslate)."""
+        if self._lang_combo is None:
+            return
+        code = self._lang_combo.itemData(idx) or ""
+        uc.save_language(code)
+        self._on_language_change(code)
+
+    def refresh_language_options(self):
+        """A background/manual sync added .qm files — refresh the picker."""
+        self._populate_language_combo()
 
     # -------------------------------------------------------------- page 1 nexus
     def _build_page_nexus(self) -> QWidget:
@@ -233,7 +295,7 @@ class OnboardingView(QWidget):
             v.addWidget(img, 0, Qt.AlignCenter)
             v.addSpacing(16)
 
-        heading = QLabel("Connect to Nexus Mods")
+        heading = QLabel(self.tr("Connect to Nexus Mods"))
         heading.setAlignment(Qt.AlignCenter)
         heading.setStyleSheet(
             f"color: {_c(pal, 'TEXT_MAIN')}; font-size: 16px; font-weight: 600;")
@@ -241,15 +303,15 @@ class OnboardingView(QWidget):
         v.addSpacing(8)
 
         desc = QLabel(
-            "Logging in lets you browse and download mods directly within the app.\n"
-            "You can skip this and connect later from the Nexus button in the toolbar.")
+            self.tr("Logging in lets you browse and download mods directly within the app.\n"
+            "You can skip this and connect later from the Nexus button in the toolbar."))
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignCenter)
         desc.setStyleSheet(f"color: {_c(pal, 'TEXT_DIM')}; font-size: 13px;")
         v.addWidget(desc)
         v.addSpacing(24)
 
-        self._sso_btn = QPushButton("Log in via Nexus Mods")
+        self._sso_btn = QPushButton(self.tr("Log in via Nexus Mods"))
         self._sso_btn.setFixedWidth(220)
         self._sso_btn.setStyleSheet(self._orange_btn_qss())
         self._sso_btn.clicked.connect(self._on_sso_login)
@@ -267,7 +329,7 @@ class OnboardingView(QWidget):
     def _on_sso_login(self):
         if self._sso_btn is not None:
             self._sso_btn.setEnabled(False)
-            self._sso_btn.setText("Waiting for browser...")
+            self._sso_btn.setText(self.tr("Waiting for browser..."))
         self._set_nexus_status(
             "Browser login started — complete it in your browser.",
             _c(self._pal, "TEXT_DIM"))
@@ -278,7 +340,7 @@ class OnboardingView(QWidget):
         self._logged_in = True
         if self._sso_btn is not None:
             self._sso_btn.setEnabled(True)
-            self._sso_btn.setText("Log in via Nexus Mods")
+            self._sso_btn.setText(self.tr("Log in via Nexus Mods"))
         self._set_nexus_status(
             "✓ Logged in to Nexus Mods!", _c(self._pal, "TEXT_OK_BRIGHT"))
         # Upgrade the footer from Skip → Next if we're on the Nexus page.
@@ -299,37 +361,37 @@ class OnboardingView(QWidget):
         v.setAlignment(Qt.AlignCenter)
 
         # -- Default mod staging folder --
-        v.addWidget(self._section_title("Default Mod Staging Folder"))
-        v.addWidget(self._hint(f"Default: {get_profiles_dir()}"))
+        v.addWidget(self._section_title(self.tr("Default Mod Staging Folder")))
+        v.addWidget(self._hint(self.tr("Default: {0}").format(get_profiles_dir())))
         self._staging_edit = QLineEdit(load_default_staging_path())
-        self._staging_edit.setPlaceholderText("Leave blank to use the default")
+        self._staging_edit.setPlaceholderText(self.tr("Leave blank to use the default"))
         v.addLayout(self._folder_row(self._staging_edit, "staging"))
         v.addWidget(self._hint(
-            "When set, new games will use <this>/<game name> as their\n"
-            "mod staging folder. You can change this later in Settings."))
+            self.tr("When set, new games will use <this>/<game name> as their\n"
+            "mod staging folder. You can change this later in Settings.")))
         v.addSpacing(16)
 
         # -- Download cache folder --
-        v.addWidget(self._section_title("Download Cache Folder"))
-        v.addWidget(self._hint(f"Default: {get_config_dir() / 'download_cache'}"))
+        v.addWidget(self._section_title(self.tr("Download Cache Folder")))
+        v.addWidget(self._hint(self.tr("Default: {0}").format(get_config_dir() / 'download_cache')))
         self._cache_edit = QLineEdit(load_download_cache_path())
-        self._cache_edit.setPlaceholderText("Leave blank to use the default")
+        self._cache_edit.setPlaceholderText(self.tr("Leave blank to use the default"))
         v.addLayout(self._folder_row(self._cache_edit, "cache"))
         v.addWidget(self._hint(
-            "Where downloaded mod archives are stored.\n"
-            "Each game gets its own subfolder."))
+            self.tr("Where downloaded mod archives are stored.\n"
+            "Each game gets its own subfolder.")))
         v.addSpacing(24)
 
         # -- Add first game --
-        v.addWidget(self._section_title("Add Your First Game"))
+        v.addWidget(self._section_title(self.tr("Add Your First Game")))
         v.addSpacing(8)
         add_row = QHBoxLayout()
         add_row.setAlignment(Qt.AlignCenter)
-        lbl = QLabel("Select a game to manage.")
+        lbl = QLabel(self.tr("Select a game to manage."))
         lbl.setStyleSheet(f"color: {_c(pal, 'TEXT_DIM')}; font-size: 13px;")
         add_row.addWidget(lbl)
         add_row.addSpacing(12)
-        add_btn = QPushButton("Add a Game")
+        add_btn = QPushButton(self.tr("Add a Game"))
         add_btn.setFixedWidth(160)
         add_btn.setStyleSheet(self._accent_btn_qss())
         add_btn.clicked.connect(self._on_add_game_clicked)
@@ -357,12 +419,12 @@ class OnboardingView(QWidget):
         row.setAlignment(Qt.AlignCenter)
         edit.setFixedWidth(340)
         row.addWidget(edit)
-        browse = QPushButton("Browse")
+        browse = QPushButton(self.tr("Browse"))
         browse.setFixedWidth(80)
         browse.setStyleSheet(self._neutral_btn_qss())
         browse.clicked.connect(lambda: self._browse(which))
         row.addWidget(browse)
-        clear = QPushButton("Clear")
+        clear = QPushButton(self.tr("Clear"))
         clear.setFixedWidth(60)
         clear.setStyleSheet(self._neutral_btn_qss())
         clear.clicked.connect(lambda: edit.setText(""))
@@ -408,7 +470,7 @@ class OnboardingView(QWidget):
     def _show_page(self, page: int):
         self._page = page
         self._stack.setCurrentIndex(page)
-        self._step_label.setText(f"Step {page + 1} of {_TOTAL_PAGES}")
+        self._step_label.setText(self.tr("Step {0} of {1}").format(page + 1, _TOTAL_PAGES))
         self._prev_btn.setVisible(page != 0)
         self._apply_footer_style()
 
@@ -417,10 +479,10 @@ class OnboardingView(QWidget):
         (neutral) on the not-logged-in Nexus page and the last page."""
         page = self._page
         if page == 0 or (page == 1 and self._logged_in):
-            self._footer_btn.setText("Next →")
+            self._footer_btn.setText(self.tr("Next →"))
             self._footer_btn.setStyleSheet(self._accent_btn_qss())
         else:
-            self._footer_btn.setText("Skip")
+            self._footer_btn.setText(self.tr("Skip"))
             self._footer_btn.setStyleSheet(self._neutral_btn_qss())
 
     def _on_prev_btn(self):

@@ -44,34 +44,34 @@ class GpakView(WizardViewBase):
         self._stack.addWidget(self._build_page())
 
     def _build_page(self) -> QWidget:
-        page, lay = self._step_page("GPAK unpack / repack")
+        page, lay = self._step_page(self.tr("GPAK unpack / repack"))
 
         if self._game_root is None or not self._game_root.is_dir():
-            err = QLabel("Game path is not set or invalid.")
+            err = QLabel(self.tr("Game path is not set or invalid."))
             err.setAlignment(Qt.AlignHCenter)
             err.setStyleSheet(f"color:{RED};")
             lay.addWidget(err)
             lay.addStretch(1)
             return page
 
-        root_note = QLabel(f"Game root: {self._game_root}")
+        root_note = QLabel(self.tr("Game root: {0}").format(self._game_root))
         root_note.setWordWrap(True)
         root_note.setStyleSheet(self._dim)
         lay.addWidget(root_note)
 
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 4, 0, 4); rh.setSpacing(8)
-        self._unpack_btn = self._accent_btn("Unpack resources.gpak")
+        self._unpack_btn = self._accent_btn(self.tr("Unpack resources.gpak"))
         self._unpack_btn.clicked.connect(self._do_unpack)
         rh.addWidget(self._unpack_btn)
-        self._repack_btn = self._accent_btn("Repack Unpacked folder")
+        self._repack_btn = self._accent_btn(self.tr("Repack Unpacked folder"))
         self._repack_btn.clicked.connect(self._do_repack)
         rh.addWidget(self._repack_btn)
         rh.addStretch(1)
         lay.addWidget(row)
 
         p = active_palette()
-        log_lbl = QLabel("Log:")
+        log_lbl = QLabel(self.tr("Log:"))
         log_lbl.setStyleSheet(self._dim)
         lay.addWidget(log_lbl)
         self._log_box = QPlainTextEdit()

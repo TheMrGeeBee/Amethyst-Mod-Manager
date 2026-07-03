@@ -54,7 +54,7 @@ class BsaUnpackOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 14)
         v.setSpacing(8)
 
-        title_lbl = QLabel(f"Unpack {kind_label} — {mod_name}")
+        title_lbl = QLabel(self.tr("Unpack {0} — {1}").format(kind_label, mod_name))
         title_lbl.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title_lbl)
@@ -69,7 +69,7 @@ class BsaUnpackOverlay(QWidget):
         bl.setContentsMargins(0, 0, 6, 0)
         bl.setSpacing(6)
         if not groups:
-            empty = QLabel("No archive files in this mod folder.")
+            empty = QLabel(self.tr("No archive files in this mod folder."))
             empty.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:13px;")
             bl.addWidget(empty)
         else:
@@ -80,17 +80,17 @@ class BsaUnpackOverlay(QWidget):
         v.addWidget(scroll, 1)
 
         hint = QLabel(
-            "Unpacking extracts every archive under the selected plugin into "
+            self.tr("Unpacking extracts every archive under the selected plugin into "
             "this mod's folder, deletes those archives, removes the plugin if "
             "it was a generated stub, and re-enables the unpacked files in the "
-            "Mod Files tab.")
+            "Mod Files tab."))
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:11px;")
         v.addWidget(hint)
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        close = QPushButton("Close")
+        close = QPushButton(self.tr("Close"))
         close.setObjectName("FormButton")
         close.setCursor(Qt.PointingHandCursor)
         close.clicked.connect(lambda: self._finish(None))
@@ -120,7 +120,7 @@ class BsaUnpackOverlay(QWidget):
         name.setWordWrap(True)
         info.addWidget(name)
         for a in g.archives:
-            sub = QLabel(f"  • {a.name}")
+            sub = QLabel(self.tr("  • {0}").format(a.name))
             sub.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:11px;")
             sub.setWordWrap(True)
             info.addWidget(sub)
@@ -134,7 +134,7 @@ class BsaUnpackOverlay(QWidget):
         info.addWidget(totals_lbl)
         h.addLayout(info, 1)
 
-        btn = QPushButton("Unpack")
+        btn = QPushButton(self.tr("Unpack"))
         btn.setObjectName("PrimaryButton")
         btn.setCursor(Qt.PointingHandCursor)
         archives = list(g.archives)

@@ -43,31 +43,31 @@ class NewProfileBar(QWidget):
         h.setContentsMargins(8, 6, 8, 6)
         h.setSpacing(8)
 
-        lbl = QLabel("New profile:")
+        lbl = QLabel(self.tr("New profile:"))
         lbl.setStyleSheet(f"color: {_c(p,'TEXT_MAIN')};")
         h.addWidget(lbl)
 
         self._name = QLineEdit()
-        self._name.setPlaceholderText("Profile name")
+        self._name.setPlaceholderText(self.tr("Profile name"))
         self._name.setFixedWidth(200)
         self._name.returnPressed.connect(self._confirm)
         h.addWidget(self._name)
 
-        self._specific = QCheckBox("Use Profile Specific Mods")
+        self._specific = QCheckBox(self.tr("Use Profile Specific Mods"))
         self._specific.setToolTip(
-            "Profiles with this setting use their own mods folders")
+            self.tr("Profiles with this setting use their own mods folders"))
         self._specific.setStyleSheet(f"color: {_c(p,'TEXT_MAIN')};")
         h.addWidget(self._specific)
 
         h.addStretch(1)
 
-        create = QPushButton("Create")
+        create = QPushButton(self.tr("Create"))
         create.setObjectName("PrimaryButton")
         create.setCursor(Qt.PointingHandCursor)
         create.clicked.connect(self._confirm)
         h.addWidget(create)
 
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self._cancel)

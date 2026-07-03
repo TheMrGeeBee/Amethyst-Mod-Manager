@@ -155,7 +155,7 @@ class CollectionInstallOverlay(QWidget):
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:15px;")
         outer.addWidget(title_lbl)
 
-        self._agg_lbl = QLabel("Preparing…", self._card)
+        self._agg_lbl = QLabel(self.tr("Preparing…"), self._card)
         self._agg_lbl.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:12px;")
         outer.addWidget(self._agg_lbl)
         self._agg_bar = QProgressBar(self._card)
@@ -173,7 +173,7 @@ class CollectionInstallOverlay(QWidget):
         lists.setSpacing(10)
 
         # RED — a FIXED pool of download-row widgets (built once, parented now).
-        dl_frame, dl_v = self._panel("Downloading", "#c86464")
+        dl_frame, dl_v = self._panel(self.tr("Downloading"), "#c86464")
         self._dl_rows: list[_DownloadRow] = []
         for _ in range(_DL_SLOTS):
             row = _DownloadRow(dl_frame)
@@ -185,7 +185,7 @@ class CollectionInstallOverlay(QWidget):
         dl_v.addStretch(1)
 
         # GREEN — ONE text label (no per-mod widgets).
-        ex_frame, ex_v = self._panel("Installing / Extracting", _GREEN_TONE)
+        ex_frame, ex_v = self._panel(self.tr("Installing / Extracting"), _GREEN_TONE)
         self._ex_label = QLabel("", ex_frame)
         self._ex_label.setTextFormat(Qt.RichText)
         self._ex_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -200,12 +200,12 @@ class CollectionInstallOverlay(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        self._pause_btn = QPushButton("Pause", self._card)
+        self._pause_btn = QPushButton(self.tr("Pause"), self._card)
         self._pause_btn.setObjectName("FormButton")
         self._pause_btn.setCursor(Qt.PointingHandCursor)
         self._pause_btn.clicked.connect(self._pause_clicked)
         bar.addWidget(self._pause_btn)
-        self._cancel_btn = QPushButton("Cancel", self._card)
+        self._cancel_btn = QPushButton(self.tr("Cancel"), self._card)
         self._cancel_btn.setObjectName("DangerButton")
         self._cancel_btn.setCursor(Qt.PointingHandCursor)
         self._cancel_btn.clicked.connect(self._cancel_clicked)
@@ -215,7 +215,7 @@ class CollectionInstallOverlay(QWidget):
     # ---- button handlers --------------------------------------------------
     def _pause_clicked(self):
         self._pause_btn.setEnabled(False)
-        self._pause_btn.setText("Pausing…")
+        self._pause_btn.setText(self.tr("Pausing…"))
         if self._on_pause is not None:
             self._on_pause()
 
@@ -253,7 +253,7 @@ class CollectionInstallOverlay(QWidget):
                 + (f"  —  {mbps:.1f} MB/s" if mbps > 0 else ""))
         else:
             self._agg_bar.setRange(0, 0)
-            self._agg_lbl.setText("Downloading…")
+            self._agg_lbl.setText(self.tr("Downloading…"))
 
     # RED — assign a pool slot per download; overflow is a count, not widgets.
     def dl_start(self, file_id: int, name: str, size: int):
@@ -284,7 +284,7 @@ class CollectionInstallOverlay(QWidget):
 
     def _update_dl_overflow(self):
         extra = sum(1 for v in self._dl_slot_of.values() if v == -1)
-        self._dl_overflow.setText(f"+ {extra} more downloading…" if extra else "")
+        self._dl_overflow.setText(self.tr("+ {0} more downloading…").format(extra) if extra else "")
 
     # GREEN — rebuild ONE label's text (no widgets).
     def extract_queue(self, file_id: int, name: str):

@@ -100,7 +100,7 @@ class DllOverridesView(QWidget):
         bar = QWidget(); bar.setObjectName("DllTitleBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 12, 8)
         gname = getattr(self._game, "name", "") or ""
-        title = QLabel(f"Wine DLL Overrides — {gname}")
+        title = QLabel(self.tr("Wine DLL Overrides — {0}").format(gname))
         title.setObjectName("DllTitle")
         hb.addWidget(title); hb.addStretch(1)
         close = danger_close_button()
@@ -126,16 +126,16 @@ class DllOverridesView(QWidget):
         ab = QHBoxLayout(addbar); ab.setContentsMargins(12, 8, 12, 8)
         ab.setSpacing(8)
         self._add_edit = QLineEdit()
-        self._add_edit.setPlaceholderText("DLL name (e.g. winhttp)")
+        self._add_edit.setPlaceholderText(self.tr("DLL name (e.g. winhttp)"))
         self._add_edit.setFixedWidth(240)
         self._add_edit.returnPressed.connect(self._on_add)
         ab.addWidget(self._add_edit)
-        addb = QPushButton("+ Add")
+        addb = QPushButton(self.tr("+ Add"))
         addb.setObjectName("FormButton")
         addb.setCursor(Qt.PointingHandCursor)
         addb.clicked.connect(self._on_add)
         ab.addWidget(addb)
-        hint = QLabel("New DLLs default to native,builtin")
+        hint = QLabel(self.tr("New DLLs default to native,builtin"))
         hint.setObjectName("DllHint")
         ab.addWidget(hint)
         ab.addStretch(1)
@@ -145,7 +145,7 @@ class DllOverridesView(QWidget):
         savebar = QWidget(); savebar.setObjectName("DllSaveBar")
         sb = QHBoxLayout(savebar); sb.setContentsMargins(12, 8, 12, 8)
         sb.addStretch(1)
-        save = QPushButton("Save & Apply")
+        save = QPushButton(self.tr("Save & Apply"))
         save.setObjectName("PrimaryButton")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._on_save)
@@ -163,7 +163,7 @@ class DllOverridesView(QWidget):
                 w.setParent(None)
                 w.deleteLater()
         if not self._overrides:
-            empty = QLabel("No DLL overrides configured.")
+            empty = QLabel(self.tr("No DLL overrides configured."))
             empty.setObjectName("DllEmpty")
             empty.setAlignment(Qt.AlignCenter)
             self._rows_layout.insertWidget(0, empty)
@@ -203,7 +203,7 @@ class DllOverridesView(QWidget):
         remove.setObjectName("DangerButton")
         remove.setFixedWidth(30)
         remove.setCursor(Qt.PointingHandCursor)
-        remove.setToolTip(f"Remove '{dll}'")
+        remove.setToolTip(self.tr("Remove '{0}'").format(dll))
         remove.clicked.connect(lambda _=False, d=dll: self._on_remove(d))
         rl.addWidget(remove)
 
@@ -217,11 +217,11 @@ class DllOverridesView(QWidget):
         if not _NAME_RE.fullmatch(raw):
             self._log("Wine DLL Overrides: invalid DLL name — only letters, "
                       "digits, underscores, dots and hyphens are allowed.")
-            self._notify("Invalid DLL name.", "warning")
+            self._notify(self.tr("Invalid DLL name."), "warning")
             return
         if raw in self._overrides:
             self._log(f"Wine DLL Overrides: '{raw}' is already in the list.")
-            self._notify(f"'{raw}' is already in the list.", "warning")
+            self._notify(self.tr("'{0}' is already in the list.").format(raw), "warning")
             return
         self._overrides[raw] = DEFAULT_ORDER
         if self._add_edit is not None:
@@ -242,7 +242,7 @@ class DllOverridesView(QWidget):
         try:
             save_wine_dll_overrides(name, self._overrides)
         except Exception as exc:
-            self._notify(f"Failed to save overrides: {exc}", "warning")
+            self._notify(self.tr("Failed to save overrides: {0}").format(exc), "warning")
             return
         self._log(f"Wine DLL Overrides: saved {len(self._overrides)} "
                   f"override(s) for {name}.")
@@ -255,7 +255,7 @@ class DllOverridesView(QWidget):
         if prefix is None or not prefix.is_dir():
             self._log("Wine DLL Overrides: no Proton prefix configured — "
                       "overrides saved but not applied.")
-            self._notify("Overrides saved (no prefix to apply to).", "info")
+            self._notify(self.tr("Overrides saved (no prefix to apply to)."), "info")
             self._initial_dlls = set(self._overrides.keys())
             return
 
@@ -294,10 +294,10 @@ class DllOverridesView(QWidget):
             # Re-snapshot so a second Save computes the removed-delta correctly.
             self._initial_dlls = set(self._overrides.keys())
             self._log("Wine DLL Overrides: applied to Proton prefix.")
-            self._notify(f"Applied {n_applied} override(s) to the prefix.",
+            self._notify(self.tr("Applied {0} override(s) to the prefix.").format(n_applied),
                          "info")
         else:
-            self._notify("Failed to apply overrides to the prefix.", "warning")
+            self._notify(self.tr("Failed to apply overrides to the prefix."), "warning")
 
     # -- misc ---------------------------------------------------------------
     def _close(self):

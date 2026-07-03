@@ -130,25 +130,25 @@ class FomodWizardView(QWidget):
         # Button bar.
         bar = QWidget(); bar.setObjectName("BottomBar")
         bb = QHBoxLayout(bar); bb.setContentsMargins(12, 8, 12, 8)
-        reset_btn = QPushButton("Reset Selections"); reset_btn.setObjectName("FormButton")
+        reset_btn = QPushButton(self.tr("Reset Selections")); reset_btn.setObjectName("FormButton")
         reset_btn.setCursor(Qt.PointingHandCursor)
-        reset_btn.setToolTip("Forget the saved selections for this mod and "
-                             "restart the wizard with its defaults")
+        reset_btn.setToolTip(self.tr("Forget the saved selections for this mod and "
+                             "restart the wizard with its defaults"))
         reset_btn.clicked.connect(self._on_reset)
         bb.addWidget(reset_btn)
         self._err = QLabel("")
         self._err.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
         bb.addWidget(self._err)
         bb.addStretch(1)
-        self._back_btn = QPushButton("Back"); self._back_btn.setObjectName("FormButton")
+        self._back_btn = QPushButton(self.tr("Back")); self._back_btn.setObjectName("FormButton")
         self._back_btn.setCursor(Qt.PointingHandCursor)
         self._back_btn.clicked.connect(self._on_back)
         bb.addWidget(self._back_btn)
-        self._next_btn = QPushButton("Next"); self._next_btn.setObjectName("PrimaryButton")
+        self._next_btn = QPushButton(self.tr("Next")); self._next_btn.setObjectName("PrimaryButton")
         self._next_btn.setCursor(Qt.PointingHandCursor)
         self._next_btn.clicked.connect(self._on_next)
         bb.addWidget(self._next_btn)
-        cancel = QPushButton("Cancel"); cancel.setObjectName("FormButton")
+        cancel = QPushButton(self.tr("Cancel")); cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._on_cancel())
         bb.addWidget(cancel)
@@ -257,9 +257,9 @@ class FomodWizardView(QWidget):
         self._show_plugin(selected_plugin or first_plugin)
 
         total = len(self._visible_steps)
-        self._step_lbl.setText(f"Step {self._cur + 1} of {total}")
+        self._step_lbl.setText(self.tr("Step {0} of {1}").format(self._cur + 1, total))
         self._back_btn.setEnabled(self._cur > 0)
-        self._next_btn.setText("Finish" if self._cur >= total - 1 else "Next")
+        self._next_btn.setText(self.tr("Finish") if self._cur >= total - 1 else self.tr("Next"))
         self._err.setText("")
 
     def _build_group(self, group, selected_names, previously_saved=frozenset()):
@@ -350,13 +350,13 @@ class FomodWizardView(QWidget):
             self._image.setStyleSheet(
                 f"background:{self._c('BG_DEEP')}; border-radius:6px;")
             self._image.setCursor(Qt.PointingHandCursor)
-            self._image.setToolTip("Click to view full size")
+            self._image.setToolTip(self.tr("Click to view full size"))
             self._image.setPixmap(self._cur_pixmap.scaled(
                 size.width() - 4, size.height() - 4,
                 Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self._image.clear()
-            self._image.setText("No image")
+            self._image.setText(self.tr("No image"))
             self._image.setCursor(Qt.ArrowCursor)
             self._image.setToolTip("")
             self._image.setStyleSheet(
@@ -378,7 +378,7 @@ class FomodWizardView(QWidget):
             return
         from gui_qt.image_view import ImageView
         view = ImageView(self._cur_image_path)
-        tabs.open_tab(view, "Image", key=f"img:{self._cur_image_path}")
+        tabs.open_tab(view, self.tr("Image"), key=f"img:{self._cur_image_path}")
 
     # ---- selection read ---------------------------------------------------
     def _read_current_selections(self) -> dict:

@@ -49,7 +49,7 @@ class WryeBashView(WizardViewBase):
         self._dl_done_sig.connect(self._guard(self._on_dl_done))
 
         # page 0: auto-download
-        page, lay = self._step_page("Step 1: Download Wrye Bash")
+        page, lay = self._step_page(self.tr("Step 1: Download Wrye Bash"))
         self._dl_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
@@ -99,9 +99,9 @@ class WryeBashView(WizardViewBase):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"'{_EXE_NAME}' was not found.", RED)
+                             self.tr("'{0}' was not found.").format(_EXE_NAME), RED)
             return
-        self._set_status(self._run_status, "Launching Wrye Bash…")
+        self._set_status(self._run_status, self.tr("Launching Wrye Bash…"))
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
         def worker():

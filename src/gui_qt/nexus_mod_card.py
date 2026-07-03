@@ -18,7 +18,7 @@ import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt, QObject, Signal
+from PySide6.QtCore import Qt, QObject, Signal, QCoreApplication
 from PySide6.QtGui import QPixmap, QImage, QFontMetrics, QTextLayout
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMenu,
@@ -95,17 +95,24 @@ def _ago(s: str) -> str:
     mins = secs / 60
     hours = mins / 60
     days = hours / 24
+    # Module-level fn (no QObject `self`), so translate via QCoreApplication.
+    _t = lambda s: QCoreApplication.translate("nexus_mod_card", s)
     if days >= 365:
-        v = int(days / 365); return f"{v} year{'s' if v != 1 else ''} ago"
+        v = int(days / 365)
+        return (_t("{0} year ago") if v == 1 else _t("{0} years ago")).format(v)
     if days >= 30:
-        v = int(days / 30); return f"{v} month{'s' if v != 1 else ''} ago"
+        v = int(days / 30)
+        return (_t("{0} month ago") if v == 1 else _t("{0} months ago")).format(v)
     if days >= 1:
-        v = int(days); return f"{v} day{'s' if v != 1 else ''} ago"
+        v = int(days)
+        return (_t("{0} day ago") if v == 1 else _t("{0} days ago")).format(v)
     if hours >= 1:
-        v = int(hours); return f"{v} hour{'s' if v != 1 else ''} ago"
+        v = int(hours)
+        return (_t("{0} hour ago") if v == 1 else _t("{0} hours ago")).format(v)
     if mins >= 1:
-        v = int(mins); return f"{v} minute{'s' if v != 1 else ''} ago"
-    return "just now"
+        v = int(mins)
+        return (_t("{0} minute ago") if v == 1 else _t("{0} minutes ago")).format(v)
+    return _t("just now")
 
 
 def _fmt_date(s: str) -> str:
@@ -295,7 +302,7 @@ class NexusModCard(QFrame):
         bl.addWidget(title)
 
         if entry.author:
-            author = QLabel(f"by {entry.author}")
+            author = QLabel(self.tr("by {0}").format(entry.author))
             author.setStyleSheet(f"color:{dim}; font-size:11px;")
             author.setMaximumWidth(CARD_W - 20)
             bl.addWidget(author)
@@ -346,7 +353,7 @@ class NexusModCard(QFrame):
         # Buttons: View (blue) + Install (green).
         row = QHBoxLayout()
         row.setSpacing(6)
-        view = QPushButton("View")
+        view = QPushButton(self.tr("View"))
         view.setObjectName("GameAddBtn")          # blue accent
         view.setCursor(Qt.PointingHandCursor)
         view.clicked.connect(lambda: on_view(entry))
@@ -371,14 +378,14 @@ class NexusModCard(QFrame):
         if self._installed:
             # Reinstall — orange (BTN_WARN), like the Downloads tab.
             warn = _c(self._pal, "BTN_WARN")
-            self._install_btn.setText("Reinstall")
+            self._install_btn.setText(self.tr("Reinstall"))
             self._install_btn.setStyleSheet(
                 f"QPushButton{{background:{warn}; color:#fff; font-weight:600;"
                 f" border:none; border-radius:4px; padding:5px 0;}}"
                 f"QPushButton:hover{{background:{warn};}}")
         else:
             # Install — clear the inline style so the green #GameSelectBtn QSS shows.
-            self._install_btn.setText("Install")
+            self._install_btn.setText(self.tr("Install"))
             self._install_btn.setStyleSheet("")
 
     def set_thumbnail(self, pm: QPixmap) -> None:

@@ -235,7 +235,7 @@ class _SourceOverlay(_CardOverlay):
             ("bundle", "Bundle",     "Include mod in the output (e.g. DynDOLOD output)"),
             ("ignore", "Ignore",     "Exclude this mod from the export entirely"),
         ):
-            rb = QRadioButton(f"{label}   — {desc}")
+            rb = QRadioButton(self.tr("{0}   — {1}").format(label, desc))
             rb.setChecked(value == current_source)
             self._group.addButton(rb)
             self._radios[value] = rb
@@ -249,11 +249,11 @@ class _SourceOverlay(_CardOverlay):
             self._body.addWidget(row)
 
         url_row = QHBoxLayout()
-        ulbl = QLabel("Download URL:")
+        ulbl = QLabel(self.tr("Download URL:"))
         ulbl.setObjectName("CardSub")
         url_row.addWidget(ulbl)
         self._url = QLineEdit(current_url)
-        self._url.setPlaceholderText("https://…")
+        self._url.setPlaceholderText(self.tr("https://…"))
         self._url.setMinimumHeight(30)
         url_row.addWidget(self._url, 1)
         self._url_row_w = QWidget()
@@ -302,7 +302,7 @@ class _VersionOverlay(_CardOverlay):
         super().__init__(host)
         self._on_pick = on_pick
         self._body.addWidget(_card_title(f"Version — {mod_name}"))
-        sub = QLabel("Preferred version (file id — version):")
+        sub = QLabel(self.tr("Preferred version (file id — version):"))
         sub.setObjectName("CardSub")
         self._body.addWidget(sub)
 
@@ -349,7 +349,7 @@ class _LoadSettingsOverlay(_CardOverlay):
         self._on_pick = on_pick
         self._files = list(files)
         self._body.addWidget(_card_title("Load export settings"))
-        sub = QLabel("Select a saved settings file:")
+        sub = QLabel(self.tr("Select a saved settings file:"))
         sub.setObjectName("CardSub")
         self._body.addWidget(sub)
         self._list = QListWidget()
@@ -442,9 +442,9 @@ class ExportProfileView(QWidget):
         # Title bar with Close.
         bar = QWidget(); bar.setObjectName("EPTitleBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 12, 8)
-        title = QLabel("Export Profile"); title.setObjectName("EPTitle")
+        title = QLabel(self.tr("Export Profile")); title.setObjectName("EPTitle")
         hb.addWidget(title); hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setObjectName("FormButton")
         close.setCursor(Qt.PointingHandCursor)
         close.clicked.connect(self._close)
@@ -455,23 +455,23 @@ class ExportProfileView(QWidget):
         tb = QWidget(); tb.setObjectName("EPToolbar")
         tl = QHBoxLayout(tb); tl.setContentsMargins(12, 6, 12, 6); tl.setSpacing(8)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search mods…")
+        self._search.setPlaceholderText(self.tr("Search mods…"))
         self._search.setFixedWidth(220)
         self._search.textChanged.connect(self._on_search)
         tl.addWidget(self._search)
-        self._hide_chk = QCheckBox("Only mods without a File ID")
+        self._hide_chk = QCheckBox(self.tr("Only mods without a File ID"))
         self._hide_chk.toggled.connect(self._on_hide_toggle)
         tl.addWidget(self._hide_chk)
         tl.addStretch(1)
-        save = QPushButton("Save settings"); save.setObjectName("FormButton")
+        save = QPushButton(self.tr("Save settings")); save.setObjectName("FormButton")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._on_save_settings)
         tl.addWidget(save)
-        load = QPushButton("Load settings"); load.setObjectName("FormButton")
+        load = QPushButton(self.tr("Load settings")); load.setObjectName("FormButton")
         load.setCursor(Qt.PointingHandCursor)
         load.clicked.connect(self._on_load_settings)
         tl.addWidget(load)
-        export = QPushButton("Export…"); export.setObjectName("PrimaryButton")
+        export = QPushButton(self.tr("Export…")); export.setObjectName("PrimaryButton")
         export.setCursor(Qt.PointingHandCursor)
         export.clicked.connect(self._on_export)
         tl.addWidget(export)
@@ -714,43 +714,43 @@ class ExportProfileView(QWidget):
     # -- save / load settings -----------------------------------------------
     def _on_save_settings(self):
         if not self._all_rows:
-            self._notify("Nothing to save.", "warning")
+            self._notify(self.tr("Nothing to save."), "warning")
             return
         ws_dir = self._workshop_dir()
         if not ws_dir:
-            self._notify("No active profile.", "error")
+            self._notify(self.tr("No active profile."), "error")
             return
         fname = f"workshop_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             path = profile_export.write_settings(ws_dir / fname, self._all_rows)
-            self._notify(f"Settings saved: {path.name}", "info")
+            self._notify(self.tr("Settings saved: {0}").format(path.name), "info")
         except Exception as exc:
-            self._notify(f"Save failed: {exc}", "error")
+            self._notify(self.tr("Save failed: {0}").format(exc), "error")
 
     def _on_load_settings(self):
         ws_dir = self._workshop_dir()
         if not ws_dir or not ws_dir.is_dir():
-            self._notify("No saved settings found.", "info")
+            self._notify(self.tr("No saved settings found."), "info")
             return
         files = sorted(ws_dir.glob("*.json"),
                        key=lambda p: p.stat().st_mtime, reverse=True)
         if not files:
-            self._notify("No saved settings found.", "info")
+            self._notify(self.tr("No saved settings found."), "info")
             return
         def _picked(path):
             try:
                 profile_export.read_settings(path, self._all_rows)
                 self._apply_filter()
-                self._notify("Settings loaded.", "info")
+                self._notify(self.tr("Settings loaded."), "info")
             except Exception as exc:
-                self._notify(f"Load failed: {exc}", "error")
+                self._notify(self.tr("Load failed: {0}").format(exc), "error")
 
         _LoadSettingsOverlay(self.window(), files, _picked)
 
     # -- export -------------------------------------------------------------
     def _on_export(self):
         if not self._all_rows:
-            self._notify("No mods to export.", "warning")
+            self._notify(self.tr("No mods to export."), "warning")
             return
         missing = profile_export.nexus_missing_file_ids(self._all_rows)
         if missing:
@@ -758,8 +758,7 @@ class ExportProfileView(QWidget):
             noun = "mod" if count == 1 else "mods"
             verb = "is" if count == 1 else "are"
             self._notify(
-                f"{count} Nexus {noun} {verb} missing a File ID and must be set "
-                "before exporting.", "warning")
+                self.tr("{0} Nexus {1} {2} missing a File ID and must be set before exporting.").format(count, noun, verb), "warning")
             return
 
         pd = self._profile_dir()
@@ -830,10 +829,10 @@ class ExportProfileView(QWidget):
 
     def _on_export_done(self, ok: bool, message: str):
         if ok:
-            self._notify(f"Exported to {message}", "info")
+            self._notify(self.tr("Exported to {0}").format(message), "info")
             self._log(f"[export] wrote {message}")
         else:
-            self._notify(f"Export failed: {message}", "error")
+            self._notify(self.tr("Export failed: {0}").format(message), "error")
             self._log(f"[export] failed: {message}")
 
     # -- misc ---------------------------------------------------------------

@@ -56,7 +56,7 @@ class ShowConflictsView(QWidget):
         # Title bar.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8)
-        title = QLabel(f"Conflicts: {self._mod_name}")
+        title = QLabel(self.tr("Conflicts: {0}").format(self._mod_name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:15px;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -67,13 +67,13 @@ class ShowConflictsView(QWidget):
 
         # Body: left column (2 stacked panes) | right column (1 pane).
         self._over_pane, self._over_tree = self._make_pane(
-            p, "Files overriding others", _TONE_GREEN,
-            ["File path", "Mod(s) beaten"])
+            p, self.tr("Files overriding others"), _TONE_GREEN,
+            [self.tr("File path"), self.tr("Mod(s) beaten")])
         self._under_pane, self._under_tree = self._make_pane(
-            p, "Files overridden by others", _TONE_RED,
-            ["File path", "Winning mod"])
+            p, self.tr("Files overridden by others"), _TONE_RED,
+            [self.tr("File path"), self.tr("Winning mod")])
         self._none_pane, self._none_tree = self._make_pane(
-            p, "Files with no conflicts", _TONE_BLUE, ["File path"])
+            p, self.tr("Files with no conflicts"), _TONE_BLUE, [self.tr("File path")])
 
         left = QSplitter(Qt.Vertical)
         left.addWidget(self._over_pane)
@@ -89,7 +89,7 @@ class ShowConflictsView(QWidget):
         v.addWidget(body, 1)
 
         # Loading/status footer line.
-        self._status = QLabel("Computing conflicts…")
+        self._status = QLabel(self.tr("Computing conflicts…"))
         self._status.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:6px 12px;")
         v.addWidget(self._status)
 
@@ -139,7 +139,7 @@ class ShowConflictsView(QWidget):
 
     def _on_ready(self, win, lose, none):
         if win is None and lose is None and none is None:
-            self._status.setText("Could not compute conflicts — see the log.")
+            self._status.setText(self.tr("Could not compute conflicts — see the log."))
             return
         self._fill_two(self._over_pane, self._over_tree, win)
         self._fill_two(self._under_pane, self._under_tree, lose)
@@ -150,7 +150,7 @@ class ShowConflictsView(QWidget):
     def _fill_two(self, pane, tree, rows):
         rows = sorted(rows or [], key=lambda r: r[0].lower())
         tree.clear()
-        pane._header.setText(f"{pane._title}  ({len(rows)})")
+        pane._header.setText(self.tr("{0}  ({1})").format(pane._title, len(rows)))
         if not rows:
             it = QTreeWidgetItem(["(none)", ""])
             it.setForeground(0, QColor(_c(active_palette(), "TEXT_DIM")))
@@ -165,7 +165,7 @@ class ShowConflictsView(QWidget):
     def _fill_one(self, pane, tree, rows):
         rows = sorted(rows or [], key=lambda s: s.lower())
         tree.clear()
-        pane._header.setText(f"{pane._title}  ({len(rows)})")
+        pane._header.setText(self.tr("{0}  ({1})").format(pane._title, len(rows)))
         if not rows:
             it = QTreeWidgetItem(["(none)"])
             it.setForeground(0, QColor(_c(active_palette(), "TEXT_DIM")))

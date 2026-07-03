@@ -69,9 +69,9 @@ class SynthesisView(WizardViewBase):
 
     # ---- page 1: download -------------------------------------------------------
     def _build_download_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Download Synthesis")
+        page, lay = self._step_page(self.tr("Step 1: Download Synthesis"))
         self._dl_status = self._make_status(lay)
-        self._set_status(self._dl_status, "Fetching latest release from GitHub …")
+        self._set_status(self._dl_status, self.tr("Fetching latest release from GitHub …"))
         self._dl_bar = QProgressBar()
         self._dl_bar.setRange(0, 0)
         lay.addWidget(self._dl_bar)
@@ -107,11 +107,11 @@ class SynthesisView(WizardViewBase):
 
     # ---- page 2: proton ---------------------------------------------------------
     def _build_proton_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Select Proton Version")
+        page, lay = self._step_page(self.tr("Step 2: Select Proton Version"))
         self._make_note(lay,
-                        "Synthesis will run in its own Wine prefix next to "
+                        self.tr("Synthesis will run in its own Wine prefix next to "
                         "Synthesis.exe.\nPick a Proton version to create that "
-                        "prefix with.")
+                        "prefix with."))
         self._proton_status = self._make_status(lay)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -122,7 +122,7 @@ class SynthesisView(WizardViewBase):
         scroll.setWidget(self._proton_holder)
         lay.addWidget(scroll, 1)
         self._proton_group = QButtonGroup(self)
-        self._proton_continue = self._accent_btn("Continue →")
+        self._proton_continue = self._accent_btn(self.tr("Continue →"))
         self._proton_continue.setEnabled(False)
         self._proton_continue.clicked.connect(self._on_proton_chosen)
         lay.addWidget(self._proton_continue, 0, Qt.AlignHCenter)
@@ -140,8 +140,8 @@ class SynthesisView(WizardViewBase):
         self._proton_candidates = list_proton()
         if not self._proton_candidates:
             self._set_status(self._proton_status,
-                             "No Proton installations found. Install Proton "
-                             "(e.g. GE-Proton) via Steam and try again.", RED)
+                             self.tr("No Proton installations found. Install Proton "
+                             "(e.g. GE-Proton) via Steam and try again."), RED)
             return
         self._set_status(self._proton_status, "")
         saved = load_saved_proton(self._game)
@@ -170,9 +170,9 @@ class SynthesisView(WizardViewBase):
 
     # ---- page 3: setup + launch -------------------------------------------------
     def _build_setup_page(self) -> QWidget:
-        page, lay = self._step_page("Step 3: Prepare Prefix")
+        page, lay = self._step_page(self.tr("Step 3: Prepare Prefix"))
         self._setup_status = self._make_status(lay)
-        self._set_status(self._setup_status, "Preparing …")
+        self._set_status(self._setup_status, self.tr("Preparing …"))
         p = active_palette()
         self._setup_log = QPlainTextEdit()
         self._setup_log.setReadOnly(True)
@@ -180,7 +180,7 @@ class SynthesisView(WizardViewBase):
             f"QPlainTextEdit{{background:{_c(p,'BG_PANEL')};"
             f" color:{_c(p,'TEXT_MAIN')}; border:1px solid {_c(p,'BORDER')};}}")
         lay.addWidget(self._setup_log, 1)
-        self._launch_btn = self._accent_btn("Launch Synthesis")
+        self._launch_btn = self._accent_btn(self.tr("Launch Synthesis"))
         self._launch_btn.setEnabled(False)
         self._launch_btn.clicked.connect(self._on_launch)
         lay.addWidget(self._launch_btn, 0, Qt.AlignHCenter)
@@ -250,7 +250,7 @@ class SynthesisView(WizardViewBase):
         if self._selected_proton is None:
             return
         self._launch_btn.setEnabled(False)
-        self._launch_btn.setText("Running …")
+        self._launch_btn.setText(self.tr("Running …"))
         self._ran = True
         threading.Thread(target=self._do_launch, daemon=True,
                          name="synthesis-launch").start()
@@ -275,4 +275,4 @@ class SynthesisView(WizardViewBase):
 
     def _on_launch_done(self):
         self._launch_btn.setEnabled(True)
-        self._launch_btn.setText("Launch Synthesis")
+        self._launch_btn.setText(self.tr("Launch Synthesis"))

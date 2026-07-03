@@ -60,7 +60,7 @@ class SettingsView(QWidget):
         self._v.setContentsMargins(16, 14, 16, 18)
         self._v.setSpacing(14)
 
-        title = QLabel("Settings")
+        title = QLabel(self.tr("Settings"))
         f = title.font(); f.setPointSize(f.pointSize() + 4); f.setBold(True)
         title.setFont(f)
         self._v.addWidget(title)
@@ -168,7 +168,7 @@ class SettingsView(QWidget):
         no_wheel(combo)
         grid.addWidget(combo, row, 1, Qt.AlignLeft)
         if restart_note:
-            note = QLabel("Changes take effect after restart.")
+            note = QLabel(self.tr("Changes take effect after restart."))
             note.setObjectName("RestartNote")
             grid.addWidget(note, self._next_row(grid), 0, 1, 2)
         return combo
@@ -207,10 +207,10 @@ class SettingsView(QWidget):
             pass
         edit.editingFinished.connect(
             lambda: self._safe_save(save_fn, edit.text().strip()))
-        browse = QPushButton("Browse")
+        browse = QPushButton(self.tr("Browse"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(lambda: self._browse_into(edit, save_fn, label))
-        clear = QPushButton("Clear")
+        clear = QPushButton(self.tr("Clear"))
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(lambda: self._clear_path(edit, save_fn))
         wrap.addWidget(edit, 1)
@@ -227,16 +227,75 @@ class SettingsView(QWidget):
         # NB: no UI Scale / Font here — Qt scales via the OS/compositor natively
         # (unlike Tk/CustomTkinter, which had to reimplement HiDPI), so a manual
         # scale slider + font picker would be dead controls.
-        g = self._section("User Interface")
+        g = self._section(self.tr("User Interface"))
+        # Language row: combo + a "Sync language files" button that pulls the
+        # latest translations from the Resources branch on demand.
+        row = self._next_row(g)
+        g.addWidget(QLabel(self.tr("Language")), row, 0)
+        self._lang_combo = QComboBox()
+        no_wheel(self._lang_combo)
+        self._lang_sync_btn = QPushButton(self.tr("Sync language files"))
+        self._lang_sync_btn.setCursor(Qt.PointingHandCursor)
+        self._lang_sync_btn.clicked.connect(self._on_sync_languages)
+        lang_wrap = QHBoxLayout()
+        lang_wrap.setContentsMargins(0, 0, 0, 0)
+        lang_wrap.addWidget(self._lang_combo)
+        lang_wrap.addWidget(self._lang_sync_btn)
+        lang_wrap.addStretch(1)
+        lang_holder = QWidget(); lang_holder.setLayout(lang_wrap)
+        g.addWidget(lang_holder, row, 1)
+        note = QLabel(self.tr("Changes take effect after restart."))
+        note.setObjectName("RestartNote")
+        g.addWidget(note, self._next_row(g), 0, 1, 2)
+        self._populate_language_combo()
         self._checkbox(
-            g, "Hide BSA conflicts",
+            g, self.tr("Hide BSA conflicts"),
             uc.load_hide_bsa_conflicts, uc.save_hide_bsa_conflicts,
-            help="Hide BSA/BA2 archive conflict flags (also skips that "
-                 "conflict scan for a small speed-up).",
+            help=self.tr("Hide BSA/BA2 archive conflict flags (also skips that "
+                 "conflict scan for a small speed-up)."),
             on_changed=lambda _v: self._rebuild_conflicts())
 
+    def _populate_language_combo(self):
+        """(Re)fill the Language combo from i18n.available_languages(), storing
+        each locale code as item-data and preserving the current selection. Owns
+        its own save wiring (the generic _combo closure can't repopulate)."""
+        from gui_qt.i18n import available_languages
+        combo = getattr(self, "_lang_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        current = uc.load_language()
+        try:
+            combo.currentIndexChanged.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        combo.clear()
+        sel = 0
+        for i, (disp, code) in enumerate(available_languages()):
+            combo.addItem(disp, userData=code)
+            if code == current:
+                sel = i
+        combo.setCurrentIndex(sel)
+        combo.currentIndexChanged.connect(
+            lambda i: self._safe_save(uc.save_language, combo.itemData(i)))
+        combo.blockSignals(False)
+
+    def refresh_language_options(self):
+        """Called when a background sync adds new .qm files — refresh the picker
+        so newly-downloaded languages appear without reopening Settings."""
+        self._populate_language_combo()
+
+    def _on_sync_languages(self):
+        """Manually pull the latest translations from the Resources branch. The
+        worker fires the window's _languages_synced signal (→ refresh + toast)
+        just like the automatic startup sync."""
+        try:
+            self._window._sync_languages_now()
+        except Exception:
+            pass
+
     def _build_downloads(self):
-        g = self._section("Downloads & Collections")
+        g = self._section(self.tr("Downloads & Collections"))
         try:
             cs = uc.load_collection_settings()
         except Exception:
@@ -249,36 +308,36 @@ class SettingsView(QWidget):
         }
 
         self._checkbox(
-            g, "Clear archive after install",
+            g, self.tr("Clear archive after install"),
             uc.load_clear_archive_after_install,
             uc.save_clear_archive_after_install,
-            help="Delete a mod's downloaded archive after it is extracted.")
+            help=self.tr("Delete a mod's downloaded archive after it is extracted."))
         self._checkbox(
-            g, "Keep FOMOD archives",
+            g, self.tr("Keep FOMOD archives"),
             uc.load_keep_fomod_archives, uc.save_keep_fomod_archives,
-            help="Mods installed via a FOMOD installer keep their archive even "
-                 "when 'Clear archive after install' is on.")
+            help=self.tr("Mods installed via a FOMOD installer keep their archive even "
+                 "when 'Clear archive after install' is on."))
 
         # Collection settings — all persisted together via save_collection_settings.
         self._slider(
-            g, "Max concurrent downloads", 1, 8, self._cs["max_concurrent"],
+            g, self.tr("Max concurrent downloads"), 1, 8, self._cs["max_concurrent"],
             self._save_max_concurrent)
         self._slider(
-            g, "Max extractions", 1, 8, self._cs["max_extract_workers"],
+            g, self.tr("Max extractions"), 1, 8, self._cs["max_extract_workers"],
             self._save_max_extract)
         self._add_help(
-            g, "Extractions are gated by available memory; the effective number "
-               "may be lower than set.")
+            g, self.tr("Extractions are gated by available memory; the effective number "
+               "may be lower than set."))
         self._checkbox(
-            g, "Check downloads locations",
+            g, self.tr("Check downloads locations"),
             self._load_check_dl_locations, self._save_check_dl_locations,
-            help="Scan the system Downloads folder (and any custom locations) "
-                 "for an archive before downloading it again.")
+            help=self.tr("Scan the system Downloads folder (and any custom locations) "
+                 "for an archive before downloading it again."))
 
         # Manage Caches action.
         row = self._next_row(g)
-        g.addWidget(QLabel("Caches"), row, 0)
-        self._cache_btn = QPushButton("Manage Caches…")
+        g.addWidget(QLabel(self.tr("Caches")), row, 0)
+        self._cache_btn = QPushButton(self.tr("Manage Caches…"))
         self._cache_btn.setCursor(Qt.PointingHandCursor)
         self._cache_btn.clicked.connect(self._on_manage_caches)
         cwrap = QHBoxLayout()
@@ -288,28 +347,28 @@ class SettingsView(QWidget):
         g.addWidget(holder, row, 1)
 
     def _build_general(self):
-        g = self._section("General")
+        g = self._section(self.tr("General"))
         self._checkbox(
-            g, "Normalise folder casing",
+            g, self.tr("Normalise folder casing"),
             uc.load_normalize_folder_case, uc.save_normalize_folder_case,
-            help="Unify folder names to a single casing across mods. Disable on "
-                 "case-insensitive filesystems.")
+            help=self.tr("Unify folder names to a single casing across mods. Disable on "
+                 "case-insensitive filesystems."))
         self._checkbox(
-            g, "Rename mod after install",
+            g, self.tr("Rename mod after install"),
             uc.load_rename_mod_after_install, uc.save_rename_mod_after_install,
-            help="Show a rename prompt after installing a mod.")
+            help=self.tr("Show a rename prompt after installing a mod."))
         self._checkbox(
-            g, "Restore on close",
+            g, self.tr("Restore on close"),
             uc.load_restore_on_close, uc.save_restore_on_close,
-            help="Restore all deployed games to vanilla when the app is closed.")
+            help=self.tr("Restore all deployed games to vanilla when the app is closed."))
         self._checkbox(
-            g, "Use pre-release versions",
+            g, self.tr("Use pre-release versions"),
             uc.load_allow_prerelease, uc.save_allow_prerelease,
-            help="Also offer beta and release-candidate app builds when checking "
-                 "for updates.")
+            help=self.tr("Also offer beta and release-candidate app builds when checking "
+                 "for updates."))
 
     def _build_appearance(self):
-        g = self._section("Appearance")
+        g = self._section(self.tr("Appearance"))
         try:
             from Utils.themes import load_display_names
             themes = load_display_names() or {"dark": "Dark"}
@@ -320,33 +379,33 @@ class SettingsView(QWidget):
         except Exception:
             current = "dark"
         pairs = [(disp, tid) for tid, disp in themes.items()]
-        self._combo(g, "Appearance", pairs, current,
+        self._combo(g, self.tr("Appearance"), pairs, current,
                     uc.save_appearance_mode, restart_note=True)
 
     def _build_paths(self):
-        g = self._section("Paths")
+        g = self._section(self.tr("Paths"))
         from Utils.config_paths import get_config_dir
         base = get_config_dir()
         self._path_row(
-            g, "Default Mod Staging Folder",
+            g, self.tr("Default Mod Staging Folder"),
             uc.load_default_staging_path, uc.save_default_staging_path,
-            help=f"When set, games added after this point stage mods here. "
-                 f"Blank = default ({base / 'Profiles'}).")
+            help=self.tr("When set, games added after this point stage mods here. "
+                 "Blank = default ({0}).").format(base / 'Profiles'))
         self._path_row(
-            g, "Download Cache Folder",
+            g, self.tr("Download Cache Folder"),
             uc.load_download_cache_path, uc.save_download_cache_path,
-            help=f"Where downloaded mod archives are stored. "
-                 f"Blank = default ({base / 'download_cache'}).")
+            help=self.tr("Where downloaded mod archives are stored. "
+                 "Blank = default ({0}).").format(base / 'download_cache'))
         self._path_row(
-            g, "Heroic Config Location",
+            g, self.tr("Heroic Config Location"),
             uc.load_heroic_config_path, uc.save_heroic_config_path,
-            help="Folder containing Heroic's config.json. Blank = auto-detect "
-                 "(Flatpak and native locations).")
+            help=self.tr("Folder containing Heroic's config.json. Blank = auto-detect "
+                 "(Flatpak and native locations)."))
         self._path_row(
-            g, "Steam libraryfolders.vdf",
+            g, self.tr("Steam libraryfolders.vdf"),
             uc.load_steam_libraries_vdf_path, uc.save_steam_libraries_vdf_path,
-            help="Path to libraryfolders.vdf (or its folder). Blank = auto-detect "
-                 "(standard, Flatpak and Snap locations).")
+            help=self.tr("Path to libraryfolders.vdf (or its folder). Blank = auto-detect "
+                 "(standard, Flatpak and Snap locations)."))
 
     # ---- collection setting handlers (all persist the whole group) --------
     def _persist_collection(self):
@@ -411,7 +470,7 @@ class SettingsView(QWidget):
         try:
             save_fn(*args)
         except Exception as exc:
-            self._notify(f"Failed to save setting: {exc}", "warning")
+            self._notify(self.tr("Failed to save setting: {0}").format(exc), "warning")
 
     def _notify(self, text: str, state: str = "info"):
         win = self._window

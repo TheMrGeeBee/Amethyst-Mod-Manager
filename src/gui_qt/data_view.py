@@ -82,7 +82,7 @@ class DataView(QWidget):
         tb.setObjectName("HeaderBar")
         tbl = QHBoxLayout(tb)
         tbl.setContentsMargins(8, 4, 8, 4)
-        self._label = QLabel("Deployed files")
+        self._label = QLabel(self.tr("Deployed files"))
         self._label.setStyleSheet("color:#aaa;")
         tbl.addWidget(self._label, 1)
         v.addWidget(tb)

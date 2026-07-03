@@ -98,18 +98,18 @@ class CollectionManualOverlay(QWidget):
         outer.setContentsMargins(20, 16, 20, 14)
         outer.setSpacing(6)
 
-        title_lbl = QLabel("Manual Download Required", self._card)
+        title_lbl = QLabel(self.tr("Manual Download Required"), self._card)
         title_lbl.setAlignment(Qt.AlignHCenter)
         title_lbl.setStyleSheet(
             f"color:{self._tc('TEXT_MAIN')}; font-weight:600; font-size:16px;")
         outer.addWidget(title_lbl)
-        sub = QLabel("Non-premium users must download each mod manually.",
+        sub = QLabel(self.tr("Non-premium users must download each mod manually."),
                      self._card)
         sub.setAlignment(Qt.AlignHCenter)
         sub.setStyleSheet(f"color:{self._tc('TEXT_DIM')}; font-size:11px;")
         outer.addWidget(sub)
         if profile_name:
-            prof = QLabel(f"Profile: {profile_name}", self._card)
+            prof = QLabel(self.tr("Profile: {0}").format(profile_name), self._card)
             prof.setAlignment(Qt.AlignHCenter)
             prof.setStyleSheet(f"color:{self._tc('TEXT_DIM')}; font-size:12px;")
             outer.addWidget(prof)
@@ -128,7 +128,7 @@ class CollectionManualOverlay(QWidget):
         cv = QVBoxLayout(card)
         cv.setContentsMargins(12, 10, 12, 10)
         cv.setSpacing(3)
-        self._name_lbl = QLabel("Preparing…", card)
+        self._name_lbl = QLabel(self.tr("Preparing…"), card)
         self._name_lbl.setWordWrap(True)
         self._name_lbl.setStyleSheet(
             f"color:{self._tc('TEXT_MAIN')}; font-weight:600; font-size:14px;")
@@ -159,7 +159,7 @@ class CollectionManualOverlay(QWidget):
         # Two lines: the per-mod instruction (from update_mod) and the shared
         # pipeline status (set_status — "installed N/M…"), so a parallel
         # install finishing doesn't wipe the download instruction.
-        self._instr_lbl = QLabel("Preparing…", self._card)
+        self._instr_lbl = QLabel(self.tr("Preparing…"), self._card)
         self._instr_lbl.setWordWrap(True)
         self._instr_lbl.setStyleSheet(
             f"color:{self._tc('TEXT_DIM')}; font-size:12px;")
@@ -173,23 +173,23 @@ class CollectionManualOverlay(QWidget):
         # --- buttons ---
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        self._open_btn = QPushButton("Open Download Page", self._card)
+        self._open_btn = QPushButton(self.tr("Open Download Page"), self._card)
         self._open_btn.setObjectName("PrimaryButton")
         self._open_btn.setCursor(Qt.PointingHandCursor)
         self._open_btn.clicked.connect(self._open_clicked)
         btn_row.addWidget(self._open_btn)
-        self._open_next_btn = QPushButton("Open next 5", self._card)
+        self._open_next_btn = QPushButton(self.tr("Open next 5"), self._card)
         self._open_next_btn.setObjectName("FormButton")
         self._open_next_btn.setCursor(Qt.PointingHandCursor)
         self._open_next_btn.clicked.connect(self._open_next_clicked)
         self._open_next_btn.hide()
         btn_row.addWidget(self._open_next_btn)
-        self._select_btn = QPushButton("Select File…", self._card)
+        self._select_btn = QPushButton(self.tr("Select File…"), self._card)
         self._select_btn.setObjectName("FormButton")
         self._select_btn.setCursor(Qt.PointingHandCursor)
         self._select_btn.clicked.connect(self._select_clicked)
         btn_row.addWidget(self._select_btn)
-        self._skip_btn = QPushButton("Skip", self._card)
+        self._skip_btn = QPushButton(self.tr("Skip"), self._card)
         self._skip_btn.setObjectName("FormButton")
         self._skip_btn.setCursor(Qt.PointingHandCursor)
         self._skip_btn.clicked.connect(self._skip_clicked)
@@ -198,23 +198,23 @@ class CollectionManualOverlay(QWidget):
         btn_row.addStretch(1)
         outer.addLayout(btn_row)
 
-        self._auto_open_chk = QCheckBox("Auto open next mod", self._card)
+        self._auto_open_chk = QCheckBox(self.tr("Auto open next mod"), self._card)
         outer.addWidget(self._auto_open_chk)
 
         # --- bottom row: progress + pause/cancel ---
         bottom = QHBoxLayout()
         self._progress_lbl = QLabel(
-            f"0 of {self._total} mods installed", self._card)
+            self.tr("0 of {0} mods installed").format(self._total), self._card)
         self._progress_lbl.setStyleSheet(
             f"color:{self._tc('TEXT_DIM')}; font-size:11px;")
         bottom.addWidget(self._progress_lbl)
         bottom.addStretch(1)
-        self._pause_btn = QPushButton("Pause", self._card)
+        self._pause_btn = QPushButton(self.tr("Pause"), self._card)
         self._pause_btn.setObjectName("FormButton")
         self._pause_btn.setCursor(Qt.PointingHandCursor)
         self._pause_btn.clicked.connect(self._pause_clicked)
         bottom.addWidget(self._pause_btn)
-        self._cancel_btn = QPushButton("Cancel", self._card)
+        self._cancel_btn = QPushButton(self.tr("Cancel"), self._card)
         self._cancel_btn.setObjectName("DangerButton")
         self._cancel_btn.setCursor(Qt.PointingHandCursor)
         self._cancel_btn.clicked.connect(self._cancel_clicked)
@@ -251,7 +251,7 @@ class CollectionManualOverlay(QWidget):
 
     def _pause_clicked(self):
         self._pause_btn.setEnabled(False)
-        self._pause_btn.setText("Pausing…")
+        self._pause_btn.setText(self.tr("Pausing…"))
         if self._on_pause is not None:
             self._on_pause()
 
@@ -266,7 +266,7 @@ class CollectionManualOverlay(QWidget):
         self._name_lbl.setText(name)
         self._size_lbl.setText(_fmt_size(payload.get("size", 0)))
         optional = bool(payload.get("optional"))
-        self._badge_lbl.setText("Optional" if optional else "Required")
+        self._badge_lbl.setText(self.tr("Optional") if optional else self.tr("Required"))
         self._badge_lbl.setStyleSheet(
             f"background:{_OPT_TONE if optional else _REQ_TONE};"
             " color:#ffffff; font-weight:600; font-size:10px;"
@@ -274,16 +274,16 @@ class CollectionManualOverlay(QWidget):
         self._badge_lbl.show()
         self._skip_btn.setVisible(optional)
         fname = payload.get("file_name") or ""
-        self._hint_lbl.setText(f"Expected file: {fname}" if fname else "")
+        self._hint_lbl.setText(self.tr("Expected file: {0}").format(fname) if fname else "")
         self._instr_lbl.setText(
-            f"Mod {payload.get('idx', 0)}/{payload.get('total', self._total)}"
-            " — download this file, then it will be auto-detected…")
+            self.tr("Mod {0}/{1} — download this file, then it will be auto-detected…")
+            .format(payload.get('idx', 0), payload.get('total', self._total)))
         self._total = int(payload.get("total", self._total) or self._total)
         self._installed_base = int(payload.get("installed_base", 0) or 0)
         self._cur_url = payload.get("url") or ""
         self._upcoming = list(payload.get("upcoming") or [])
         if self._upcoming:
-            self._open_next_btn.setText(f"Open next {len(self._upcoming) + 1}")
+            self._open_next_btn.setText(self.tr("Open next {0}").format(len(self._upcoming) + 1))
             self._open_next_btn.show()
         else:
             self._open_next_btn.hide()
@@ -300,7 +300,7 @@ class CollectionManualOverlay(QWidget):
 
     def _refresh_progress(self):
         done = self._installed_base + len(self._installed_fids)
-        self._progress_lbl.setText(f"{done} of {self._total} mods installed")
+        self._progress_lbl.setText(self.tr("{0} of {1} mods installed").format(done, self._total))
 
     def set_status(self, text: str):
         self._status_lbl.setText(text or "")
@@ -309,7 +309,7 @@ class CollectionManualOverlay(QWidget):
     # closest analogue of Tk's "Installing <name>…" status).
     def extract_add(self, file_id: int, name: str):
         if name:
-            self._status_lbl.setText(f"Installing {name}…")
+            self._status_lbl.setText(self.tr("Installing {0}…").format(name))
 
     # No download pane / aggregate bar in manual mode — accept and ignore the
     # premium-overlay slot calls so the app's handlers need no isinstance.

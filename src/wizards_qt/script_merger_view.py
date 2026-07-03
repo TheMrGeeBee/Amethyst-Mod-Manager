@@ -52,10 +52,10 @@ class ScriptMergerView(WizardViewBase):
         # page 0: deploy (auto-start + Skip — Tk parity)
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QPushButton
-        page, lay = self._step_page("Step 1: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 1: Deploy Modlist"))
         self._deploy_status = self._make_status(lay)
         lay.addStretch(1)
-        skip = QPushButton("Skip")
+        skip = QPushButton(self.tr("Skip"))
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(self._advance_from_deploy)
         lay.addWidget(skip, 0, Qt.AlignHCenter)
@@ -77,7 +77,7 @@ class ScriptMergerView(WizardViewBase):
         # page 4: proton
         self._stack.addWidget(self._build_proton_holder())
         # page 5: .NET 8
-        page, lay = self._step_page("Step 6: Install .NET 8")
+        page, lay = self._step_page(self.tr("Step 6: Install .NET 8"))
         self._net8_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
@@ -110,11 +110,11 @@ class ScriptMergerView(WizardViewBase):
                              "Please restart the wizard and install "
                              "Script Merger first.")
         elif idx == _PG_NET8:
-            self._set_status(self._net8_status, "Checking .NET 8…")
+            self._set_status(self._net8_status, self.tr("Checking .NET 8…"))
             self._start_net8()
         elif idx == _PG_RUN:
             self._set_status(self._run_status,
-                             "Launching WitcherScriptMerger…")
+                             self.tr("Launching WitcherScriptMerger…"))
             self._start_run()
 
     def _advance_from_deploy(self):
@@ -194,8 +194,7 @@ class ScriptMergerView(WizardViewBase):
         if exe is None:
             self._set_status(
                 self._run_status,
-                f"{_MERGER_EXE} was not found.\n"
-                "Please restart the wizard and install Script Merger first.",
+                self.tr('{0} was not found.\nPlease restart the wizard and install Script Merger first.').format(_MERGER_EXE),
                 RED)
             return
 
@@ -286,7 +285,7 @@ class ScriptMergerView(WizardViewBase):
             self._restoring = True
             self._done_btn.setEnabled(False)
             self._set_status(self._run_status,
-                             "Restoring game files (rescuing merges)…")
+                             self.tr("Restoring game files (rescuing merges)…"))
             self._restore_done_sig.connect(self._guard(self._on_restore_done))
             game, log = self._game, self._log
 

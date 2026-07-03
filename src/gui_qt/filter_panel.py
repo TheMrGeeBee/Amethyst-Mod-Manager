@@ -22,7 +22,7 @@ come back in the state dict as "<id>" (include frozenset) and "<id>_exclude".
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QT_TRANSLATE_NOOP
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame,
     QPushButton, QSizePolicy,
@@ -32,6 +32,57 @@ from gui_qt.tri_state_checkbox import TriStateCheckBox, STATE_OFF
 from gui_qt.theme_qt import active_palette, _c
 
 PANEL_WIDTH = 320
+
+# Filter labels + section titles are defined in the spec-supplying modules
+# (modlist_filter.STATUS_FILTERS / PLUGIN_STATUS_FILTERS, mod_files_view,
+# downloads_view, app.py) as canonical English paired with persistence keys.
+# The panel translates them at display time via self.tr(...) under THIS
+# (FilterSidePanel) context; lupdate can't see them there (they arrive as
+# variables), so every label/title is registered here with a direct literal
+# QT_TRANSLATE_NOOP call. Keep in sync when a filter is added.
+_TR_MARKERS = (
+    # --- section titles ---
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By status"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By category"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By file type"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By conflict"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By location"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "By source"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Filters"),
+    # --- modlist STATUS_FILTERS ---
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Disabled mods"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Enabled mods"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Hide separators"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Winning conflicts"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Losing conflicts"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Winning & losing conflicts"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Fully conflicted mods"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Missing requirements"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with disabled plugins"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with plugins"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods modified in Mod Files tab"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with updates"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with notes"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "FOMOD mods"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "BAIN mods"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with BSA archives"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Mods with BA2 archives"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "PGPatcher mods"),
+    # --- plugin PLUGIN_STATUS_FILTERS ---
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Enabled plugins"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Disabled plugins"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "ESL-flagged (light)"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Not ESL-flagged"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Extension .esl"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Extension .esm"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Extension .esp"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Missing masters"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Dirty (needs cleaning)"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Managed by userlist"),
+    # --- downloads / mod-files panels ---
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Show only installed"),
+    QT_TRANSLATE_NOOP("FilterSidePanel", "Show only not installed"),
+)
 
 
 class FilterSidePanel(QWidget):
@@ -67,11 +118,13 @@ class FilterSidePanel(QWidget):
         hb = QHBoxLayout(header)
         hb.setContentsMargins(10, 6, 8, 6)
         hb.setSpacing(6)
-        lbl = QLabel(title)
+        # Spec titles/labels arrive as canonical English (they double as/ pair
+        # with persistence keys), so translate them at display time here.
+        lbl = QLabel(self.tr(title))
         lbl.setObjectName("FilterTitle")
         hb.addWidget(lbl)
         hb.addStretch(1)
-        clear = QPushButton("Clear all")
+        clear = QPushButton(self.tr("Clear all"))
         clear.setObjectName("FilterClearBtn")
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(self.clear_all)
@@ -110,7 +163,8 @@ class FilterSidePanel(QWidget):
         self.setStyleSheet(self._qss(p))
 
     def _add_section(self, section: dict) -> None:
-        title = QLabel(section.get("title", ""))
+        _t = section.get("title", "")
+        title = QLabel(self.tr(_t) if _t else "")
         title.setObjectName("FilterSectionTitle")
         self._body_layout.addSpacing(6)
         self._body_layout.addWidget(title)
@@ -118,10 +172,10 @@ class FilterSidePanel(QWidget):
         stype = section.get("type", "checks")
         if stype == "checks":
             for key, label, enabled in section.get("items", []):
-                cb = TriStateCheckBox(label)
+                cb = TriStateCheckBox(self.tr(label))
                 cb.setEnabled(bool(enabled))
                 if not enabled:
-                    cb.setToolTip("Not available for this game / not yet wired")
+                    cb.setToolTip(self.tr("Not available for this game / not yet wired"))
                 cb.stateChanged.connect(self._emit)
                 self._checks[key] = cb
                 self._body_layout.addWidget(cb)
@@ -134,7 +188,7 @@ class FilterSidePanel(QWidget):
             self._dynamic[section["id"]] = (clay, {})
             self._dynamic_meta[section["id"]] = section
             # Placeholder until populated.
-            self._set_dynamic_placeholder(section["id"], "(none)")
+            self._set_dynamic_placeholder(section["id"], self.tr("(none)"))
 
     def _set_dynamic_placeholder(self, sec_id: str, text: str) -> None:
         clay, _checks = self._dynamic[sec_id]
@@ -159,7 +213,7 @@ class FilterSidePanel(QWidget):
                 w.deleteLater()
         checks.clear()
         if not items:
-            self._set_dynamic_placeholder(sec_id, "(none)")
+            self._set_dynamic_placeholder(sec_id, self.tr("(none)"))
             return
         for key, label, count in items:
             text = f"{label}  ({count:,})" if count is not None else label

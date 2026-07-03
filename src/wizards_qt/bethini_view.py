@@ -91,10 +91,10 @@ class BethiniView(WizardViewBase):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"'{_EXE_NAME}' was not found.", RED)
+                             self.tr("'{0}' was not found.").format(_EXE_NAME), RED)
             return
         self._set_status(self._run_status,
-                         "Preparing BethINI Pie's Wine prefix…")
+                         self.tr("Preparing BethINI Pie's Wine prefix…"))
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
         def worker():

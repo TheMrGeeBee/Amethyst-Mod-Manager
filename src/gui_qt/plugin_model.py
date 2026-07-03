@@ -6,7 +6,9 @@ delegate). Toggling enable writes back to plugins.txt via plugin_state.save.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, Signal
+from PySide6.QtCore import (
+    Qt, QAbstractTableModel, QModelIndex, Signal, QT_TRANSLATE_NOOP,
+)
 
 from gui_qt.plugin_state import PluginRow, save_plugins
 
@@ -15,6 +17,14 @@ COL_FLAGS = 1
 COL_LOCK = 2
 COL_INDEX = 3
 COLUMNS = ["Plugin Name", "Flags", "", "Index"]
+# headerData() translates these at display time (self.tr(COLUMNS[i])); register
+# the literals so lupdate extracts them under the PluginModel context. Must be
+# explicit literal calls — lupdate can't see through a loop variable.
+_COL_TR = (
+    QT_TRANSLATE_NOOP("PluginModel", "Plugin Name"),
+    QT_TRANSLATE_NOOP("PluginModel", "Flags"),
+    QT_TRANSLATE_NOOP("PluginModel", "Index"),
+)
 
 RowRole = Qt.UserRole + 1      # the PluginRow
 PFlagsRole = Qt.UserRole + 2   # int flag bitmask
@@ -104,7 +114,8 @@ class PluginModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            # "" (the lock column) stays empty; others are translated.
+            return self.tr(COLUMNS[section]) if COLUMNS[section] else ""
         return None
 
     def row(self, i: int) -> PluginRow:

@@ -72,10 +72,10 @@ class ModLoaderInstallerView(WizardViewBase):
             "Step 2: Locate the Archive", with_next=True))
 
         # extract page (status + Next)
-        page, lay = self._step_page("Step 3: Extract to Game Folder")
+        page, lay = self._step_page(self.tr("Step 3: Extract to Game Folder"))
         self._extract_status = self._make_status(lay)
         lay.addStretch(1)
-        self._extract_next_btn = self._accent_btn("Next →")
+        self._extract_next_btn = self._accent_btn(self.tr("Next →"))
         self._extract_next_btn.setEnabled(False)
         self._extract_next_btn.clicked.connect(
             lambda: self._goto_named(self._after_extract_step()))
@@ -123,14 +123,14 @@ class ModLoaderInstallerView(WizardViewBase):
                 lambda _p: self._goto_named("extract"))
         elif name == "extract":
             self._set_status(self._extract_status,
-                             "Extracting archive to game folder…")
+                             self.tr("Extracting archive to game folder…"))
             threading.Thread(target=self._do_extract, daemon=True,
                              name="modloader-extract").start()
         elif name == "extra":
             self._run_extra_step()
         elif name == "run":
             self._set_status(self._run_status,
-                             f"Launching {self.INSTALLER_EXE} via Proton…")
+                             self.tr("Launching {0} via Proton…").format(self.INSTALLER_EXE))
             threading.Thread(target=self._do_run, daemon=True,
                              name="modloader-run").start()
 

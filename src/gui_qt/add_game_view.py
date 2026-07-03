@@ -88,7 +88,7 @@ class _GameCard(QFrame):
         v.addWidget(title, 1)
 
         # Select (configured) / Add (not configured).
-        btn = QPushButton("Select" if configured else "Add")
+        btn = QPushButton(self.tr("Select") if configured else self.tr("Add"))
         btn.setCursor(Qt.PointingHandCursor)
         btn.setObjectName("GameSelectBtn" if configured else "GameAddBtn")
         btn.clicked.connect(
@@ -168,16 +168,16 @@ class AddGameView(QWidget):
         header.setObjectName("HeaderBar")
         hb = QHBoxLayout(header)
         hb.setContentsMargins(12, 8, 12, 8)
-        title = QLabel("Select a game to add")
+        title = QLabel(self.tr("Select a game to add"))
         title.setStyleSheet("font-size:15px; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        self._installed_cb = QCheckBox("Show only installed")
+        self._installed_cb = QCheckBox(self.tr("Show only installed"))
         self._installed_cb.setCursor(Qt.PointingHandCursor)
         self._installed_cb.toggled.connect(self._on_installed_filter_toggle)
         hb.addWidget(self._installed_cb)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search by name…")
+        self._search.setPlaceholderText(self.tr("Search by name…"))
         self._search.setClearButtonEnabled(True)
         self._search.setFixedWidth(260)
         self._search.textChanged.connect(self._apply_search)
@@ -351,13 +351,13 @@ class AddGameView(QWidget):
             if installed:
                 if show_headers:
                     self._grid.addWidget(
-                        self._make_section_header("Installed"), row, 1, 1, cols)
+                        self._make_section_header(self.tr("Installed")), row, 1, 1, cols)
                     row += 1
                 row = self._add_card_run(installed, cols, row)
             if not_installed and not show_only_installed:
                 if show_headers:
                     self._grid.addWidget(
-                        self._make_section_header("Not Installed"), row, 1, 1, cols)
+                        self._make_section_header(self.tr("Not Installed")), row, 1, 1, cols)
                     row += 1
                 row = self._add_card_run(not_installed, cols, row)
 

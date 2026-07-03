@@ -180,7 +180,7 @@ class CollectionDetailView(QWidget):
         self._mods = mods
         self._total_size = int(total_size or 0)
         self._size_lbl.setText(
-            f"Total size: {fmt_size(total_size)}  |  {len(mods)} mods")
+            self.tr("Total size: {0}  |  {1} mods").format(fmt_size(total_size), len(mods)))
         self._fill_table()
         self._fill_optional()
         self._on_manifest_ready(offsite)
@@ -202,7 +202,7 @@ class CollectionDetailView(QWidget):
         self._title_lbl = title
         hb.addWidget(title)
         if col.user_name:
-            author = QLabel(f"by {col.user_name}")
+            author = QLabel(self.tr("by {0}").format(col.user_name))
             author.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:12px;")
             hb.addWidget(author)
         summ = (col.summary or "").strip()
@@ -224,7 +224,7 @@ class CollectionDetailView(QWidget):
         self._rev_updating = False
         self._rev_selector.currentIndexChanged.connect(self._on_revision_index)
         hb.addWidget(self._rev_selector)
-        self._size_lbl = QLabel("Loading…")
+        self._size_lbl = QLabel(self.tr("Loading…"))
         self._size_lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:12px;")
         hb.addWidget(self._size_lbl)
         root.addWidget(bar)
@@ -274,7 +274,7 @@ class CollectionDetailView(QWidget):
             f" border:1px solid {_c(p,'BORDER')}; border-radius:4px; }}")
         ov = QVBoxLayout(self._offsite_panel)
         ov.setContentsMargins(8, 6, 8, 6); ov.setSpacing(3)
-        self._offsite_title = QLabel("Off-site mods")
+        self._offsite_title = QLabel(self.tr("Off-site mods"))
         self._offsite_title.setStyleSheet(
             f"color:{_c(p,'TEXT_WARN')}; font-weight:600; font-size:12px;")
         ov.addWidget(self._offsite_title)
@@ -314,7 +314,7 @@ class CollectionDetailView(QWidget):
             f" border:1px solid {_c(p,'BORDER')}; border-radius:4px; }}")
         opv = QVBoxLayout(opt_panel)
         opv.setContentsMargins(8, 6, 8, 6); opv.setSpacing(6)
-        opt_title = QLabel("Optional mods")
+        opt_title = QLabel(self.tr("Optional mods"))
         opt_title.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:13px;")
         opv.addWidget(opt_title)
@@ -325,7 +325,7 @@ class CollectionDetailView(QWidget):
         self._opt_layout = QVBoxLayout(self._opt_host)
         self._opt_layout.setContentsMargins(2, 2, 2, 2)
         self._opt_layout.setSpacing(4)
-        self._opt_empty = QLabel("Loading…")
+        self._opt_empty = QLabel(self.tr("Loading…"))
         self._opt_empty.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         self._opt_layout.addWidget(self._opt_empty)
         self._opt_layout.addStretch(1)
@@ -333,12 +333,12 @@ class CollectionDetailView(QWidget):
         opv.addWidget(self._opt_scroll, 1)
         # Select all / Deselect all at the bottom of the optional-mods panel.
         selrow = QHBoxLayout(); selrow.setSpacing(6)
-        self._select_all_btn = QPushButton("Select all")
+        self._select_all_btn = QPushButton(self.tr("Select all"))
         self._select_all_btn.setObjectName("FormButton")
         self._select_all_btn.setCursor(Qt.PointingHandCursor)
         self._select_all_btn.clicked.connect(lambda: self._set_all_optional(True))
         selrow.addWidget(self._select_all_btn)
-        self._deselect_all_btn = QPushButton("Deselect all")
+        self._deselect_all_btn = QPushButton(self.tr("Deselect all"))
         self._deselect_all_btn.setObjectName("FormButton")
         self._deselect_all_btn.setCursor(Qt.PointingHandCursor)
         self._deselect_all_btn.clicked.connect(lambda: self._set_all_optional(False))
@@ -354,14 +354,14 @@ class CollectionDetailView(QWidget):
             f"#ActionPanel {{ background:{_c(p,'BG_HEADER')};"
             f" border:1px solid {_c(p,'BORDER')}; border-radius:4px; }}")
         av = QHBoxLayout(actions); av.setContentsMargins(8, 8, 8, 8); av.setSpacing(6)
-        install = QPushButton("Install collection")
+        install = QPushButton(self.tr("Install collection"))
         install.setObjectName("PrimaryButton")
         install.setCursor(Qt.PointingHandCursor)
         install.clicked.connect(self._on_install_clicked)
         av.addWidget(install)
         self._install_btn = install
         self._install_intent = "install"     # install | update | resume
-        view = QPushButton("View on Nexus")
+        view = QPushButton(self.tr("View on Nexus"))
         view.setObjectName("FormButton")
         view.setCursor(Qt.PointingHandCursor)
         view.clicked.connect(self._open_on_nexus)
@@ -404,8 +404,8 @@ class CollectionDetailView(QWidget):
         if token != self._detail_token:
             return                       # a newer revision switch superseded this
         if result is None:
-            self._size_lbl.setText("Could not load collection.")
-            self._opt_empty.setText("Could not load.")
+            self._size_lbl.setText(self.tr("Could not load collection."))
+            self._opt_empty.setText(self.tr("Could not load."))
             return
         name, total_size, mod_count, mods, dl_path, revisions = result
         self._dl_path = dl_path or ""   # collection-archive download link (manifest)
@@ -431,14 +431,14 @@ class CollectionDetailView(QWidget):
                 self._revision_number = want
                 self._set_rev_current(want)
                 self._table.setRowCount(0)
-                self._size_lbl.setText("Loading…")
+                self._size_lbl.setText(self.tr("Loading…"))
                 self._start_detail_fetch()
                 return
             self._revision_number = want
         self._mods = list(mods or [])
         self._total_size = int(total_size or 0)
         self._size_lbl.setText(
-            f"Total size: {fmt_size(total_size)}  |  {mod_count} mods")
+            self.tr("Total size: {0}  |  {1} mods").format(fmt_size(total_size), mod_count))
         self._fill_table()
         self._fill_optional()
         # Now lazily fetch the manifest (for off-site) — cache-first.
@@ -523,13 +523,13 @@ class CollectionDetailView(QWidget):
             return
         if self._is_paused():
             self._install_intent = "resume"
-            btn.setText("Resume Install")
+            btn.setText(self.tr("Resume Install"))
         elif self._update_available():
             self._install_intent = "update"
-            btn.setText("Update Collection")
+            btn.setText(self.tr("Update Collection"))
         else:
             self._install_intent = "install"
-            btn.setText("Install collection")
+            btn.setText(self.tr("Install collection"))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -591,7 +591,7 @@ class CollectionDetailView(QWidget):
         # Reset the panels; the next detail fetch reloads them for this revision.
         self._offsite_wrap.setVisible(False)
         self._table.setRowCount(0)
-        self._size_lbl.setText("Loading…")
+        self._size_lbl.setText(self.tr("Loading…"))
         self._update_install_btn_state()     # viewing rev changed → maybe Update
         self._start_detail_fetch()
 
@@ -627,7 +627,7 @@ class CollectionDetailView(QWidget):
         self._select_all_btn.setEnabled(has_opt)
         self._deselect_all_btn.setEnabled(has_opt)
         if not has_opt:
-            lbl = QLabel("No optional mods.")
+            lbl = QLabel(self.tr("No optional mods."))
             lbl.setStyleSheet(f"color:{_c(active_palette(),'TEXT_DIM')};")
             self._opt_layout.insertWidget(0, lbl)
             return
@@ -691,7 +691,7 @@ class CollectionDetailView(QWidget):
             return
         p = active_palette()
         self._offsite_title.setText(
-            f"Off-site mods ({len(offsite)}) — download manually:")
+            self.tr("Off-site mods ({0}) — download manually:").format(len(offsite)))
         # Clear prior rows (keep the trailing stretch).
         while self._offsite_layout.count() > 1:
             it = self._offsite_layout.takeAt(0)
@@ -705,7 +705,7 @@ class CollectionDetailView(QWidget):
             nl = QLabel(name or url)
             nl.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-size:11px;")
             rl.addWidget(nl, 1)
-            openb = QPushButton("Open")
+            openb = QPushButton(self.tr("Open"))
             openb.setObjectName("FormButton")
             openb.setCursor(Qt.PointingHandCursor)
             openb.clicked.connect(lambda _=False, u=url: self._open_url(u))

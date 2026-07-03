@@ -97,16 +97,18 @@ class BainPickerView(QWidget):
         root.setSpacing(10)
 
         title = QLabel(
-            f"{self._mod_name} — BAIN package — choose sub-packages to install"
+            self.tr("{0} — BAIN package — choose sub-packages to install")
+            .format(self._mod_name)
             if self._mod_name
-            else "BAIN package — choose sub-packages to install")
+            else self.tr("BAIN package — choose sub-packages to install"))
         title.setStyleSheet(
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:15px;")
         root.addWidget(title)
 
         header = QLabel(
-            f"Sub-packages ({len(self._subpackages)}) — tick to install · "
+            self.tr("Sub-packages ({0}) — tick to install · "
             "green = files used · red = fully overridden by a later package")
+            .format(len(self._subpackages)))
         header.setWordWrap(True)
         header.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:12px;")
         root.addWidget(header)
@@ -118,7 +120,7 @@ class BainPickerView(QWidget):
         if has_readme:
             left = QVBoxLayout()
             left.setSpacing(4)
-            rlbl = QLabel("Package readme")
+            rlbl = QLabel(self.tr("Package readme"))
             rlbl.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:11px;")
             left.addWidget(rlbl)
             ro = QTextEdit()
@@ -154,23 +156,23 @@ class BainPickerView(QWidget):
 
         # Button bar: Select All / None (left) · Cancel / Install (right).
         bar = QHBoxLayout()
-        sel_all = QPushButton("Select All")
+        sel_all = QPushButton(self.tr("Select All"))
         sel_all.setObjectName("FormButton")
         sel_all.setCursor(Qt.PointingHandCursor)
         sel_all.clicked.connect(lambda: self._set_all(True))
         bar.addWidget(sel_all)
-        sel_none = QPushButton("Select None")
+        sel_none = QPushButton(self.tr("Select None"))
         sel_none.setObjectName("FormButton")
         sel_none.setCursor(Qt.PointingHandCursor)
         sel_none.clicked.connect(lambda: self._set_all(False))
         bar.addWidget(sel_none)
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self._cancel)
         bar.addWidget(cancel)
-        ok = QPushButton("Install")
+        ok = QPushButton(self.tr("Install"))
         ok.setObjectName("PrimaryButton")
         ok.setCursor(Qt.PointingHandCursor)
         ok.clicked.connect(self._ok)
@@ -219,8 +221,8 @@ class BainPickerView(QWidget):
         promote = QPushButton("⬆")
         promote.setFixedSize(30, 30)
         promote.setCursor(Qt.PointingHandCursor)
-        promote.setToolTip("Use this package — turn off the later packages "
-                           "overriding its files")
+        promote.setToolTip(self.tr("Use this package — turn off the later packages "
+                           "overriding its files"))
         promote.clicked.connect(lambda _=False, n=pkg.name: self._promote_package(n))
         promote.hide()
         inner.addWidget(promote, 0, Qt.AlignVCenter)

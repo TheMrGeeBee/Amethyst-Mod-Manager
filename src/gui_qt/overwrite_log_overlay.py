@@ -65,11 +65,11 @@ class OverwriteLogOverlay(QWidget):
         v.setSpacing(8)
 
         header = QHBoxLayout()
-        title = QLabel("Files swept into Overwrite (newest restore first)")
+        title = QLabel(self.tr("Files swept into Overwrite (newest restore first)"))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:14px;")
         header.addWidget(title)
         header.addStretch(1)
-        close = QPushButton("Close")
+        close = QPushButton(self.tr("Close"))
         close.setObjectName("FormButton")
         close.setCursor(Qt.PointingHandCursor)
         close.clicked.connect(self._finish)

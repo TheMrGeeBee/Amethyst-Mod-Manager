@@ -189,7 +189,7 @@ class PluginCycleView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        hdr = QLabel("Plugins in cycle")
+        hdr = QLabel(self.tr("Plugins in cycle"))
         hdr.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(hdr)
 
@@ -203,7 +203,7 @@ class PluginCycleView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        hdr = QLabel("Rules between these plugins")
+        hdr = QLabel(self.tr("Rules between these plugins"))
         hdr.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(hdr)
 
@@ -230,8 +230,10 @@ class PluginCycleView(QWidget):
     def _repaint_title(self):
         n = len(self._plugins)
         self._title_label.setText(
-            f"Userlist rules ({n} plugin{'s' if n != 1 else ''}) — "
-            f"anchor: {self._starting}")
+            (self.tr("Userlist rules (1 plugin) — anchor: {0}").format(self._starting)
+             if n == 1
+             else self.tr("Userlist rules ({0} plugins) — anchor: {1}")
+             .format(n, self._starting)))
 
     def _repaint_status(self):
         if self._is_broken:
@@ -269,7 +271,7 @@ class PluginCycleView(QWidget):
         ))
 
         if not flat:
-            empty = QLabel("No rules between these plugins.")
+            empty = QLabel(self.tr("No rules between these plugins."))
             empty.setStyleSheet(f"color:{self._c_text_dim}; padding:12px;")
             self._rules_layout.insertWidget(0, empty)
             return
@@ -303,7 +305,7 @@ class PluginCycleView(QWidget):
                 field = reason.get("field", "")
                 target = reason.get("target", "")
                 if owner and target and field in ("after", "before"):
-                    flip = QPushButton("Flip rule")
+                    flip = QPushButton(self.tr("Flip rule"))
                     flip.setFixedSize(90, 22)
                     flip.setCursor(Qt.PointingHandCursor)
                     flip_fg = FIXABLE_ROW_FG if fixable else self._c_accent
@@ -316,7 +318,7 @@ class PluginCycleView(QWidget):
                         self._on_flip(o, f, t))
                     h.addWidget(flip)
             elif reason.get("kind") == "group":
-                note = QLabel("(group rule — edit via Groups overlay)")
+                note = QLabel(self.tr("(group rule — edit via Groups overlay)"))
                 note.setStyleSheet(f"color:{self._c_text_dim};")
                 h.addWidget(note)
 

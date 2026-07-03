@@ -46,7 +46,7 @@ class ModExistsOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(8)
 
-        title = QLabel("Mod Already Exists")
+        title = QLabel(self.tr("Mod Already Exists"))
         title.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title)
@@ -67,11 +67,11 @@ class ModExistsOverlay(QWidget):
         rr = QHBoxLayout(self._rename_row)
         rr.setContentsMargins(0, 0, 0, 0); rr.setSpacing(6)
         self._entry = QLineEdit()
-        self._entry.setPlaceholderText("New mod name…")
+        self._entry.setPlaceholderText(self.tr("New mod name…"))
         self._entry.setText(mod_name)
         self._entry.returnPressed.connect(self._confirm_rename)
         rr.addWidget(self._entry, 1)
-        confirm = QPushButton("OK")
+        confirm = QPushButton(self.tr("OK"))
         confirm.setObjectName("PrimaryButton")
         confirm.setCursor(Qt.PointingHandCursor)
         confirm.clicked.connect(self._confirm_rename)
@@ -83,17 +83,17 @@ class ModExistsOverlay(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")       # neutral, like other buttons
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish("cancel"))
         bar.addWidget(cancel)
-        rename = QPushButton("Rename…")
+        rename = QPushButton(self.tr("Rename…"))
         rename.setObjectName("FormButton")
         rename.setCursor(Qt.PointingHandCursor)
         rename.clicked.connect(self._show_rename)
         bar.addWidget(rename)
-        replace = QPushButton("Replace All")
+        replace = QPushButton(self.tr("Replace All"))
         replace.setObjectName("PrimaryButton")   # accent primary action
         replace.setCursor(Qt.PointingHandCursor)
         replace.clicked.connect(lambda: self._finish("replace"))

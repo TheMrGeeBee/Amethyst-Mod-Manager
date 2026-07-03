@@ -64,15 +64,14 @@ class BodySlideView(WizardViewBase):
         self._goto_step(_PG_DEPLOY)
 
     def _build_bs_deploy_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 1: Deploy Modlist"))
         self._make_note(lay, (
-            f"{self._name} must be run from the deployed Data folder.\n\n"
-            "Deploy your modlist first, then click Run."))
+            self.tr('{0} must be run from the deployed Data folder.\n\nDeploy your modlist first, then click Run.').format(self._name)))
 
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 4, 0, 4); rh.setSpacing(8)
         rh.addStretch(1)
-        lbl = QLabel("Output mod name:")
+        lbl = QLabel(self.tr("Output mod name:"))
         lbl.setStyleSheet(self._dim)
         rh.addWidget(lbl)
         self._output_name_entry = QLineEdit()
@@ -87,11 +86,11 @@ class BodySlideView(WizardViewBase):
         brow = QWidget()
         bh = QHBoxLayout(brow); bh.setContentsMargins(0, 8, 0, 0); bh.setSpacing(8)
         bh.addStretch(1)
-        self._deploy_skip_btn = QPushButton("Skip")
+        self._deploy_skip_btn = QPushButton(self.tr("Skip"))
         self._deploy_skip_btn.setCursor(Qt.PointingHandCursor)
         self._deploy_skip_btn.clicked.connect(self._skip_deploy)
         bh.addWidget(self._deploy_skip_btn)
-        self._deploy_btn = self._accent_btn("Deploy")
+        self._deploy_btn = self._accent_btn(self.tr("Deploy"))
         self._deploy_btn.clicked.connect(self._start_bs_deploy)
         bh.addWidget(self._deploy_btn)
         bh.addStretch(1)
@@ -110,7 +109,7 @@ class BodySlideView(WizardViewBase):
                              f"folder.\n\nInstall {self._name} as a mod, then "
                              "reopen this wizard.")
         elif idx == _PG_RUN:
-            self._set_status(self._run_status, f"Launching {self._name}…")
+            self._set_status(self._run_status, self.tr("Launching {0}…").format(self._name))
             self._start_run()
 
     def _capture_output_mod_name(self):
@@ -163,8 +162,7 @@ class BodySlideView(WizardViewBase):
         if deployed is None:
             self._set_status(
                 self._run_status,
-                f"{self._name} was not found in the deployed Data folder.\n\n"
-                "Deploy your modlist first, then reopen this wizard.", RED)
+                self.tr('{0} was not found in the deployed Data folder.\n\nDeploy your modlist first, then reopen this wizard.').format(self._name), RED)
             return
         staged_exe = self._exe
         name = self._name

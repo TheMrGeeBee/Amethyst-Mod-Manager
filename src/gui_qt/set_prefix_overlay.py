@@ -46,26 +46,27 @@ class SetPrefixOverlay(QWidget):
         v.setSpacing(6)
 
         if mod_name:
-            mn = QLabel(f"Mod: {mod_name}")
+            mn = QLabel(self.tr("Mod: {0}").format(mod_name))
             mn.setStyleSheet(
                 f"color:{_c(p,'ACCENT')}; font-weight:600; font-size:14px;")
             v.addWidget(mn)
-        title = QLabel("This mod has no recognised top-level folders.")
+        title = QLabel(self.tr("This mod has no recognised top-level folders."))
         title.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:14px;")
         title.setWordWrap(True)
         v.addWidget(title)
         if required:
-            exp = QLabel("Expected one of:  " + ",  ".join(sorted(required)))
+            exp = QLabel(self.tr("Expected one of:  {0}").format(
+                ",  ".join(sorted(required))))
             exp.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:12px;")
             exp.setWordWrap(True)
             v.addWidget(exp)
 
-        prompt = QLabel("Install all files under this path (e.g. archive/pc/mod):")
+        prompt = QLabel(self.tr("Install all files under this path (e.g. archive/pc/mod):"))
         prompt.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-size:13px;")
         v.addWidget(prompt)
         self._entry = QLineEdit()
-        self._entry.setPlaceholderText("e.g. bin/x64")
+        self._entry.setPlaceholderText(self.tr("e.g. bin/x64"))
         self._entry.textChanged.connect(self._refresh_preview)
         self._entry.returnPressed.connect(self._on_prefix)
         v.addWidget(self._entry)
@@ -81,15 +82,15 @@ class SetPrefixOverlay(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))
         bar.addWidget(cancel)
-        as_is = QPushButton("Install Anyway")
+        as_is = QPushButton(self.tr("Install Anyway"))
         as_is.setCursor(Qt.PointingHandCursor)
         as_is.clicked.connect(lambda: self._finish(""))   # "" = install as-is
         bar.addWidget(as_is)
-        use = QPushButton("Install with Prefix")
+        use = QPushButton(self.tr("Install with Prefix"))
         use.setObjectName("GameAddBtn")     # blue accent
         use.setCursor(Qt.PointingHandCursor)
         use.clicked.connect(self._on_prefix)

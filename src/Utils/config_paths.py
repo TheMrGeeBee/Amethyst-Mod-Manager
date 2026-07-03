@@ -327,6 +327,21 @@ def get_plugins_dir() -> Path:
     return d
 
 
+def get_languages_dir() -> Path:
+    """Return the directory where downloaded / user-added UI translations live.
+
+    Compiled Qt translation files (``amethyst_<code>.qm``) are stored here. They
+    are synced from the Resources branch on startup (see Utils.gh_sync) and users
+    can drop their own ``.qm`` in to add a language without an app update. The
+    built-in source-tree English is always available regardless of this folder.
+
+    Result: ~/.config/AmethystModManager/languages/
+    """
+    d = get_config_dir() / "languages"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def get_download_locations_path() -> Path:
     """Return the path to the extra download scan locations config file.
 

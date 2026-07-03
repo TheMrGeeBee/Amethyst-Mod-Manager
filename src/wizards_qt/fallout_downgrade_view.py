@@ -69,7 +69,7 @@ class FalloutDowngradeView(WizardViewBase):
                 lambda _p: self._goto_step(_PG_RUN))
         elif idx == _PG_RUN:
             self._set_status(self._run_status,
-                             "Extracting archive to game folder…")
+                             self.tr("Extracting archive to game folder…"))
             threading.Thread(target=self._extract_and_run, daemon=True,
                              name="fo3-downgrade").start()
 

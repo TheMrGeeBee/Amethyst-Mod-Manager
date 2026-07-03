@@ -139,25 +139,23 @@ class NexusFooterLabel(QLabel):
 
         # Label text: username when known, else a logged-out / loading hint.
         if self._username:
-            self.setText(f"{self._username} @ NexusMods")
+            self.setText(self.tr("{0} @ NexusMods").format(self._username))
         elif api is not None:
-            self.setText("NexusMods")
+            self.setText(self.tr("NexusMods"))
         else:
-            self.setText("Not logged in")
+            self.setText(self.tr("Not logged in"))
 
         r = getattr(api, "rate_limits", None) if api is not None else None
         if r is None or (r.hourly_remaining < 0 and r.daily_remaining < 0):
-            self._set_tip("Nexus API rate limits — no data yet.\n"
-                          "Values appear after the first API request.")
+            self._set_tip(self.tr("Nexus API rate limits — no data yet.\n"
+                          "Values appear after the first API request."))
             self._apply_style(self._col_main)
             return
 
         h, d = r.hourly_remaining, r.daily_remaining
         h_str = f"{h:,}" if h >= 0 else "—"
         d_str = f"{d:,}" if d >= 0 else "—"
-        self._set_tip("Remaining API requests:\n"
-                      f"Hourly: {h_str}\n"
-                      f"Daily: {d_str}")
+        self._set_tip(self.tr('Remaining API requests:\nHourly: {0}\nDaily: {1}').format(h_str, d_str))
 
         # White by default; amber/red as the hourly budget runs low.
         if h == 0 or d == 0:

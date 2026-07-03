@@ -87,7 +87,7 @@ class SeparatorSettingsView(QWidget):
         title_bar.setStyleSheet(f"background:{bg_header};")
         tb = QHBoxLayout(title_bar)
         tb.setContentsMargins(12, 0, 4, 0)
-        title = QLabel(f"Separator Settings — {self._display_name()}")
+        title = QLabel(self.tr("Separator Settings — {0}").format(self._display_name()))
         title.setStyleSheet(f"color:{text_main}; font-weight:bold;")
         tb.addWidget(title, 1)
         close_btn = danger_close_button(pal=p)
@@ -103,30 +103,30 @@ class SeparatorSettingsView(QWidget):
         c.setSpacing(4)
 
         # Colour section (merged from the old "Change separator color").
-        c.addWidget(self._section_label("Separator Color"))
+        c.addWidget(self._section_label(self.tr("Separator Color")))
         color_row = QHBoxLayout()
         color_row.setSpacing(6)
         self._swatch = QFrame()
         self._swatch.setFixedSize(48, 28)
         color_row.addWidget(self._swatch)
         self._hex = QLineEdit()
-        self._hex.setPlaceholderText("#rrggbb")
+        self._hex.setPlaceholderText(self.tr("#rrggbb"))
         self._hex.setMaximumWidth(120)
         self._hex.editingFinished.connect(self._on_hex_typed)
         color_row.addWidget(self._hex)
-        choose = QPushButton("Choose colour…")
+        choose = QPushButton(self.tr("Choose colour…"))
         choose.setCursor(Qt.PointingHandCursor)
         choose.clicked.connect(self._on_choose_colour)
         color_row.addWidget(choose)
-        reset = QPushButton("Reset to default")
+        reset = QPushButton(self.tr("Reset to default"))
         reset.setCursor(Qt.PointingHandCursor)
         reset.clicked.connect(self._on_reset_colour)
         color_row.addWidget(reset)
         color_row.addStretch(1)
         c.addLayout(color_row)
         c.addWidget(self._help_label(
-            "Custom background colour for this separator row. "
-            "Reset uses the theme default."))
+            self.tr("Custom background colour for this separator row. "
+            "Reset uses the theme default.")))
         self._sync_colour_ui()
 
         c.addSpacing(12)
@@ -134,39 +134,39 @@ class SeparatorSettingsView(QWidget):
         c.addSpacing(12)
 
         # Deployment location.
-        c.addWidget(self._section_label("Deployment Location"))
+        c.addWidget(self._section_label(self.tr("Deployment Location")))
         path_row = QHBoxLayout()
         path_row.setSpacing(6)
         self._path = QLineEdit(self._deploy.get("path", "") or "")
         path_row.addWidget(self._path, 1)
-        browse = QPushButton("Browse")
+        browse = QPushButton(self.tr("Browse"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._on_browse)
         path_row.addWidget(browse)
-        clear = QPushButton("Clear")
+        clear = QPushButton(self.tr("Clear"))
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(lambda: self._path.setText(""))
         path_row.addWidget(clear)
         c.addLayout(path_row)
         c.addWidget(self._help_label(
-            "Deploy this separator's mods here instead of the game directory."))
+            self.tr("Deploy this separator's mods here instead of the game directory.")))
 
         c.addSpacing(12)
         c.addWidget(_hline(border))
         c.addSpacing(12)
 
         # Ignore deployment rules.
-        self._raw = QCheckBox("Ignore deployment rules")
+        self._raw = QCheckBox(self.tr("Ignore deployment rules"))
         self._raw.setChecked(bool(self._deploy.get("raw", False)))
         c.addWidget(self._raw)
-        c.addWidget(self._help_label("Skip routing rules; deploy files as-is."))
+        c.addWidget(self._help_label(self.tr("Skip routing rules; deploy files as-is.")))
 
         c.addSpacing(12)
         c.addWidget(_hline(border))
         c.addSpacing(12)
 
         # File transfer method.
-        c.addWidget(self._section_label("File Transfer Method"))
+        c.addWidget(self._section_label(self.tr("File Transfer Method")))
         self._mode_group = QButtonGroup(self)
         mode = (self._deploy.get("mode", "") or "").strip().lower()
         if mode not in ("hardlink", "symlink"):
@@ -183,19 +183,19 @@ class SeparatorSettingsView(QWidget):
             self._mode_buttons[val] = rb
             c.addWidget(rb)
         c.addWidget(self._help_label(
-            "Override the global deploy mode. Hardlink falls back to symlink if "
-            "unsupported."))
+            self.tr("Override the global deploy mode. Hardlink falls back to symlink if "
+            "unsupported.")))
 
         c.addSpacing(12)
         c.addWidget(_hline(border))
         c.addSpacing(12)
 
         # Merge folders.
-        self._merge = QCheckBox("Merge folders with target")
+        self._merge = QCheckBox(self.tr("Merge folders with target"))
         self._merge.setChecked(bool(self._deploy.get("merge", False)))
         c.addWidget(self._merge)
         c.addWidget(self._help_label(
-            "Merge mod folders into existing ones instead of replacing them."))
+            self.tr("Merge mod folders into existing ones instead of replacing them.")))
 
         c.addStretch(1)
         root.addWidget(content, 1)
@@ -207,11 +207,11 @@ class SeparatorSettingsView(QWidget):
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(16, 10, 16, 10)
         bl.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self._on_close)
         bl.addWidget(cancel)
-        save = QPushButton("Save")
+        save = QPushButton(self.tr("Save"))
         save.setCursor(Qt.PointingHandCursor)
         save.setStyleSheet(
             f"QPushButton {{ background:{accent}; color:{_c(p,'TEXT_ON_ACCENT')};"

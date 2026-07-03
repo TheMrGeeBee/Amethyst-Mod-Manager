@@ -60,26 +60,26 @@ class PluginAuditView(WizardViewBase):
 
     # ---- page 1: scan ----------------------------------------------------------
     def _build_scan_page(self) -> QWidget:
-        page, lay = self._step_page("Scan Load Order")
+        page, lay = self._step_page(self.tr("Scan Load Order"))
         self._make_note(lay, (
-            "Audits your active load order to find patched plugins that can be "
+            self.tr("Audits your active load order to find patched plugins that can be "
             "safely disabled (their patches still apply at runtime), and flags "
             "those blocked by new records or by other plugins depending on "
-            "them."))
+            "them.")))
         self._scan_status = self._make_status(lay)
         self._scan_bar = QProgressBar()
         self._scan_bar.setRange(0, 100)
         self._scan_bar.setTextVisible(False)
         lay.addWidget(self._scan_bar)
         lay.addStretch(1)
-        self._scan_btn = self._accent_btn("Start Scan")
+        self._scan_btn = self._accent_btn(self.tr("Start Scan"))
         self._scan_btn.clicked.connect(self._start_scan)
         lay.addWidget(self._scan_btn, 0, Qt.AlignHCenter)
         return page
 
     def _start_scan(self):
         self._scan_btn.setEnabled(False)
-        self._set_status(self._scan_status, "Scanning…")
+        self._set_status(self._scan_status, self.tr("Scanning…"))
         game = self._game
 
         def worker():
@@ -100,7 +100,7 @@ class PluginAuditView(WizardViewBase):
     def _on_scan_done(self, entries):
         self._scan_btn.setEnabled(True)
         if entries is None:
-            self._set_status(self._scan_status, "No active plugins found.", RED)
+            self._set_status(self._scan_status, self.tr("No active plugins found."), RED)
             return
         self._entries = entries
         self._populate_results()
@@ -108,7 +108,7 @@ class PluginAuditView(WizardViewBase):
 
     # ---- page 2: results ----------------------------------------------------------
     def _build_results_page(self) -> QWidget:
-        page, lay = self._step_page("Audit Results")
+        page, lay = self._step_page(self.tr("Audit Results"))
         self._results_summary = self._make_status(lay)
         self._results_scroll = QScrollArea()
         self._results_scroll.setWidgetResizable(True)
@@ -117,21 +117,21 @@ class PluginAuditView(WizardViewBase):
 
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
-        rescan = QPushButton("← Re-Scan")
+        rescan = QPushButton(self.tr("← Re-Scan"))
         rescan.setCursor(Qt.PointingHandCursor)
         rescan.clicked.connect(lambda: self._stack.setCurrentIndex(_PG_SCAN))
         rh.addWidget(rescan)
-        self._sel_safe_btn = QPushButton("Select All Safe")
+        self._sel_safe_btn = QPushButton(self.tr("Select All Safe"))
         self._sel_safe_btn.setCursor(Qt.PointingHandCursor)
         self._sel_safe_btn.clicked.connect(
             lambda: [c.setChecked(True) for c in self._checks.values()])
         rh.addWidget(self._sel_safe_btn)
         rh.addStretch(1)
-        self._clean_btn = QPushButton("Clean Orphaned INIs")
+        self._clean_btn = QPushButton(self.tr("Clean Orphaned INIs"))
         self._clean_btn.setCursor(Qt.PointingHandCursor)
         self._clean_btn.clicked.connect(self._start_cleanup)
         rh.addWidget(self._clean_btn)
-        self._disable_btn = self._accent_btn("Disable Selected")
+        self._disable_btn = self._accent_btn(self.tr("Disable Selected"))
         self._disable_btn.clicked.connect(self._disable_selected)
         rh.addWidget(self._disable_btn)
         lay.addWidget(row)
@@ -183,8 +183,8 @@ class PluginAuditView(WizardViewBase):
             pri.setFixedWidth(60)
             pri.setStyleSheet(self._dim)
             rh.addWidget(pri)
-            status = QLabel("Safe to disable" if selectable
-                            else entry.unsafe_reason or "Blocked")
+            status = QLabel(self.tr("Safe to disable") if selectable
+                            else entry.unsafe_reason or self.tr("Blocked"))
             status.setWordWrap(True)
             status.setStyleSheet(self._dim)
             rh.addWidget(status, 1)
@@ -208,8 +208,8 @@ class PluginAuditView(WizardViewBase):
         self._results_scroll.setWidget(inner)
 
         self._results_summary.setText(
-            f"Audit complete — {len(entries)} plugins, {len(safe)} safe to "
-            "disable.")
+            self.tr("Audit complete — {0} plugins, {1} safe to disable.")
+            .format(len(entries), len(safe)))
         self._sel_safe_btn.setEnabled(bool(safe))
         self._disable_btn.setEnabled(bool(safe))
         self._clean_btn.setEnabled(bool(blocked_new or blocked_dep))
@@ -241,7 +241,7 @@ class PluginAuditView(WizardViewBase):
     def _start_cleanup(self):
         targets = core.orphaned_ini_targets(self._entries)
         if not targets:
-            self._results_summary.setText("No orphaned INIs to clean.")
+            self._results_summary.setText(self.tr("No orphaned INIs to clean."))
             return
         from gui_qt.confirm_overlay import ConfirmOverlay
         ConfirmOverlay.show_over(
@@ -268,22 +268,22 @@ class PluginAuditView(WizardViewBase):
     def _on_cleanup_done(self, found: int, deleted: int):
         self._ran = True
         self._cleanup_summary.setText(
-            f"Cleanup complete — deleted {deleted} of {found} INI(s) found.\n\n"
-            "Re-scan to verify."
-            if found else "No SkyGen INIs found to clean.")
+            self.tr("Cleanup complete — deleted {0} of {1} INI(s) found.\n\n"
+            "Re-scan to verify.").format(deleted, found)
+            if found else self.tr("No SkyGen INIs found to clean."))
         self._stack.setCurrentIndex(_PG_CLEANUP)
         if getattr(self._ctx, "refresh_modlist", None):
             self._ctx.refresh_modlist()
 
     # ---- page 3: cleanup result ---------------------------------------------------
     def _build_cleanup_page(self) -> QWidget:
-        page, lay = self._step_page("Cleanup Complete")
+        page, lay = self._step_page(self.tr("Cleanup Complete"))
         self._cleanup_summary = self._make_status(lay)
         lay.addStretch(1)
-        rescan = self._accent_btn("Re-Scan to Verify")
+        rescan = self._accent_btn(self.tr("Re-Scan to Verify"))
         rescan.clicked.connect(lambda: self._stack.setCurrentIndex(_PG_SCAN))
         lay.addWidget(rescan, 0, Qt.AlignHCenter)
-        close = self._green_btn("Close")
+        close = self._green_btn(self.tr("Close"))
         close.setEnabled(True)
         close.clicked.connect(self._finish)
         lay.addWidget(close, 0, Qt.AlignHCenter)

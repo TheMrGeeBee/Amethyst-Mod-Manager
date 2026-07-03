@@ -58,7 +58,7 @@ class ExeSettingsView(QWidget):
         # Header bar: title + Close.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Configure: {self._exe_path.name}")
+        title = QLabel(self.tr("Configure: {0}").format(self._exe_path.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -106,12 +106,12 @@ class ExeSettingsView(QWidget):
         sa.addWidget(self._args_box)
         insert_row = QHBoxLayout()
         insert_row.setSpacing(6)
-        btn_game = QPushButton("Insert game path")
+        btn_game = QPushButton(self.tr("Insert game path"))
         btn_game.setObjectName("FormButton")
         btn_game.setCursor(Qt.PointingHandCursor)
         btn_game.clicked.connect(self._insert_game_path)
         insert_row.addWidget(btn_game)
-        self._insert_mod_btn = QPushButton("Insert mod path ▼")
+        self._insert_mod_btn = QPushButton(self.tr("Insert mod path ▼"))
         self._insert_mod_btn.setObjectName("FormButton")
         self._insert_mod_btn.setCursor(Qt.PointingHandCursor)
         self._insert_mod_btn.clicked.connect(self._open_mod_menu)
@@ -158,7 +158,7 @@ class ExeSettingsView(QWidget):
             "Without %command%, appended as suffix."))
         self._options_edit = QLineEdit()
         self._options_edit.setPlaceholderText(
-            "e.g. PROTON_ENABLE_WAYLAND=0 gamemoderun %command%")
+            self.tr("e.g. PROTON_ENABLE_WAYLAND=0 gamemoderun %command%"))
         so.addWidget(self._options_edit)
         bv.addWidget(sec_opts)
 
@@ -169,7 +169,7 @@ class ExeSettingsView(QWidget):
         # -- Bottom bar ---------------------------------------------------------
         foot = QWidget(); foot.setObjectName("HeaderBar")
         fb = QHBoxLayout(foot); fb.setContentsMargins(12, 8, 12, 8); fb.setSpacing(6)
-        remove = QPushButton("Remove EXE")
+        remove = QPushButton(self.tr("Remove EXE"))
         remove.setCursor(Qt.PointingHandCursor)
         remove.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -178,12 +178,12 @@ class ExeSettingsView(QWidget):
         remove.clicked.connect(self._on_remove)
         fb.addWidget(remove)
         fb.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._on_close(False))
         fb.addWidget(cancel)
-        save = QPushButton("Save")
+        save = QPushButton(self.tr("Save"))
         save.setObjectName("PrimaryButton")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(self._on_save)
@@ -261,7 +261,7 @@ class ExeSettingsView(QWidget):
         menu = QMenu(self)
         entries = self._mod_entries()
         if not entries:
-            menu.addAction("(no mods found)").setEnabled(False)
+            menu.addAction(self.tr("(no mods found)")).setEnabled(False)
         for name, path in entries:
             menu.addAction(name, lambda pa=path:
                            self._insert_arg_text(f'"{to_wine_path(pa)}"'))

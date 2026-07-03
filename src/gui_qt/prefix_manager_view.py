@@ -67,7 +67,7 @@ class PrefixManagerView(QWidget):
 
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel("Manage Prefixes")
+        title = QLabel(self.tr("Manage Prefixes"))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -80,10 +80,10 @@ class PrefixManagerView(QWidget):
         v.addWidget(bar)
 
         info = QLabel(
-            "Wizard tools each run in their own Wine prefix (created next to "
+            self.tr("Wizard tools each run in their own Wine prefix (created next to "
             "the tool's exe or in the app config folder). Deleting one only "
             "reclaims disk space — it is recreated automatically the next "
-            "time the tool runs.")
+            "time the tool runs."))
         info.setWordWrap(True)
         info.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:8px 12px 4px 12px;")
         v.addWidget(info)
@@ -99,20 +99,20 @@ class PrefixManagerView(QWidget):
         self._scroll.setWidget(self._list_host)
         v.addWidget(self._scroll, 1)
 
-        self._status = QLabel("Scanning for prefixes…")
+        self._status = QLabel(self.tr("Scanning for prefixes…"))
         self._status.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:2px 12px;")
         v.addWidget(self._status)
 
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(12, 6, 12, 12); rh.setSpacing(8)
-        all_btn = QPushButton("All")
+        all_btn = QPushButton(self.tr("All"))
         all_btn.clicked.connect(lambda: self._set_all_checked(True))
         rh.addWidget(all_btn)
-        none_btn = QPushButton("None")
+        none_btn = QPushButton(self.tr("None"))
         none_btn.clicked.connect(lambda: self._set_all_checked(False))
         rh.addWidget(none_btn)
         rh.addStretch(1)
-        self._del_sel_btn = QPushButton("Delete Selected")
+        self._del_sel_btn = QPushButton(self.tr("Delete Selected"))
         self._del_sel_btn.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
             " padding:6px 14px; border-radius:4px; font-weight:600;}"
@@ -120,7 +120,7 @@ class PrefixManagerView(QWidget):
             "QPushButton:disabled{background:#44484f; color:#9aa0a6;}")
         self._del_sel_btn.clicked.connect(self._on_delete_selected)
         rh.addWidget(self._del_sel_btn)
-        self._del_all_btn = QPushButton("Delete All")
+        self._del_all_btn = QPushButton(self.tr("Delete All"))
         self._del_all_btn.setStyleSheet(self._del_sel_btn.styleSheet())
         self._del_all_btn.clicked.connect(self._on_delete_all)
         rh.addWidget(self._del_all_btn)
@@ -129,7 +129,7 @@ class PrefixManagerView(QWidget):
     # ---- data -------------------------------------------------------------
     def _reload(self):
         self._scan_gen += 1
-        self._status.setText("Scanning for prefixes…")
+        self._status.setText(self.tr("Scanning for prefixes…"))
         self._total_lbl.setText("")
 
         def worker():
@@ -170,13 +170,12 @@ class PrefixManagerView(QWidget):
         self._del_sel_btn.setEnabled(has_any)
         self._del_all_btn.setEnabled(has_any)
         if not has_any:
-            self._status.setText("No tool prefixes found.")
+            self._status.setText(self.tr("No tool prefixes found."))
             self._total_lbl.setText("")
             return
         self._status.setText(
-            f"{len(self._entries)} prefix"
-            f"{'' if len(self._entries) == 1 else 'es'} found — "
-            "calculating sizes…")
+            (self.tr("1 prefix found — calculating sizes…") if len(self._entries) == 1
+             else self.tr("{0} prefixes found — calculating sizes…").format(len(self._entries))))
         self._start_size_scan()
 
     def _make_row(self, p, e: PrefixEntry) -> QWidget:
@@ -193,7 +192,8 @@ class PrefixManagerView(QWidget):
         text = QWidget()
         tv = QVBoxLayout(text); tv.setContentsMargins(0, 0, 0, 0); tv.setSpacing(1)
         active = (self._active_game and e.game == self._active_game)
-        name = QLabel(f"{e.tool} — {e.game}" + ("  (active)" if active else ""))
+        name = QLabel(self.tr("{0} — {1}").format(e.tool, e.game)
+                      + (self.tr("  (active)") if active else ""))
         name.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         tv.addWidget(name)
         bits = [b for b in (e.location, e.proton, str(e.path.parent)) if b]
@@ -234,10 +234,10 @@ class PrefixManagerView(QWidget):
             lbl.setText(fmt_size(n))
 
     def _on_sizes_done(self, total: int):
-        self._total_lbl.setText(f"Total: {fmt_size(total)}")
+        self._total_lbl.setText(self.tr("Total: {0}").format(fmt_size(total)))
         self._status.setText(
-            f"{len(self._entries)} prefix"
-            f"{'' if len(self._entries) == 1 else 'es'} found.")
+            (self.tr("1 prefix found.") if len(self._entries) == 1
+             else self.tr("{0} prefixes found.").format(len(self._entries))))
 
     # ---- selection / delete -------------------------------------------------
     def _set_all_checked(self, on: bool):
@@ -278,7 +278,7 @@ class PrefixManagerView(QWidget):
         self._busy = True
         self._del_sel_btn.setEnabled(False)
         self._del_all_btn.setEnabled(False)
-        self._status.setText("Deleting…")
+        self._status.setText(self.tr("Deleting…"))
 
         def worker():
             deleted = 0
@@ -308,6 +308,6 @@ class PrefixManagerView(QWidget):
             self._log(f"Prefix manager: {err}")
         if errors:
             self._status.setText(
-                f"Deleted {deleted}; {len(errors)} problem(s) — see log.")
+                self.tr("Deleted {0}; {1} problem(s) — see log.").format(deleted, len(errors)))
             self._status.setStyleSheet(f"color:{_RED}; padding:2px 12px;")
         self._reload()

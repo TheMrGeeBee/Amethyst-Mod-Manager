@@ -60,22 +60,22 @@ class BG3ImportView(WizardViewBase):
 
     # ---- page 1: pick -----------------------------------------------------------
     def _build_pick_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Select a BG3 Mod Manager order file")
+        page, lay = self._step_page(self.tr("Step 1: Select a BG3 Mod Manager order file"))
         self._make_note(lay,
-                        "Choose a modlist.json (or an exported saved-order .json) "
+                        self.tr("Choose a modlist.json (or an exported saved-order .json) "
                         "from BG3 Mod Manager.\nMods are matched to your installed "
-                        "mods by UUID.")
+                        "mods by UUID."))
         self._pick_status = self._make_status(lay)
-        self._set_status(self._pick_status, "No file selected.")
+        self._set_status(self._pick_status, self.tr("No file selected."))
         lay.addStretch(1)
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._browse_json)
         rh.addWidget(browse)
-        self._preview_btn = self._accent_btn("Preview →")
+        self._preview_btn = self._accent_btn(self.tr("Preview →"))
         self._preview_btn.setEnabled(False)
         self._preview_btn.clicked.connect(self._goto_preview)
         rh.addWidget(self._preview_btn)
@@ -92,12 +92,12 @@ class BG3ImportView(WizardViewBase):
         if path and Path(path).is_file():
             self._json_path = Path(path)
             self._set_status(self._pick_status,
-                             f"Selected: {Path(path).name}", GREEN)
+                             self.tr("Selected: {0}").format(Path(path).name), GREEN)
             self._preview_btn.setEnabled(True)
 
     # ---- page 2: preview --------------------------------------------------------
     def _build_preview_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Review changes")
+        page, lay = self._step_page(self.tr("Step 2: Review changes"))
         self._preview_summary = self._make_status(lay)
         p = active_palette()
         self._preview_box = QPlainTextEdit()
@@ -109,12 +109,12 @@ class BG3ImportView(WizardViewBase):
         lay.addWidget(self._preview_box, 1)
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
-        back = QPushButton("← Back")
+        back = QPushButton(self.tr("← Back"))
         back.setCursor(Qt.PointingHandCursor)
         back.clicked.connect(lambda: self._stack.setCurrentIndex(_PG_PICK))
         rh.addWidget(back)
         rh.addStretch(1)
-        self._apply_btn = self._green_btn("Apply Order")
+        self._apply_btn = self._green_btn(self.tr("Apply Order"))
         self._apply_btn.setEnabled(False)
         self._apply_btn.clicked.connect(self._apply)
         rh.addWidget(self._apply_btn)
@@ -127,7 +127,7 @@ class BG3ImportView(WizardViewBase):
         self._apply_btn.setEnabled(False)
         self._preview_box.setPlainText("")
         self._set_status(self._preview_summary,
-                         "Reading order and scanning installed mods…")
+                         self.tr("Reading order and scanning installed mods…"))
         threading.Thread(target=self._compute_preview, daemon=True,
                          name="bg3-preview").start()
 
@@ -160,16 +160,16 @@ class BG3ImportView(WizardViewBase):
             self._stack.setCurrentIndex(_PG_DONE)
         except Exception as exc:
             self._log(f"BG3 Import: apply error: {exc}")
-            self._apply_btn.setText("Failed")
+            self._apply_btn.setText(self.tr("Failed"))
 
     # ---- page 3: done -----------------------------------------------------------
     def _build_done_page(self) -> QWidget:
-        page, lay = self._step_page("Load order applied")
+        page, lay = self._step_page(self.tr("Load order applied"))
         self._make_note(lay,
-                        "The modlist has been reordered to match the BG3MM order.\n"
-                        "Deploy to push the new load order to the game.")
+                        self.tr("The modlist has been reordered to match the BG3MM order.\n"
+                        "Deploy to push the new load order to the game."))
         lay.addStretch(1)
-        done = self._green_btn("Done")
+        done = self._green_btn(self.tr("Done"))
         done.clicked.connect(self._finish)
         lay.addWidget(done, 0, Qt.AlignHCenter)
         return page

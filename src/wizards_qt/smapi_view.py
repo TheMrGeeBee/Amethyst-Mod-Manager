@@ -59,25 +59,25 @@ class SmapiView(WizardViewBase):
 
     # ---- page 1: download -------------------------------------------------------
     def _build_download_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Download SMAPI")
+        page, lay = self._step_page(self.tr("Step 1: Download SMAPI"))
         self._dl_status = self._make_status(lay)
         self._set_status(self._dl_status,
-                         "Checking for the latest SMAPI release…")
+                         self.tr("Checking for the latest SMAPI release…"))
         self._dl_bar = QProgressBar()
         self._dl_bar.setRange(0, 0)     # indeterminate until first progress
         lay.addWidget(self._dl_bar)
         self._make_note(lay,
-                        "A terminal window will open to run the installer.\n"
-                        "Follow its prompts, then press a key to close it.")
+                        self.tr("A terminal window will open to run the installer.\n"
+                        "Follow its prompts, then press a key to close it."))
         lay.addStretch(1)
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._browse_smapi)
         rh.addWidget(browse)
-        self._dl_next_btn = self._accent_btn("Next →")
+        self._dl_next_btn = self._accent_btn(self.tr("Next →"))
         self._dl_next_btn.setEnabled(False)
         self._dl_next_btn.clicked.connect(lambda: self._goto_install())
         rh.addWidget(self._dl_next_btn)
@@ -136,15 +136,15 @@ class SmapiView(WizardViewBase):
         if path and Path(path).is_file():
             self._archive_path = Path(path)
             self._set_status(self._dl_status,
-                             f"Selected: {Path(path).name}", GREEN)
+                             self.tr("Selected: {0}").format(Path(path).name), GREEN)
             self._dl_next_btn.setEnabled(True)
 
     # ---- page 2: install --------------------------------------------------------
     def _build_install_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Install SMAPI")
+        page, lay = self._step_page(self.tr("Step 2: Install SMAPI"))
         self._run_status = self._make_status(lay)
         lay.addStretch(1)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)
@@ -152,7 +152,7 @@ class SmapiView(WizardViewBase):
 
     def _goto_install(self):
         self._stack.setCurrentIndex(_PG_INSTALL)
-        self._set_status(self._run_status, "Extracting SMAPI archive…")
+        self._set_status(self._run_status, self.tr("Extracting SMAPI archive…"))
         threading.Thread(target=self._do_install, daemon=True,
                          name="smapi-install").start()
 

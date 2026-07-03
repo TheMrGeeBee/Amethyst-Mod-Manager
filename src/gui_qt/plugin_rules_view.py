@@ -178,7 +178,7 @@ class PluginRulesView(QWidget):
         toolbar.setStyleSheet(f"background:{self._c_bg_header};")
         tb = QHBoxLayout(toolbar)
         tb.setContentsMargins(12, 0, 12, 0)
-        title = QLabel("LOOT Plugin Rules - Select a plugin on the plugins panel")
+        title = QLabel(self.tr("LOOT Plugin Rules - Select a plugin on the plugins panel"))
         title.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         tb.addWidget(title, 1)
         close_btn = danger_close_button(pal=p)
@@ -209,7 +209,7 @@ class PluginRulesView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        hdr = QLabel("Plugins  —  drag onto rules pane")
+        hdr = QLabel(self.tr("Plugins  —  drag onto rules pane"))
         hdr.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(hdr)
 
@@ -222,7 +222,7 @@ class PluginRulesView(QWidget):
         self._search_edit = QLineEdit()
         self._search_edit.textChanged.connect(self._on_search_change)
         search_row.addWidget(self._search_edit, 1)
-        filter_lbl = QLabel("Filter")
+        filter_lbl = QLabel(self.tr("Filter"))
         filter_lbl.setStyleSheet(f"color:{self._c_text_dim};")
         search_row.addWidget(filter_lbl)
         v.addLayout(search_row)
@@ -237,7 +237,7 @@ class PluginRulesView(QWidget):
         v.setSpacing(6)
 
         plugin_label = self._selected_plugin or "— no plugin selected —"
-        self._rules_title = QLabel(f"Rules for: {plugin_label}")
+        self._rules_title = QLabel(self.tr("Rules for: {0}").format(plugin_label))
         self._rules_title.setStyleSheet(
             f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(self._rules_title)
@@ -267,7 +267,7 @@ class PluginRulesView(QWidget):
         if name == self._selected_plugin:
             return
         self._selected_plugin = name
-        self._rules_title.setText(f"Rules for: {name}")
+        self._rules_title.setText(self.tr("Rules for: {0}").format(name))
         self._load_rules_for(name)
         self._repaint_plugins(self._search_edit.text())
         self._repaint_rules()
@@ -328,15 +328,15 @@ class PluginRulesView(QWidget):
                 w.deleteLater()
 
         if not self._selected_plugin:
-            empty = QLabel("No plugin selected.\n"
-                           "Right-click a plugin and choose 'Plugin Rules'.")
+            empty = QLabel(self.tr("No plugin selected.\n"
+                           "Right-click a plugin and choose 'Plugin Rules'."))
             empty.setStyleSheet(f"color:{self._c_text_dim}; padding:12px;")
             self._rules_layout.insertWidget(0, empty)
             return
 
         if not self._rules:
-            empty = QLabel("No rules yet.\n"
-                           "Drag a plugin from the left pane to add a rule.")
+            empty = QLabel(self.tr("No rules yet.\n"
+                           "Drag a plugin from the left pane to add a rule."))
             empty.setStyleSheet(f"color:{self._c_text_dim}; padding:12px;")
             self._rules_layout.insertWidget(0, empty)
             return

@@ -42,18 +42,13 @@ class RemovePreviousOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(8)
 
-        title = QLabel("Remove previous version?")
+        title = QLabel(self.tr("Remove previous version?"))
         title.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title)
 
         body = QLabel(
-            f"'{new_name}' was installed as a new mod (different folder name) "
-            f"because it did not replace '{old_name}'.\n\n"
-            f"Remove the previous version '{old_name}'? The new mod will take "
-            f"its position in the modlist.\n\n"
-            "Choose Keep if this is an optional/alternative variant rather than "
-            "a replacement.")
+            self.tr("'{0}' was installed as a new mod (different folder name) because it did not replace '{1}'.\n\nRemove the previous version '{2}'? The new mod will take its position in the modlist.\n\nChoose Keep if this is an optional/alternative variant rather than a replacement.").format(new_name, old_name, old_name))
         body.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:13px;")
         body.setWordWrap(True)
         v.addWidget(body)
@@ -61,12 +56,12 @@ class RemovePreviousOverlay(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        keep = QPushButton("Keep")
+        keep = QPushButton(self.tr("Keep"))
         keep.setObjectName("FormButton")        # neutral, like other buttons
         keep.setCursor(Qt.PointingHandCursor)
         keep.clicked.connect(lambda: self._finish("keep"))
         bar.addWidget(keep)
-        remove = QPushButton("Remove")
+        remove = QPushButton(self.tr("Remove"))
         remove.setObjectName("PrimaryButton")   # accent primary action
         remove.setCursor(Qt.PointingHandCursor)
         remove.clicked.connect(lambda: self._finish("remove"))

@@ -67,11 +67,11 @@ class RePakRestoreView(QWidget):
         # Toolbar: title + Close.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Repair PAK files — {self._game.name}")
+        title = QLabel(self.tr("Repair PAK files — {0}").format(self._game.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setCursor(Qt.PointingHandCursor)
         close.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -88,21 +88,21 @@ class RePakRestoreView(QWidget):
         v.addWidget(body, 1)
 
         if not self._game_root or not self._game_root.is_dir():
-            err = QLabel("Game path is not set or invalid.")
+            err = QLabel(self.tr("Game path is not set or invalid."))
             err.setStyleSheet("color:#e06c6c;")
             bl.addWidget(err)
             bl.addStretch(1)
             return
 
         info = QLabel(
-            "If the game won't load (black screen) after removing mods, the "
+            self.tr("If the game won't load (black screen) after removing mods, the "
             "PAK archives may still have invalidated entries. This restores "
-            "the original PAK data from the failsafe manifest in the game root.")
+            "the original PAK data from the failsafe manifest in the game root."))
         info.setWordWrap(True)
         info.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')};")
         bl.addWidget(info)
 
-        root_lbl = QLabel(f"Game root: {self._game_root}")
+        root_lbl = QLabel(self.tr("Game root: {0}").format(self._game_root))
         root_lbl.setWordWrap(True)
         root_lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         bl.addWidget(root_lbl)
@@ -110,29 +110,27 @@ class RePakRestoreView(QWidget):
         pak_count, entry_count = root_manifest_summary(self._game_root)
         if pak_count == 0:
             status = QLabel(
-                f"No restore manifest ({ROOT_MANIFEST_NAME}) found in the game "
-                "root. There is nothing to repair — either no PAK-patching mods "
-                "were deployed, or the manifest was already consumed by a clean "
-                "restore.\n\n"
-                "If the game is still broken, verify the game files via Steam.")
+                self.tr('No restore manifest ({0}) found in the game root. There is nothing to repair — either no PAK-patching mods were deployed, or the manifest was already consumed by a clean restore.\n\nIf the game is still broken, verify the game files via Steam.').format(ROOT_MANIFEST_NAME))
             status.setWordWrap(True)
             status.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
             bl.addWidget(status)
         else:
+            paks = (self.tr("{0} PAK file") if pak_count == 1
+                    else self.tr("{0} PAK files")).format(pak_count)
+            entries = (self.tr("{0} invalidated entry") if entry_count == 1
+                       else self.tr("{0} invalidated entries")).format(entry_count)
             status = QLabel(
-                f"Found a restore manifest covering {pak_count} PAK file"
-                f"{'' if pak_count == 1 else 's'} "
-                f"and {entry_count} invalidated entr"
-                f"{'y' if entry_count == 1 else 'ies'}.")
+                self.tr("Found a restore manifest covering {0} and {1}.")
+                .format(paks, entries))
             status.setWordWrap(True)
             status.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')};")
             bl.addWidget(status)
-            self._repair_btn = QPushButton("Repair PAK files")
+            self._repair_btn = QPushButton(self.tr("Repair PAK files"))
             self._repair_btn.setCursor(Qt.PointingHandCursor)
             self._repair_btn.clicked.connect(self._do_repair)
             bl.addWidget(self._repair_btn, 0, Qt.AlignLeft)
 
-        log_lbl = QLabel("Log:")
+        log_lbl = QLabel(self.tr("Log:"))
         log_lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         bl.addWidget(log_lbl)
 

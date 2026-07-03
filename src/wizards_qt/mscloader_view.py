@@ -38,13 +38,13 @@ class MSCLoaderView(ModLoaderInstallerView):
         return True
 
     def _build_extra_page(self):
-        page, lay = self._step_page("Step 4: Create MSCFolder.txt")
+        page, lay = self._step_page(self.tr("Step 4: Create MSCFolder.txt"))
         self._mscfolder_status = self._make_status(lay)
         lay.addStretch(1)
         return page
 
     def _run_extra_step(self):
-        self._set_status(self._mscfolder_status, "Writing MSCFolder.txt…")
+        self._set_status(self._mscfolder_status, self.tr("Writing MSCFolder.txt…"))
         threading.Thread(target=self._do_mscfolder, daemon=True,
                          name="mscloader-mscfolder").start()
 

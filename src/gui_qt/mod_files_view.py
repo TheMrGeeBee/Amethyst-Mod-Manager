@@ -65,7 +65,7 @@ class ModFilesView(QWidget):
         tb.setObjectName("HeaderBar")
         tbl = QHBoxLayout(tb)
         tbl.setContentsMargins(8, 4, 8, 4)
-        self._label = QLabel("(no mod selected)")
+        self._label = QLabel(self.tr("(no mod selected)"))
         self._label.setStyleSheet("color:#aaa;")
         tbl.addWidget(self._label, 1)
         v.addWidget(tb)
@@ -152,7 +152,7 @@ class ModFilesView(QWidget):
         self._mod_name = mod_name
         self.mod_changed.emit(mod_name)
         if mod_name is None:
-            self._label.setText("(no mod selected)")
+            self._label.setText(self.tr("(no mod selected)"))
             self._model.clear()
             self._ext_counts = {}
             self.filetypes_changed.emit()

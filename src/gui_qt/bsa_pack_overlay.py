@@ -44,55 +44,54 @@ class BsaPackOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 14)
         v.setSpacing(6)
 
-        title_lbl = QLabel(f"Pack {archive_name}")
+        title_lbl = QLabel(self.tr("Pack {0}").format(archive_name))
         title_lbl.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title_lbl)
 
         if existing:
             warn = QLabel(
-                f"⚠  {archive_name} already exists in this mod and will be "
-                "overwritten.")
+                self.tr("⚠  {0} already exists in this mod and will be overwritten.").format(archive_name))
             warn.setWordWrap(True)
             warn.setStyleSheet("color:#e8a83a; font-size:12px;")
             v.addWidget(warn)
 
         # -- delete loose --------------------------------------------------
-        self._delete_cb = QCheckBox("Delete loose files after packing")
+        self._delete_cb = QCheckBox(self.tr("Delete loose files after packing"))
         v.addWidget(self._delete_cb)
         v.addWidget(self._hint(
-            "Files that get packed will be removed from the mod folder. Files "
+            self.tr("Files that get packed will be removed from the mod folder. Files "
             "outside the packable filter (plugins, readmes, .bik videos) and "
-            "files you've disabled in the Mod Files tab are left alone.", p))
+            "files you've disabled in the Mod Files tab are left alone."), p))
 
         # -- split textures (BSA only) -------------------------------------
         self._split_cb: QCheckBox | None = None
         if kind == "bsa":
-            self._split_cb = QCheckBox("Separate textures archive")
+            self._split_cb = QCheckBox(self.tr("Separate textures archive"))
             v.addWidget(self._split_cb)
             v.addWidget(self._hint(
-                "Writes textures to a sibling “… - Textures.bsa” instead of "
+                self.tr("Writes textures to a sibling “… - Textures.bsa” instead of "
                 "bundling them with the main archive. Optional for Skyrim / "
-                "FNV / Oblivion; mostly useful for very large texture packs.", p))
+                "FNV / Oblivion; mostly useful for very large texture packs."), p))
 
         # -- skip winners --------------------------------------------------
-        self._skip_cb = QCheckBox("Keep winning conflict files loose")
+        self._skip_cb = QCheckBox(self.tr("Keep winning conflict files loose"))
         v.addWidget(self._skip_cb)
         v.addWidget(self._hint(
-            "Files this mod currently wins as loose are left out of the archive "
+            self.tr("Files this mod currently wins as loose are left out of the archive "
             "so deploy still picks them. Files this mod already loses, or that "
-            "have no conflict, are packed normally.", p))
+            "have no conflict, are packed normally."), p))
 
         v.addStretch(1)
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))
         bar.addWidget(cancel)
-        pack = QPushButton("Pack")
+        pack = QPushButton(self.tr("Pack"))
         pack.setObjectName("PrimaryButton")
         pack.setCursor(Qt.PointingHandCursor)
         pack.clicked.connect(self._confirm)

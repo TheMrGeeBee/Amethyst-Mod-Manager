@@ -13,11 +13,19 @@ columns. Display-only — all data-building lives in Utils.data_tab.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PySide6.QtCore import (
+    Qt, QAbstractItemModel, QModelIndex, QT_TRANSLATE_NOOP,
+)
 
 COL_NAME = 0
 COL_MOD = 1
 COLUMNS = ["Path", "Winning Mod"]
+# Translated at display time in headerData; register literals for lupdate
+# (explicit calls — a loop variable wouldn't be statically extractable).
+_COL_TR = (
+    QT_TRANSLATE_NOOP("DataModel", "Path"),
+    QT_TRANSLATE_NOOP("DataModel", "Winning Mod"),
+)
 
 NodeRole = Qt.UserRole + 1       # the _DataNode
 ConflictRole = Qt.UserRole + 2   # 0 none, 1 winning conflict
@@ -107,7 +115,7 @@ class DataModel(QAbstractItemModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            return self.tr(COLUMNS[section])
         return None
 
     def flags(self, index):

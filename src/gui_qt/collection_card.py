@@ -78,7 +78,7 @@ class CollectionCard(QWidget):
         bl.addWidget(title)
 
         if entry.user_name:
-            author = QLabel(f"by {entry.user_name}")
+            author = QLabel(self.tr("by {0}").format(entry.user_name))
             author.setStyleSheet(f"color:{dim}; font-size:11px;")
             author.setMaximumWidth(CARD_W - 22)
             bl.addWidget(author)
@@ -99,16 +99,17 @@ class CollectionCard(QWidget):
 
         # Stats bar: ♥ endorsements · ↓ downloads · N mods.
         stats = QLabel(
-            f"♥ {_fmt_count(entry.endorsements)}"
-            f"    ↓ {_fmt_count(entry.total_downloads)}"
-            f"    {entry.mod_count} mods")
+            self.tr("♥ {0}    ↓ {1}    {2} mods").format(
+                _fmt_count(entry.endorsements),
+                _fmt_count(entry.total_downloads),
+                entry.mod_count))
         stats.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-size:11px;"
             f" border-top:1px solid {_c(p,'BORDER')}; padding-top:5px;")
         bl.addWidget(stats)
 
         # Single View button (view-only — install/detail is a later feature).
-        view = QPushButton("View")
+        view = QPushButton(self.tr("View"))
         view.setObjectName("GameAddBtn")          # blue accent
         view.setCursor(Qt.PointingHandCursor)
         view.clicked.connect(lambda: on_view(entry))

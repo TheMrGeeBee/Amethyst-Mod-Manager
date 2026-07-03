@@ -42,11 +42,11 @@ class ProgressPopup(QFrame):
         v.setContentsMargins(20, 18, 20, 18)
         v.setSpacing(10)
 
-        self._title = QLabel("Deploying")
+        self._title = QLabel(self.tr("Deploying"))
         self._title.setStyleSheet("font-size:18px; font-weight:600;")
         v.addWidget(self._title)
 
-        self._phase = QLabel("Working…")
+        self._phase = QLabel(self.tr("Working…"))
         self._phase.setStyleSheet(f"color:{_c(_pal(),'TEXT_DIM')}; font-size:14px;")
         self._phase.setWordWrap(True)
         v.addWidget(self._phase)
@@ -73,7 +73,7 @@ class ProgressPopup(QFrame):
         if total > 0:
             self._bar.setRange(0, total)
             self._bar.setValue(min(done, total))
-            self._count.setText(f"{done} / {total}")
+            self._count.setText(self.tr("{0} / {1}").format(done, total))
         else:
             # Indeterminate (busy) — Qt animates a range of 0,0.
             self._bar.setRange(0, 0)

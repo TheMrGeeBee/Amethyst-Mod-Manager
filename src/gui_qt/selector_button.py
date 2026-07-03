@@ -127,7 +127,7 @@ class SelectorButton(QToolButton):
         if self._icon is None:
             label = self._current or "—"
             # No trailing glyph — the split-button's arrow section shows it now.
-            self.setText(f"{self._prefix}{label}")
+            self.setText(self.tr("{0}{1}").format(self._prefix, label))
             # The current item's icon is drawn ourselves in paintEvent (to the
             # left of the still-centred text). Keep the QToolButton in text-only
             # mode so Qt centres the label; using its built-in icon slot would
@@ -157,7 +157,7 @@ class SelectorButton(QToolButton):
             if self._highlighted is not None and label == self._highlighted:
                 # QAction can't set foreground colour; mark the deployed item
                 # with a green check + bold so it reads as active in the list.
-                a.setText(f"{label}   ✓ deployed")
+                a.setText(self.tr("{0}   ✓ deployed").format(label))
                 f = a.font(); f.setBold(True); a.setFont(f)
             self._group.addAction(a)
             a.triggered.connect(lambda _=False, l=label: self._choose(l))

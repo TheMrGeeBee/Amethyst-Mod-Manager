@@ -131,10 +131,19 @@ class TriStateCheckBox(QAbstractButton):
         elif self._state == STATE_EXCLUDE:
             self._draw_minus(p, box)
 
-        # Label
+        # Label — elide with "…" if it's wider than the available room (longer
+        # translated filter labels can exceed the fixed panel width) and show
+        # the full text in a tooltip so nothing is lost.
         p.setPen(QColor(self._text_color if enabled else self._text_disabled))
         text_rect = self.rect().adjusted(_BOX + _GAP, 0, -2, 0)
-        p.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, self.text())
+        fm = self.fontMetrics()
+        elided = fm.elidedText(self.text(), Qt.ElideRight, text_rect.width())
+        if elided != self.text():
+            if self.toolTip() != self.text():
+                self.setToolTip(self.text())
+        elif self.toolTip():
+            self.setToolTip("")
+        p.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
         p.end()
 
     def _draw_check(self, p: QPainter, box: QRectF) -> None:

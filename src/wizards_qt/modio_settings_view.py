@@ -58,20 +58,20 @@ class ModioSettingsView(WizardViewBase):
         self._stack.addWidget(self._build_page())
 
     def _build_page(self) -> QWidget:
-        page, lay = self._step_page("mod.io API Key")
+        page, lay = self._step_page(self.tr("mod.io API Key"))
         self._make_note(lay, (
-            "Paste your mod.io read-only API key to enable update checks\n"
+            self.tr("Paste your mod.io read-only API key to enable update checks\n"
             "for Baldur's Gate 3 mods installed manually from mod.io.\n\n"
             "The key is read-only and stored securely (system keyring,\n"
-            "or an encrypted file when no keyring is available)."))
+            "or an encrypted file when no keyring is available).")))
 
-        link = QPushButton("Get my API key (mod.io)")
+        link = QPushButton(self.tr("Get my API key (mod.io)"))
         link.setCursor(Qt.PointingHandCursor)
         link.clicked.connect(lambda: self._open_url(_KEY_URL))
         lay.addWidget(link, 0, Qt.AlignHCenter)
 
         self._entry = QLineEdit()
-        self._entry.setPlaceholderText("mod.io API key")
+        self._entry.setPlaceholderText(self.tr("mod.io API key"))
         self._entry.setMinimumWidth(420)
         try:
             existing = self._modio_key.load_modio_key()
@@ -87,11 +87,11 @@ class ModioSettingsView(WizardViewBase):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        clear = QPushButton("Clear key")
+        clear = QPushButton(self.tr("Clear key"))
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(self._on_clear)
         rh.addWidget(clear)
-        self._save_btn = self._accent_btn("Test && Save")
+        self._save_btn = self._accent_btn(self.tr("Test && Save"))
         self._save_btn.clicked.connect(self._on_save)
         rh.addWidget(self._save_btn)
         rh.addStretch(1)

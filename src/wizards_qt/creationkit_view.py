@@ -59,10 +59,10 @@ class CreationKitView(WizardViewBase):
         self._stack.addWidget(self._build_detect_page())
         self._stack.addWidget(self._build_ckpe_page())
         # Deploy auto-starts (Tk parity) with a Skip escape hatch.
-        page, lay = self._step_page("Step 3: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 3: Deploy Modlist"))
         self._deploy_status = self._make_status(lay)
         lay.addStretch(1)
-        skip = QPushButton("Skip")
+        skip = QPushButton(self.tr("Skip"))
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(lambda: self._goto_step(_PG_PROTON))
         lay.addWidget(skip, 0, Qt.AlignHCenter)
@@ -74,26 +74,23 @@ class CreationKitView(WizardViewBase):
 
     # ---- pages ---------------------------------------------------------------
     def _build_detect_page(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Locate Creation Kit")
+        page, lay = self._step_page(self.tr("Step 1: Locate Creation Kit"))
         if self._exe is None:
             note = self._make_note(lay, (
-                f"{EXE_NAME} was not found in the game folder.\n\n"
-                "The Creation Kit is installed through Steam:\n"
-                "Skyrim Special Edition → ⚙ → Manage → Creation Kit.\n\n"
-                "Install it, then reopen this wizard."))
+                self.tr('{0} was not found in the game folder.\n\nThe Creation Kit is installed through Steam:\nSkyrim Special Edition → ⚙ → Manage → Creation Kit.\n\nInstall it, then reopen this wizard.').format(EXE_NAME)))
             note.setStyleSheet(f"color:{RED};")
             lay.addStretch(1)
             return page
-        found = self._make_note(lay, f"Found {EXE_NAME} in the game folder.")
+        found = self._make_note(lay, self.tr("Found {0} in the game folder.").format(EXE_NAME))
         found.setStyleSheet(f"color:{GREEN};")
         lay.addStretch(1)
-        nxt = self._accent_btn("Next →")
+        nxt = self._accent_btn(self.tr("Next →"))
         nxt.clicked.connect(lambda: self._goto_step(_PG_CKPE))
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
         return page
 
     def _build_ckpe_page(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Creation Kit Platform Extended")
+        page, lay = self._step_page(self.tr("Step 2: Creation Kit Platform Extended"))
         already = ckpe_mod_installed(self._game)
         self._make_note(lay, (
             "Creation Kit Platform Extended (CKPE) patches the Creation Kit "
@@ -109,12 +106,12 @@ class CreationKitView(WizardViewBase):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        skip = QPushButton("Skip")
+        skip = QPushButton(self.tr("Skip"))
         skip.setCursor(Qt.PointingHandCursor)
         skip.clicked.connect(lambda: self._goto_step(_PG_DEPLOY))
         rh.addWidget(skip)
         self._ckpe_btn = self._accent_btn(
-            "Update CKPE" if already else "Install CKPE")
+            self.tr("Update CKPE") if already else self.tr("Install CKPE"))
         self._ckpe_btn.clicked.connect(self._start_ckpe_install)
         rh.addWidget(self._ckpe_btn)
         rh.addStretch(1)
@@ -122,18 +119,18 @@ class CreationKitView(WizardViewBase):
         return page
 
     def _build_ck_run_page(self) -> QWidget:
-        page, lay = self._step_page("Step 4: Run Creation Kit")
+        page, lay = self._step_page(self.tr("Step 4: Run Creation Kit"))
         self._run_status = self._make_status(lay)
         self._make_note(lay, (
-            "Note: on a brand-new prefix the first launch may open the plain "
+            self.tr("Note: on a brand-new prefix the first launch may open the plain "
             "Creation Kit without Creation Kit Platform Extended (CKPE). If "
             "you need CKPE, close the Creation Kit and run the wizard again — "
             "CKPE loads on the second launch once the prefix is initialised."
             "\n\nThe Creation Kit can also occasionally crash on startup "
             "under Proton (a known Wine timing issue). If it closes "
-            "immediately, just relaunch."))
+            "immediately, just relaunch.")))
         lay.addStretch(1)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)
@@ -164,7 +161,7 @@ class CreationKitView(WizardViewBase):
     # ---- CKPE install ---------------------------------------------------------------
     def _start_ckpe_install(self):
         self._ckpe_btn.setEnabled(False)
-        self._set_status(self._ckpe_status, "Contacting GitHub…")
+        self._set_status(self._ckpe_status, self.tr("Contacting GitHub…"))
         game = self._game
 
         def worker():
@@ -199,9 +196,9 @@ class CreationKitView(WizardViewBase):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"{EXE_NAME} was not found.", RED)
+                             self.tr("{0} was not found.").format(EXE_NAME), RED)
             return
-        self._set_status(self._run_status, "Launching Creation Kit…")
+        self._set_status(self._run_status, self.tr("Launching Creation Kit…"))
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
         def worker():

@@ -154,7 +154,7 @@ class ConfigureGameView(QWidget):
         header = QWidget(); header.setObjectName("HeaderBar")
         hb = QHBoxLayout(header); hb.setContentsMargins(12, 8, 12, 8)
         verb = "Reconfigure" if configured else "Add"
-        title = QLabel(f"{verb} Game — {self._game.name}")
+        title = QLabel(self.tr("{0} Game — {1}").format(verb, self._game.name))
         title.setStyleSheet("font-size:15px; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -196,27 +196,27 @@ class ConfigureGameView(QWidget):
         bar = QWidget(); bar.setObjectName("BottomBar")
         bb = QHBoxLayout(bar); bb.setContentsMargins(12, 8, 12, 8)
         if configured:
-            self._remove_btn = QPushButton("Remove Instance")
+            self._remove_btn = QPushButton(self.tr("Remove Instance"))
             self._remove_btn.setObjectName("DangerButton")
             self._remove_btn.setCursor(Qt.PointingHandCursor)
             self._remove_btn.clicked.connect(self._on_remove)
             bb.addWidget(self._remove_btn)
-            self._clean_btn = QPushButton("Clean Game Folder")
+            self._clean_btn = QPushButton(self.tr("Clean Game Folder"))
             self._clean_btn.setObjectName("DangerButton")
             self._clean_btn.setCursor(Qt.PointingHandCursor)
             self._clean_btn.clicked.connect(self._on_clean)
             bb.addWidget(self._clean_btn)
         bb.addStretch(1)
         if configured:
-            reset = self._small_btn("Reset Locations", self._reset_locations)
+            reset = self._small_btn(self.tr("Reset Locations"), self._reset_locations)
             bb.addWidget(reset)
-        self._save_btn = QPushButton("Save")
+        self._save_btn = QPushButton(self.tr("Save"))
         self._save_btn.setObjectName("PrimaryButton")
         self._save_btn.setCursor(Qt.PointingHandCursor)
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._on_save)
         bb.addWidget(self._save_btn)
-        cancel = self._small_btn("Cancel", lambda: self._on_done(False, False))
+        cancel = self._small_btn(self.tr("Cancel"), lambda: self._on_done(False, False))
         bb.addWidget(cancel)
         outer.addWidget(bar)
 
@@ -259,28 +259,28 @@ class ConfigureGameView(QWidget):
         g = self._game
 
         # --- Game install folder ---
-        v.addWidget(self._section_header("Game Installation Folder"))
-        self._game_status = self._status("Scanning Steam libraries…", "TEXT_WARN")
+        v.addWidget(self._section_header(self.tr("Game Installation Folder")))
+        self._game_status = self._status(self.tr("Scanning Steam libraries…"), "TEXT_WARN")
         v.addWidget(self._game_status)
         self._game_edit = self._path_edit()
         self._game_edit.editingFinished.connect(self._on_game_typed)
         v.addWidget(self._game_edit)
         row = QHBoxLayout()
-        row.addWidget(self._small_btn("Browse manually…", self._browse_game))
-        self._game_open = self._small_btn("Open", lambda: self._open_path(self._found_path))
+        row.addWidget(self._small_btn(self.tr("Browse manually…"), self._browse_game))
+        self._game_open = self._small_btn(self.tr("Open"), lambda: self._open_path(self._found_path))
         row.addWidget(self._game_open)
-        row.addWidget(self._small_btn("Scan", self._start_game_scan))
+        row.addWidget(self._small_btn(self.tr("Scan"), self._start_game_scan))
         row.addStretch(1)
         v.addLayout(row)
         v.addWidget(self._divider())
 
         # --- Proton prefix ---
-        v.addWidget(self._section_header("Proton Prefix (compatdata/pfx)"))
+        v.addWidget(self._section_header(self.tr("Proton Prefix (compatdata/pfx)")))
         has_prefix_src = bool(getattr(g, "steam_id", None)
                               or _heroic_app_names(g))
         self._prefix_status = self._status(
-            "Scanning for prefix…" if has_prefix_src
-            else "No launcher ID — prefix not applicable.",
+            self.tr("Scanning for prefix…") if has_prefix_src
+            else self.tr("No launcher ID — prefix not applicable."),
             "TEXT_WARN" if has_prefix_src else "TEXT_DIM")
         v.addWidget(self._prefix_status)
         self._prefix_edit = self._path_edit()
@@ -288,10 +288,10 @@ class ConfigureGameView(QWidget):
         self._prefix_edit.editingFinished.connect(self._on_prefix_typed)
         v.addWidget(self._prefix_edit)
         row = QHBoxLayout()
-        self._prefix_browse = self._small_btn("Browse manually…", self._browse_prefix)
+        self._prefix_browse = self._small_btn(self.tr("Browse manually…"), self._browse_prefix)
         self._prefix_browse.setEnabled(has_prefix_src)
         row.addWidget(self._prefix_browse)
-        self._prefix_open = self._small_btn("Open", lambda: self._open_path(self._found_prefix))
+        self._prefix_open = self._small_btn(self.tr("Open"), lambda: self._open_path(self._found_prefix))
         row.addWidget(self._prefix_open)
         row.addStretch(1)
         v.addLayout(row)
@@ -299,17 +299,17 @@ class ConfigureGameView(QWidget):
         v.addWidget(self._divider())
 
         # --- Mod staging folder ---
-        v.addWidget(self._section_header("Mod Staging Folder"))
-        self._staging_status = self._status("Default location will be used.", "TEXT_DIM")
+        v.addWidget(self._section_header(self.tr("Mod Staging Folder")))
+        self._staging_status = self._status(self.tr("Default location will be used."), "TEXT_DIM")
         v.addWidget(self._staging_status)
         self._staging_edit = self._path_edit()
         self._staging_edit.editingFinished.connect(self._on_staging_typed)
         v.addWidget(self._staging_edit)
         row = QHBoxLayout()
-        row.addWidget(self._small_btn("Browse manually…", self._browse_staging))
-        row.addWidget(self._small_btn("Open", lambda: self._open_path(
+        row.addWidget(self._small_btn(self.tr("Browse manually…"), self._browse_staging))
+        row.addWidget(self._small_btn(self.tr("Open"), lambda: self._open_path(
             Path(self._staging_edit.text()) if self._staging_edit.text() else None)))
-        row.addWidget(self._small_btn("Reset to default", self._reset_staging))
+        row.addWidget(self._small_btn(self.tr("Reset to default"), self._reset_staging))
         row.addStretch(1)
         v.addLayout(row)
         v.addStretch(1)
@@ -318,7 +318,7 @@ class ConfigureGameView(QWidget):
     def _build_options_panel(self) -> QFrame:
         """Bottom-left panel — deploy method + game-dependent options, in an
         independently-scrolling list so many options never blow out the frame."""
-        frame, v = self._panel("Options")
+        frame, v = self._panel(self.tr("Options"))
         frame.setFixedWidth(_LEFT_COL_W)
         v.setContentsMargins(14, 12, 8, 12)   # tighter right for the scrollbar
 
@@ -334,13 +334,13 @@ class ConfigureGameView(QWidget):
         scroll.setWidget(inner)
 
         # --- Deploy method ---
-        ov.addWidget(self._section_header("Deploy Method"))
+        ov.addWidget(self._section_header(self.tr("Deploy Method")))
         rec = getattr(self._game, "default_deploy_mode", "symlink")
         self._deploy_group = QButtonGroup(self)
         self._rb_symlink = QRadioButton(
-            "Symlink (Recommended)" if rec == "symlink" else "Symlink")
+            self.tr("Symlink (Recommended)") if rec == "symlink" else self.tr("Symlink"))
         self._rb_hardlink = QRadioButton(
-            "Hardlink (Recommended)" if rec == "hardlink" else "Hardlink")
+            self.tr("Hardlink (Recommended)") if rec == "hardlink" else self.tr("Hardlink"))
         self._deploy_group.addButton(self._rb_symlink)
         self._deploy_group.addButton(self._rb_hardlink)
         ov.addWidget(self._rb_symlink)
@@ -395,7 +395,7 @@ class ConfigureGameView(QWidget):
         self._patch_group = None
         if hasattr(self._game, "get_patch_version"):
             ov.addWidget(self._divider())
-            ov.addWidget(self._section_header("Game Patch Version"))
+            ov.addWidget(self._section_header(self.tr("Game Patch Version")))
             self._patch_group = QButtonGroup(self)
             self._patch_buttons = {}
             for label, val in (("Patch 8", 8), ("Patch 7", 7), ("Patch 6", 6)):
@@ -432,7 +432,7 @@ class ConfigureGameView(QWidget):
             if getattr(g, "_staging_path", None) is not None:
                 self._custom_staging = g._staging_path
                 self._staging_edit.setText(str(g._staging_path))
-                self._staging_status.setText("Custom staging folder configured.")
+                self._staging_status.setText(self.tr("Custom staging folder configured."))
             else:
                 self._staging_edit.setText(str(g.get_mod_staging_path()))
             # option values
@@ -548,7 +548,7 @@ class ConfigureGameView(QWidget):
             return
         self._custom_staging = Path(path)
         self._staging_edit.setText(str(path))
-        self._staging_status.setText("Custom staging folder selected.")
+        self._staging_status.setText(self.tr("Custom staging folder selected."))
         self._staging_status.setStyleSheet(f"color:{self._c('TEXT_OK')};")
 
     def _open_path(self, path):
@@ -570,7 +570,7 @@ class ConfigureGameView(QWidget):
         except Exception:
             default = self._game.get_mod_staging_path()
         self._staging_edit.setText(str(default))
-        self._staging_status.setText("Default location will be used.")
+        self._staging_status.setText(self.tr("Default location will be used."))
         self._staging_status.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
 
     def _reset_locations(self):
@@ -582,7 +582,7 @@ class ConfigureGameView(QWidget):
 
     # ---- auto-detection (worker thread → signals) -------------------------
     def _start_game_scan(self):
-        self._game_status.setText("Scanning Steam libraries…")
+        self._game_status.setText(self.tr("Scanning Steam libraries…"))
         self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         threading.Thread(target=self._game_scan_worker, daemon=True).start()
 
@@ -636,11 +636,11 @@ class ConfigureGameView(QWidget):
                 self._start_prefix_scan()
         else:
             self._game_status.setText(
-                "Not found automatically. Browse manually to locate the game folder.")
+                self.tr("Not found automatically. Browse manually to locate the game folder."))
             self._game_status.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
 
     def _start_prefix_scan(self):
-        self._prefix_status.setText("Scanning for Proton prefix…")
+        self._prefix_status.setText(self.tr("Scanning for Proton prefix…"))
         self._prefix_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         threading.Thread(target=self._prefix_scan_worker, daemon=True).start()
 
@@ -667,7 +667,7 @@ class ConfigureGameView(QWidget):
             self._set_prefix(Path(found))
         else:
             self._prefix_status.setText(
-                "Prefix not found automatically. Not needed if game is Linux native.")
+                self.tr("Prefix not found automatically. Not needed if game is Linux native."))
             self._prefix_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
 
     # ---- save (live write) ------------------------------------------------
@@ -676,7 +676,7 @@ class ConfigureGameView(QWidget):
         if self._found_path is None and self._game_edit.text().strip():
             self._found_path = Path(self._game_edit.text().strip())
         if self._found_path is None:
-            self._game_status.setText("Set the game installation folder first.")
+            self._game_status.setText(self.tr("Set the game installation folder first."))
             self._game_status.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
             return
 
@@ -693,8 +693,8 @@ class ConfigureGameView(QWidget):
                     self._found_prefix is not None
                     and _changed(g.get_prefix_path(), self._found_prefix)):
                 self._game_status.setText(
-                    "Cannot change the game/prefix path while mods are deployed. "
-                    "Restore the game first.")
+                    self.tr("Cannot change the game/prefix path while mods are deployed. "
+                    "Restore the game first."))
                 self._game_status.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
                 return
 
@@ -770,7 +770,7 @@ class ConfigureGameView(QWidget):
         to move it. The new path is already saved, so Skip just leaves the old
         files behind (Tk parity)."""
         self._save_btn.setEnabled(False)
-        self._game_status.setText("Checking existing staging files…")
+        self._game_status.setText(self.tr("Checking existing staging files…"))
         self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         sig = self._sig
 
@@ -802,7 +802,7 @@ class ConfigureGameView(QWidget):
 
     def _run_staging_move(self, old_root, new_root, files):
         from gui_qt.notifications import ProgressPopup
-        self._game_status.setText("Moving staging files…")
+        self._game_status.setText(self.tr("Moving staging files…"))
         self._staging_popup = ProgressPopup(self.window())
         self._staging_popup.set_progress(0, len(files), phase=str(old_root),
                                          title="Moving Mod Staging Files")
@@ -959,7 +959,7 @@ class ConfigureGameView(QWidget):
             return
         self._destructive_busy = True
         self._set_destructive_enabled(False)
-        self._game_status.setText("Removing instance…")
+        self._game_status.setText(self.tr("Removing instance…"))
         self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         g = self._game
         sig = self._sig
@@ -1036,7 +1036,7 @@ class ConfigureGameView(QWidget):
             return
         self._destructive_busy = True
         self._set_destructive_enabled(False)
-        self._game_status.setText("Cleaning game folder…")
+        self._game_status.setText(self.tr("Cleaning game folder…"))
         self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         g = self._game
         sig = self._sig
@@ -1071,9 +1071,9 @@ class ConfigureGameView(QWidget):
         self._destructive_busy = False
         self._set_destructive_enabled(True)
         if error is not None:
-            self._game_status.setText(f"Clean failed: {error}")
+            self._game_status.setText(self.tr("Clean failed: {0}").format(error))
             self._game_status.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
         else:
             self._game_status.setText(
-                f"Clean complete — {removed} deployed file(s) removed.")
+                self.tr("Clean complete — {0} deployed file(s) removed.").format(removed))
             self._game_status.setStyleSheet(f"color:{self._c('TEXT_OK')};")

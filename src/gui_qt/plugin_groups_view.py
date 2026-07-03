@@ -112,11 +112,11 @@ class PluginGroupsView(QWidget):
         toolbar.setStyleSheet(f"background:{self._c_bg_header};")
         tb = QHBoxLayout(toolbar)
         tb.setContentsMargins(12, 0, 12, 0)
-        title = QLabel("LOOT Groups - Right click plugins to add them to groups")
+        title = QLabel(self.tr("LOOT Groups - Right click plugins to add them to groups"))
         title.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         tb.addWidget(title, 1)
 
-        save_btn = QPushButton("Save")
+        save_btn = QPushButton(self.tr("Save"))
         save_btn.setFixedSize(80, 30)
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.setStyleSheet(
@@ -154,7 +154,7 @@ class PluginGroupsView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        hdr = QLabel("Groups")
+        hdr = QLabel(self.tr("Groups"))
         hdr.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(hdr)
 
@@ -166,7 +166,7 @@ class PluginGroupsView(QWidget):
         self._new_group_edit = QLineEdit()
         self._new_group_edit.returnPressed.connect(self._add_group)
         add_row.addWidget(self._new_group_edit, 1)
-        add_btn = QPushButton("Add")
+        add_btn = QPushButton(self.tr("Add"))
         add_btn.setFixedSize(60, 28)
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.setStyleSheet(
@@ -177,7 +177,7 @@ class PluginGroupsView(QWidget):
         add_row.addWidget(add_btn)
         v.addLayout(add_row)
 
-        remove_btn = QPushButton("Remove Selected")
+        remove_btn = QPushButton(self.tr("Remove Selected"))
         remove_btn.setFixedSize(140, 28)
         remove_btn.setCursor(Qt.PointingHandCursor)
         remove_btn.setStyleSheet(
@@ -196,12 +196,12 @@ class PluginGroupsView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        hdr = QLabel("Group Rules")
+        hdr = QLabel(self.tr("Group Rules"))
         hdr.setStyleSheet(f"color:{self._c_text}; font-weight:bold;")
         v.addWidget(hdr)
 
         # New rule row.
-        add_lbl = QLabel("Add rule:")
+        add_lbl = QLabel(self.tr("Add rule:"))
         add_lbl.setStyleSheet(f"color:{self._c_text_dim};")
         v.addWidget(add_lbl)
 
@@ -216,7 +216,7 @@ class PluginGroupsView(QWidget):
         self._rule_b_combo = QComboBox()
         rule_row.addWidget(self._rule_b_combo, 1)
         no_wheel(self._rule_a_combo, self._rule_rel_combo, self._rule_b_combo)
-        add_rule_btn = QPushButton("Add Rule")
+        add_rule_btn = QPushButton(self.tr("Add Rule"))
         add_rule_btn.setFixedSize(100, 28)
         add_rule_btn.setCursor(Qt.PointingHandCursor)
         add_rule_btn.setStyleSheet(
@@ -308,7 +308,7 @@ class PluginGroupsView(QWidget):
                 w.deleteLater()
 
         if not self._rules:
-            empty = QLabel("No rules defined.")
+            empty = QLabel(self.tr("No rules defined."))
             empty.setStyleSheet(f"color:{self._c_text_dim}; padding:12px;")
             self._rules_layout.insertWidget(0, empty)
             return

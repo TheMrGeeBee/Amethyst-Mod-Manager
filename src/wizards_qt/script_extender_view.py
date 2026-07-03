@@ -108,11 +108,11 @@ class ScriptExtenderView(QWidget):
 
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Install Script Extender — {self._game.name}")
+        title = QLabel(self.tr("Install Script Extender — {0}").format(self._game.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setCursor(Qt.PointingHandCursor)
         close.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -170,7 +170,7 @@ class ScriptExtenderView(QWidget):
         box = QFrame()
         box.setStyleSheet(f"QFrame{{background:{_c(p,'BG_PANEL')}; border-radius:6px;}}")
         bv = QVBoxLayout(box); bv.setContentsMargins(12, 10, 12, 10); bv.setSpacing(4)
-        head = QLabel("Install destination")
+        head = QLabel(self.tr("Install destination"))
         head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         bv.addWidget(head)
         group = QButtonGroup(self)
@@ -195,9 +195,9 @@ class ScriptExtenderView(QWidget):
 
     # ---- page 0: version select ----------------------------------------------
     def _build_page_versions(self) -> QWidget:
-        page, lay = self._page("Choose a Version")
-        note = QLabel("Multiple builds are available for this game — pick the "
-                      "one that matches your game version.")
+        page, lay = self._page(self.tr("Choose a Version"))
+        note = QLabel(self.tr("Multiple builds are available for this game — pick the "
+                      "one that matches your game version."))
         note.setWordWrap(True); note.setAlignment(Qt.AlignHCenter)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
@@ -217,7 +217,7 @@ class ScriptExtenderView(QWidget):
             desc.setStyleSheet(self._dim)
             tv.addWidget(desc)
             ch.addWidget(text, 1)
-            btn = self._primary("Select")
+            btn = self._primary(self.tr("Select"))
             btn.clicked.connect(lambda _=False, vv=ver: self._on_version_selected(vv))
             ch.addWidget(btn)
             lay.addWidget(card)
@@ -236,7 +236,7 @@ class ScriptExtenderView(QWidget):
 
     # ---- page 1: download (auto) ----------------------------------------------
     def _build_page_dl_auto(self) -> QWidget:
-        page, lay = self._page("Download Script Extender")
+        page, lay = self._page(self.tr("Download Script Extender"))
         self._dl_status = self._status_label(lay)
         self._dl_bar = QProgressBar()
         self._dl_bar.setRange(0, 0)
@@ -247,10 +247,10 @@ class ScriptExtenderView(QWidget):
         lay.addStretch(1)
         nav = QWidget(); nh = QHBoxLayout(nav); nh.setContentsMargins(0, 0, 0, 0); nh.setSpacing(8)
         nh.addStretch(1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.clicked.connect(self._browse_archive)
         nh.addWidget(browse)
-        self._dl_next_btn = self._primary("Next →")
+        self._dl_next_btn = self._primary(self.tr("Next →"))
         self._dl_next_btn.setEnabled(False)
         self._dl_next_btn.clicked.connect(self._enter_extract)
         nh.addWidget(self._dl_next_btn)
@@ -324,23 +324,23 @@ class ScriptExtenderView(QWidget):
 
     # ---- page 2: download (manual) ----------------------------------------------
     def _build_page_dl_manual(self) -> QWidget:
-        page, lay = self._page("Download Script Extender")
+        page, lay = self._page(self.tr("Download Script Extender"))
         note = QLabel(
-            "This script extender must be downloaded manually. Click the "
+            self.tr("This script extender must be downloaded manually. Click the "
             "button below to open the download page, save the archive to "
-            "your Downloads folder, then click Next.")
+            "your Downloads folder, then click Next."))
         note.setWordWrap(True); note.setAlignment(Qt.AlignHCenter)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
         # Always built — with a `versions` config the URL is only known after
         # the user picks one, so the handler reads it live (no-op when empty).
-        open_btn = self._primary("Open Download Page")
+        open_btn = self._primary(self.tr("Open Download Page"))
         open_btn.clicked.connect(self._open_download_page)
         lay.addWidget(open_btn, 0, Qt.AlignHCenter)
         box, self._manual_mode_group = self._mode_box()
         lay.addWidget(box)
         lay.addStretch(1)
-        nxt = self._primary("Next →")
+        nxt = self._primary(self.tr("Next →"))
         nxt.clicked.connect(self._enter_locate)
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
         return page
@@ -355,18 +355,18 @@ class ScriptExtenderView(QWidget):
 
     # ---- page 3: locate ----------------------------------------------------------
     def _build_page_locate(self) -> QWidget:
-        page, lay = self._page("Locate the Archive")
+        page, lay = self._page(self.tr("Locate the Archive"))
         self._locate_status = self._status_label(lay)
         lay.addStretch(1)
         nav = QWidget(); nh = QHBoxLayout(nav); nh.setContentsMargins(0, 0, 0, 0); nh.setSpacing(8)
         nh.addStretch(1)
-        retry = QPushButton("Try Again")
+        retry = QPushButton(self.tr("Try Again"))
         retry.clicked.connect(self._scan_downloads)
         nh.addWidget(retry)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.clicked.connect(self._browse_archive)
         nh.addWidget(browse)
-        self._locate_next_btn = self._primary("Next →")
+        self._locate_next_btn = self._primary(self.tr("Next →"))
         self._locate_next_btn.setEnabled(False)
         self._locate_next_btn.clicked.connect(self._enter_extract)
         nh.addWidget(self._locate_next_btn)
@@ -420,10 +420,10 @@ class ScriptExtenderView(QWidget):
 
     # ---- page 4: extract ---------------------------------------------------------
     def _build_page_extract(self) -> QWidget:
-        page, lay = self._page("Install Script Extender")
+        page, lay = self._page(self.tr("Install Script Extender"))
         self._ex_status = self._status_label(lay)
         lay.addStretch(1)
-        self._done_btn = QPushButton("Done")
+        self._done_btn = QPushButton(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.setCursor(Qt.PointingHandCursor)
         self._done_btn.setStyleSheet(

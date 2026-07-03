@@ -24,8 +24,10 @@ import json
 import threading
 from typing import Callable, Optional
 
-from Utils.config_paths import get_custom_games_dir, get_plugins_dir
-from Utils.gh_cache import fetch_text
+from Utils.config_paths import (
+    get_custom_games_dir, get_plugins_dir, get_languages_dir,
+)
+from Utils.gh_cache import fetch, fetch_text
 from Utils.ui_config import load_dev_mode
 
 _CUSTOM_HANDLERS_API_URL = (
@@ -40,6 +42,12 @@ _PLUGINS_API_URL = (
     "Plugins/v2?ref=Resources"
 )
 
+# Compiled UI translations (amethyst_<code>.qm) live under Localisation/.
+_LANGUAGES_API_URL = (
+    "https://api.github.com/repos/ChrisDKN/Amethyst-Mod-Manager/contents/"
+    "Localisation?ref=Resources"
+)
+
 
 def _write_if_changed(dest, raw: str) -> bool:
     """Write *raw* to *dest* only if it differs from the current contents.
@@ -52,6 +60,20 @@ def _write_if_changed(dest, raw: str) -> bool:
     except Exception:
         pass
     dest.write_text(raw, encoding="utf-8")
+    return True
+
+
+def _write_bytes_if_changed(dest, data: bytes) -> bool:
+    """Write binary *data* to *dest* only if it differs. Returns True if written.
+
+    Used for .qm translation files (binary, unlike the text handlers/plugins).
+    """
+    try:
+        if dest.is_file() and dest.read_bytes() == data:
+            return False
+    except Exception:
+        pass
+    dest.write_bytes(data)
     return True
 
 
@@ -147,6 +169,64 @@ def sync_plugins(on_changed: Optional[Callable[[], None]] = None) -> None:
                     pass
                 if on_changed is not None:
                     on_changed()
+        except Exception:
+            pass
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
+def sync_languages(on_changed: Optional[Callable[[], None]] = None,
+                   *, force: bool = False) -> None:
+    """Background-download every UI translation (amethyst_<code>.qm) from the
+    Resources branch ``Localisation/`` folder into the config languages/ dir.
+
+    Mirrors sync_custom_handlers/sync_plugins: runs on a daemon thread, swallows
+    all errors, only fires ``on_changed`` (on the worker thread — marshal it
+    yourself) when at least one .qm was written.
+
+    ``force=True`` (a manual "Sync language files" press) bypasses the dev-mode
+    skip and the fetch cache interval so it always hits the network. The
+    automatic startup sync leaves force=False (skips in dev, throttled by cache).
+
+    NB: .qm files are binary, so they are fetched with fetch() (raw bytes) and
+    written with _write_bytes_if_changed, unlike the text handlers/plugins.
+    """
+    if load_dev_mode() and not force:
+        return
+
+    def _do():
+        try:
+            listing = fetch_text(_LANGUAGES_API_URL, timeout=15, force=force)
+            if listing is None:
+                return
+            data = json.loads(listing)
+            entries = [
+                e for e in data
+                if isinstance(e, dict)
+                and e.get("type") == "file"
+                and e.get("name", "").startswith("amethyst_")
+                and e.get("name", "").endswith(".qm")
+            ]
+            changed = False
+            dest_dir = get_languages_dir()
+            for e in entries:
+                filename = e.get("name", "")
+                download_url = e.get("download_url")
+                if not download_url:
+                    continue
+                try:
+                    raw = fetch(
+                        download_url, accept="*/*", timeout=15,
+                        min_interval=(0 if force else 3600), force=force,
+                    )
+                    if raw is None:
+                        continue
+                    if _write_bytes_if_changed(dest_dir / filename, raw):
+                        changed = True
+                except Exception:
+                    pass
+            if changed and on_changed is not None:
+                on_changed()
         except Exception:
             pass
 

@@ -94,11 +94,11 @@ class PandoraView(QWidget):
 
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Run Pandora — {self._game.name}")
+        title = QLabel(self.tr("Run Pandora — {0}").format(self._game.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setCursor(Qt.PointingHandCursor)
         close.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -143,11 +143,11 @@ class PandoraView(QWidget):
 
     # ---- step 1: deploy -------------------------------------------------------
     def _build_step_deploy(self) -> QWidget:
-        page, lay = self._step_page("Step 1: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 1: Deploy Modlist"))
         note = QLabel(
-            "Before deploying, please delete any output from a previous\n"
+            self.tr("Before deploying, please delete any output from a previous\n"
             "Pandora run (the 'Pandora_output' mod in your mod list).\n\n"
-            "Once you have done this, click Deploy.")
+            "Once you have done this, click Deploy."))
         note.setAlignment(Qt.AlignHCenter)
         note.setWordWrap(True)
         note.setStyleSheet(self._dim)
@@ -158,11 +158,11 @@ class PandoraView(QWidget):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        self._skip_btn = QPushButton("Skip")
+        self._skip_btn = QPushButton(self.tr("Skip"))
         self._skip_btn.setCursor(Qt.PointingHandCursor)
         self._skip_btn.clicked.connect(lambda: self._goto_step(1))
         rh.addWidget(self._skip_btn)
-        self._deploy_btn = QPushButton("Deploy")
+        self._deploy_btn = QPushButton(self.tr("Deploy"))
         self._deploy_btn.setCursor(Qt.PointingHandCursor)
         self._deploy_btn.setStyleSheet(
             "QPushButton{background:#2d6a9e; color:#fff; border:none;"
@@ -189,18 +189,18 @@ class PandoraView(QWidget):
             # Fired on the UI thread by the app's deploy completion handler.
             self._busy = False
             if ok:
-                self._set_status(self._deploy_status, "Deploy complete.", _GREEN)
+                self._set_status(self._deploy_status, self.tr("Deploy complete."), _GREEN)
                 self._goto_step(1)
             else:
                 self._set_status(self._deploy_status,
-                                 "Deploy failed — see log.", _RED)
+                                 self.tr("Deploy failed — see log."), _RED)
                 self._deploy_btn.setEnabled(True)
                 self._skip_btn.setEnabled(True)
 
         if not run_deploy(_done):
             self._busy = False
             self._set_status(self._deploy_status,
-                             "Could not start deploy — see log.", _RED)
+                             self.tr("Could not start deploy — see log."), _RED)
             self._deploy_btn.setEnabled(True)
             self._skip_btn.setEnabled(True)
 
@@ -209,10 +209,8 @@ class PandoraView(QWidget):
         if self._exe is None:
             # Shouldn't happen (the tool is gated on the exe existing), but
             # keep the Tk fallback: an error page instead of the picker.
-            page, lay = self._step_page("Step 2: Choose Proton Version")
-            err = QLabel(f"'{EXE_NAME}' was not found in your mod staging "
-                         "folder.\n\nInstall Pandora Behaviour Engine+ as a "
-                         "mod, then reopen this wizard.")
+            page, lay = self._step_page(self.tr("Step 2: Choose Proton Version"))
+            err = QLabel(self.tr("'{0}' was not found in your mod staging folder.\n\nInstall Pandora Behaviour Engine+ as a mod, then reopen this wizard.").format(EXE_NAME))
             err.setAlignment(Qt.AlignHCenter)
             err.setWordWrap(True)
             err.setStyleSheet(f"color:{_RED};")
@@ -235,9 +233,9 @@ class PandoraView(QWidget):
 
     # ---- step 3: .NET 10 --------------------------------------------------------
     def _build_step_deps(self) -> QWidget:
-        page, lay = self._step_page("Step 3: Install Dependencies")
+        page, lay = self._step_page(self.tr("Step 3: Install Dependencies"))
         self._deps_status = self._make_status(lay)
-        self._deps_status.setText("Checking .NET 10…")
+        self._deps_status.setText(self.tr("Checking .NET 10…"))
         lay.addStretch(1)
         return page
 
@@ -287,11 +285,11 @@ class PandoraView(QWidget):
 
     # ---- step 4: run ------------------------------------------------------------
     def _build_step_run(self) -> QWidget:
-        page, lay = self._step_page("Step 4: Run Pandora")
+        page, lay = self._step_page(self.tr("Step 4: Run Pandora"))
         self._run_status = self._make_status(lay)
-        self._run_status.setText("Launching Pandora…")
+        self._run_status.setText(self.tr("Launching Pandora…"))
         lay.addStretch(1)
-        self._done_btn = QPushButton("Done")
+        self._done_btn = QPushButton(self.tr("Done"))
         self._done_btn.setCursor(Qt.PointingHandCursor)
         self._done_btn.setEnabled(False)
         self._done_btn.setStyleSheet(
@@ -343,7 +341,7 @@ class PandoraView(QWidget):
         self._ran = True
         self._set_status(
             self._run_status,
-            "Pandora is running.\nClose it when you are done, then click Done.",
+            self.tr("Pandora is running.\nClose it when you are done, then click Done."),
             _GREEN)
         self._done_btn.setEnabled(True)
 

@@ -73,20 +73,20 @@ class PGPatcherView(WizardViewBase):
             sig.connect(self._guard(slot))
 
         # page 0: auto-download
-        page, lay = self._step_page("Step 1: Download PGPatcher")
+        page, lay = self._step_page(self.tr("Step 1: Download PGPatcher"))
         self._dl_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
         # page 1: proton
         self._stack.addWidget(self._build_proton_holder())
         # page 2: deps
-        page, lay = self._step_page("Step 3: Install Dependencies")
+        page, lay = self._step_page(self.tr("Step 3: Install Dependencies"))
         self._d3d_status = self._make_status(lay)
         self._net8_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
         # page 3: config
-        page, lay = self._step_page("Step 4: Apply PGPatcher Config")
+        page, lay = self._step_page(self.tr("Step 4: Apply PGPatcher Config"))
         self._config_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
@@ -101,26 +101,26 @@ class PGPatcherView(WizardViewBase):
             self._goto_step(_PG_DOWNLOAD)
 
     def _build_pg_deploy_page(self) -> QWidget:
-        page, lay = self._step_page("Step 5: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 5: Deploy Modlist"))
         self._make_note(lay, (
-            "Before deploying, please delete any output from a previous\n"
+            self.tr("Before deploying, please delete any output from a previous\n"
             "PGPatcher run (the 'PGPatcher_output' mod in your mod list / "
-            "staging folder).\n\nOnce you have done this, click Deploy."))
-        self._parity_chk = QCheckBox("Per-mod conflict resolution (MO2 parity)")
+            "staging folder).\n\nOnce you have done this, click Deploy.")))
+        self._parity_chk = QCheckBox(self.tr("Per-mod conflict resolution (MO2 parity)"))
         lay.addWidget(self._parity_chk, 0, Qt.AlignHCenter)
         self._make_note(lay, (
-            "Builds a synthetic MO2 instance so PGPatcher attributes\n"
-            "conflicts per-mod, matching a real MO2 setup. Experimental."))
+            self.tr("Builds a synthetic MO2 instance so PGPatcher attributes\n"
+            "conflicts per-mod, matching a real MO2 setup. Experimental.")))
         self._deploy_status = self._make_status(lay)
         lay.addStretch(1)
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        self._deploy_skip_btn = QPushButton("Skip")
+        self._deploy_skip_btn = QPushButton(self.tr("Skip"))
         self._deploy_skip_btn.setCursor(Qt.PointingHandCursor)
         self._deploy_skip_btn.clicked.connect(self._skip_deploy)
         rh.addWidget(self._deploy_skip_btn)
-        self._deploy_btn = self._accent_btn("Deploy")
+        self._deploy_btn = self._accent_btn(self.tr("Deploy"))
         self._deploy_btn.clicked.connect(self._start_pg_deploy)
         rh.addWidget(self._deploy_btn)
         rh.addStretch(1)
@@ -142,13 +142,13 @@ class PGPatcherView(WizardViewBase):
                              "Please restart the wizard and download "
                              "PGPatcher first.")
         elif idx == _PG_DEPS:
-            self._set_status(self._d3d_status, "Checking d3dcompiler_47…")
+            self._set_status(self._d3d_status, self.tr("Checking d3dcompiler_47…"))
             self._start_deps()
         elif idx == _PG_CONFIG:
-            self._set_status(self._config_status, "Applying config…")
+            self._set_status(self._config_status, self.tr("Applying config…"))
             self._start_config()
         elif idx == _PG_RUN:
-            self._set_status(self._run_status, "Launching PGPatcher…")
+            self._set_status(self._run_status, self.tr("Launching PGPatcher…"))
             self._start_run()
 
     def _on_dl_done(self, ok: bool):
@@ -272,7 +272,7 @@ class PGPatcherView(WizardViewBase):
         # Honour the parity checkbox even when the user skips deploying.
         self._use_mo2_parity = self._parity_chk.isChecked()
         if self._use_mo2_parity:
-            self._set_status(self._deploy_status, "Building MO2 instance…")
+            self._set_status(self._deploy_status, self.tr("Building MO2 instance…"))
             threading.Thread(target=self._build_dummy_then_run, daemon=True,
                              name="pgpatcher-mo2").start()
         else:
@@ -285,7 +285,7 @@ class PGPatcherView(WizardViewBase):
 
         def _after_deploy():
             if self._use_mo2_parity:
-                self._set_status(self._deploy_status, "Building MO2 instance…")
+                self._set_status(self._deploy_status, self.tr("Building MO2 instance…"))
                 threading.Thread(target=self._build_dummy_then_run, daemon=True,
                                  name="pgpatcher-mo2").start()
             else:
@@ -339,7 +339,7 @@ class PGPatcherView(WizardViewBase):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"{_PATCHER_EXE} was not found.", RED)
+                             self.tr("{0} was not found.").format(_PATCHER_EXE), RED)
             return
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
         prefix_env = self._prefix_env

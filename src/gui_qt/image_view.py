@@ -28,7 +28,7 @@ class ImageView(QWidget):
         self._label = QLabel()
         self._label.setAlignment(Qt.AlignCenter)
         self._label.setCursor(Qt.PointingHandCursor)
-        self._label.setToolTip("Click to toggle 100% / fit")
+        self._label.setToolTip(self.tr("Click to toggle 100% / fit"))
         self._label.mousePressEvent = lambda _e: self._toggle()
         self._scroll.setWidget(self._label)
         v.addWidget(self._scroll)
@@ -36,7 +36,7 @@ class ImageView(QWidget):
 
     def _render(self):
         if self._pm.isNull():
-            self._label.setText("Image could not be loaded")
+            self._label.setText(self.tr("Image could not be loaded"))
             return
         if self._actual:
             self._scroll.setWidgetResizable(False)

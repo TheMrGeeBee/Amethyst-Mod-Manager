@@ -124,11 +124,11 @@ class XEditView(QWidget):
 
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Run {self._name} — {self._game.name}")
+        title = QLabel(self.tr("Run {0} — {1}").format(self._name, self._game.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setCursor(Qt.PointingHandCursor)
         close.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -190,18 +190,16 @@ class XEditView(QWidget):
 
     # ---- step 1: download -----------------------------------------------------
     def _build_step_download(self) -> QWidget:
-        page, lay = self._step_page(f"Step 1: Download {self._xedit_name}")
+        page, lay = self._step_page(self.tr("Step 1: Download {0}").format(self._xedit_name))
         note = QLabel(
-            f"Click the button below to open the {self._xedit_name} page on "
-            "Nexus Mods.\n\nDownload the archive manually (do NOT use the "
-            "Mod Manager download button), then click Next.")
+            self.tr('Click the button below to open the {0} page on Nexus Mods.\n\nDownload the archive manually (do NOT use the Mod Manager download button), then click Next.').format(self._xedit_name))
         note.setAlignment(Qt.AlignHCenter)
         note.setWordWrap(True)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
         lay.addSpacing(8)
 
-        open_btn = QPushButton("Open Download Page")
+        open_btn = QPushButton(self.tr("Open Download Page"))
         open_btn.setCursor(Qt.PointingHandCursor)
         open_btn.setStyleSheet(
             "QPushButton{background:#da8e35; color:#fff; border:none;"
@@ -211,7 +209,7 @@ class XEditView(QWidget):
         lay.addWidget(open_btn, 0, Qt.AlignHCenter)
 
         lay.addStretch(1)
-        nxt = self._accent_btn("Next →")
+        nxt = self._accent_btn(self.tr("Next →"))
         nxt.clicked.connect(lambda: self._goto_step(_PG_LOCATE))
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
         return page
@@ -222,18 +220,18 @@ class XEditView(QWidget):
 
     # ---- step 2: locate ---------------------------------------------------------
     def _build_step_locate(self) -> QWidget:
-        page, lay = self._step_page("Step 2: Locate the Archive")
+        page, lay = self._step_page(self.tr("Step 2: Locate the Archive"))
         self._locate_status = self._make_status(lay)
         lay.addStretch(1)
 
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._browse_archive)
         rh.addWidget(browse)
-        retry = QPushButton("Try Again")
+        retry = QPushButton(self.tr("Try Again"))
         retry.setCursor(Qt.PointingHandCursor)
         retry.clicked.connect(self._scan_downloads)
         rh.addWidget(retry)
@@ -246,7 +244,7 @@ class XEditView(QWidget):
         found = find_archive(get_downloads_dir(), [self._xedit_name.lower()])
         if found:
             self._archive_path = found
-            self._set_status(self._locate_status, f"Found: {found.name}", _GREEN)
+            self._set_status(self._locate_status, self.tr("Found: {0}").format(found.name), _GREEN)
             QTimer.singleShot(
                 300, lambda: None if self._closing
                 else self._goto_step(_PG_EXTRACT))
@@ -254,9 +252,7 @@ class XEditView(QWidget):
             self._archive_path = None
             self._set_status(
                 self._locate_status,
-                f"{self._xedit_name} archive not found in Downloads.\n"
-                "Make sure you downloaded it, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                self.tr('{0} archive not found in Downloads.\nMake sure you downloaded it, then press Try Again,\nor use Browse to select it manually.').format(self._xedit_name),
                 _RED)
 
     def _browse_archive(self):
@@ -269,14 +265,14 @@ class XEditView(QWidget):
         if path and Path(path).is_file():
             self._archive_path = Path(path)
             self._set_status(self._locate_status,
-                             f"Selected: {self._archive_path.name}", _GREEN)
+                             self.tr("Selected: {0}").format(self._archive_path.name), _GREEN)
             QTimer.singleShot(
                 300, lambda: None if self._closing
                 else self._goto_step(_PG_EXTRACT))
 
     # ---- step 3: extract --------------------------------------------------------
     def _build_step_extract(self) -> QWidget:
-        page, lay = self._step_page(f"Step 3: Extract {self._xedit_name}")
+        page, lay = self._step_page(self.tr("Step 3: Extract {0}").format(self._xedit_name))
         self._extract_status = self._make_status(lay)
         lay.addStretch(1)
         return page
@@ -327,10 +323,10 @@ class XEditView(QWidget):
 
     # ---- step 4: deploy ---------------------------------------------------------
     def _build_step_deploy(self) -> QWidget:
-        page, lay = self._step_page("Step 4: Deploy Modlist")
+        page, lay = self._step_page(self.tr("Step 4: Deploy Modlist"))
         self._deploy_status = self._make_status(lay)
         lay.addStretch(1)
-        self._skip_btn = QPushButton("Skip")
+        self._skip_btn = QPushButton(self.tr("Skip"))
         self._skip_btn.setCursor(Qt.PointingHandCursor)
         self._skip_btn.clicked.connect(lambda: self._goto_step(_PG_PROTON))
         lay.addWidget(self._skip_btn, 0, Qt.AlignHCenter)
@@ -340,25 +336,25 @@ class XEditView(QWidget):
         run_deploy = getattr(self._ctx, "run_deploy", None)
         if run_deploy is None:
             self._set_status(self._deploy_status,
-                             "Deploy is unavailable here — Skip to continue.",
+                             self.tr("Deploy is unavailable here — Skip to continue."),
                              _RED)
             return
-        self._set_status(self._deploy_status, "Deploying…", "")
+        self._set_status(self._deploy_status, self.tr("Deploying…"), "")
 
         def _done(ok: bool):
             # Fired on the UI thread by the app's deploy completion handler.
             if self._closing:
                 return
             if ok:
-                self._set_status(self._deploy_status, "Deploy complete.", _GREEN)
+                self._set_status(self._deploy_status, self.tr("Deploy complete."), _GREEN)
                 self._goto_step(_PG_PROTON)
             else:
                 self._set_status(self._deploy_status,
-                                 "Deploy failed — see log.", _RED)
+                                 self.tr("Deploy failed — see log."), _RED)
 
         if not run_deploy(_done):
             self._set_status(self._deploy_status,
-                             "Could not start deploy — see log.", _RED)
+                             self.tr("Could not start deploy — see log."), _RED)
 
     # ---- step 5: proton -----------------------------------------------------------
     def _build_step_proton(self) -> QWidget:
@@ -376,8 +372,7 @@ class XEditView(QWidget):
                 w.deleteLater()
         if self._exe is None:
             err = QLabel(
-                f"{self._exe_name} was not found.\n"
-                f"Please restart the wizard and install {self._xedit_name} first.")
+                self.tr('{0} was not found.\nPlease restart the wizard and install {1} first.').format(self._exe_name, self._xedit_name))
             err.setAlignment(Qt.AlignCenter)
             err.setWordWrap(True)
             err.setStyleSheet(f"color:{_RED};")
@@ -398,12 +393,12 @@ class XEditView(QWidget):
 
     # ---- step 6: run ----------------------------------------------------------------
     def _build_step_run(self) -> QWidget:
-        page, lay = self._step_page(f"Step 6: Run {self._name}")
+        page, lay = self._step_page(self.tr("Step 6: Run {0}").format(self._name))
         self._run_page_lay = lay
         self._dirty_box_added = False
         lay.addStretch(1)
         self._run_status = self._make_status(lay)
-        self._done_btn = QPushButton("Done")
+        self._done_btn = QPushButton(self.tr("Done"))
         self._done_btn.setCursor(Qt.PointingHandCursor)
         self._done_btn.setEnabled(False)
         self._done_btn.setStyleSheet(
@@ -425,7 +420,7 @@ class XEditView(QWidget):
         self._dirty_box_added = True
         p = active_palette()
 
-        head = QLabel(f"Plugins needing cleaning ({len(dirty)}):")
+        head = QLabel(self.tr("Plugins needing cleaning ({0}):").format(len(dirty)))
         head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
 
         inner = QWidget()
@@ -457,9 +452,9 @@ class XEditView(QWidget):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"{self._exe_name} was not found.", _RED)
+                             self.tr("{0} was not found.").format(self._exe_name), _RED)
             return
-        self._set_status(self._run_status, f"Launching {self._name}…", "")
+        self._set_status(self._run_status, self.tr("Launching {0}…").format(self._name), "")
         name = self._name
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
@@ -537,8 +532,7 @@ class XEditView(QWidget):
         self._ran = True
         self._set_status(
             self._run_status,
-            f"{self._name} is running.\nClose it when you are done, then "
-            "click Done.",
+            self.tr('{0} is running.\nClose it when you are done, then click Done.').format(self._name),
             _GREEN)
         self._done_btn.setEnabled(True)
 
@@ -547,10 +541,10 @@ class XEditView(QWidget):
         self._stack.setCurrentIndex(idx)
         if idx == _PG_LOCATE:
             self._set_status(self._locate_status,
-                             "Searching Downloads folder…", "")
+                             self.tr("Searching Downloads folder…"), "")
             self._scan_downloads()
         elif idx == _PG_EXTRACT:
-            self._set_status(self._extract_status, "Extracting…", "")
+            self._set_status(self._extract_status, self.tr("Extracting…"), "")
             self._start_extract()
         elif idx == _PG_DEPLOY:
             self._start_deploy()

@@ -144,15 +144,15 @@ class ChangeVersionView(QWidget):
         # Toolbar: title + Ignore Update + Close.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Change Version — {self._mod_name}")
+        title = QLabel(self.tr("Change Version — {0}").format(self._mod_name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
 
-        self._ignore_cb = QCheckBox("Ignore Update")
+        self._ignore_cb = QCheckBox(self.tr("Ignore Update"))
         self._ignore_cb.setToolTip(
-            "Stop flagging this mod as having an update until a newer version "
-            "than the current latest appears.")
+            self.tr("Stop flagging this mod as having an update until a newer version "
+            "than the current latest appears."))
         self._ignore_cb.setChecked(bool(getattr(self._meta, "ignore_update", False)))
         self._ignore_cb.toggled.connect(self._on_ignore_toggled)
         hb.addWidget(self._ignore_cb)
@@ -181,7 +181,7 @@ class ChangeVersionView(QWidget):
         v.addWidget(self._table, 1)
 
         # Status line (loading / empty / error).
-        self._status = QLabel("Loading files…")
+        self._status = QLabel(self.tr("Loading files…"))
         self._status.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:8px 12px;")
         v.addWidget(self._status)
 
@@ -202,11 +202,11 @@ class ChangeVersionView(QWidget):
 
     def _on_files_ready(self, files, error):
         if error is not None:
-            self._status.setText(f"Could not load files: {error}")
+            self._status.setText(self.tr("Could not load files: {0}").format(error))
             self._status.setVisible(True)
             return
         if not files:
-            self._status.setText("No files found.")
+            self._status.setText(self.tr("No files found."))
             self._status.setVisible(True)
             return
         self._status.setVisible(False)
@@ -255,14 +255,14 @@ class ChangeVersionView(QWidget):
             cb = QHBoxLayout(cell); cb.setContentsMargins(8, 4, 8, 4); cb.setSpacing(6)
             view_url = (f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
                         f"?tab=files&file_id={f.file_id}")
-            view_btn = QPushButton("View"); view_btn.setCursor(Qt.PointingHandCursor)
+            view_btn = QPushButton(self.tr("View")); view_btn.setCursor(Qt.PointingHandCursor)
             view_btn.setStyleSheet(
                 "QPushButton{background:#444; color:#fff; border:none;"
                 " padding:4px 10px; border-radius:4px;}"
                 "QPushButton:hover{background:#555;}")
             view_btn.clicked.connect(lambda _=False, u=view_url: self._open_url(u))
             cb.addWidget(view_btn)
-            inst_btn = QPushButton("Install"); inst_btn.setCursor(Qt.PointingHandCursor)
+            inst_btn = QPushButton(self.tr("Install")); inst_btn.setCursor(Qt.PointingHandCursor)
             # Explicit green so the row tint (set on the parent cell) can't bleed
             # into the button background — it must always read as green.
             inst_btn.setStyleSheet(

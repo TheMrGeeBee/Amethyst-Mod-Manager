@@ -81,20 +81,20 @@ class CollectionsBrowserView(QWidget):
         tb.setContentsMargins(10, 6, 10, 6)
         tb.setSpacing(6)
 
-        title = QLabel("Collections")
+        title = QLabel(self.tr("Collections"))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         tb.addWidget(title)
         tb.addStretch(1)
 
         open_btn = QToolButton()
-        open_btn.setText("Open on Nexus")
+        open_btn.setText(self.tr("Open on Nexus"))
         open_btn.setObjectName("ActionButton")
         open_btn.setCursor(Qt.PointingHandCursor)
         open_btn.clicked.connect(self._open_game_collections_on_nexus)
         tb.addWidget(open_btn)
 
         refresh = QToolButton()
-        refresh.setText("Refresh")
+        refresh.setText(self.tr("Refresh"))
         refresh.setObjectName("ActionButton")
         refresh.setCursor(Qt.PointingHandCursor)
         refresh.clicked.connect(self._reload)
@@ -124,14 +124,14 @@ class CollectionsBrowserView(QWidget):
         ft.setSpacing(6)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search collections…")
+        self._search.setPlaceholderText(self.tr("Search collections…"))
         self._search.setClearButtonEnabled(True)
         self._search.setFixedWidth(280)
         self._search.textChanged.connect(self._on_search_text)
         self._search.returnPressed.connect(self._do_search_now)
         ft.addWidget(self._search)
         sbtn = QToolButton()
-        sbtn.setText("Search")
+        sbtn.setText(self.tr("Search"))
         sbtn.setObjectName("ActionButton")
         sbtn.setCursor(Qt.PointingHandCursor)
         sbtn.clicked.connect(self._do_search_now)
@@ -140,19 +140,19 @@ class CollectionsBrowserView(QWidget):
         ft.addStretch(1)
 
         self._prev_btn = QToolButton()
-        self._prev_btn.setText("◂ Prev")
+        self._prev_btn.setText(self.tr("◂ Prev"))
         self._prev_btn.setObjectName("ActionButton")
         self._prev_btn.setCursor(Qt.PointingHandCursor)
         self._prev_btn.clicked.connect(self._prev_page)
         ft.addWidget(self._prev_btn)
         self._next_btn = QToolButton()
-        self._next_btn.setText("Next ▸")
+        self._next_btn.setText(self.tr("Next ▸"))
         self._next_btn.setObjectName("ActionButton")
         self._next_btn.setCursor(Qt.PointingHandCursor)
         self._next_btn.clicked.connect(self._next_page)
         ft.addWidget(self._next_btn)
 
-        ft.addWidget(QLabel("Page"))
+        ft.addWidget(QLabel(self.tr("Page")))
         self._page_edit = QLineEdit()
         self._page_edit.setFixedWidth(48)
         self._page_edit.setAlignment(Qt.AlignCenter)
@@ -225,7 +225,7 @@ class CollectionsBrowserView(QWidget):
 
     def _reload(self):
         if not self._domain:
-            self._status.setText("No Nexus domain for this game.")
+            self._status.setText(self.tr("No Nexus domain for this game."))
             return
         self._fetch_token += 1
         token = self._fetch_token
@@ -274,7 +274,7 @@ class CollectionsBrowserView(QWidget):
         for w in (self._prev_btn, self._next_btn, self._page_edit):
             w.setEnabled(not on)
         if on:
-            self._status.setText("Loading…")
+            self._status.setText(self.tr("Loading…"))
 
     def _update_page_buttons(self):
         self._prev_btn.setEnabled(self._page > 0)
@@ -350,5 +350,5 @@ class CollectionsBrowserView(QWidget):
 
     def _show_card_menu(self, entry, global_pos):
         menu = QMenu(self)
-        menu.addAction("Open on Nexus", lambda: self._on_view(entry))
+        menu.addAction(self.tr("Open on Nexus"), lambda: self._on_view(entry))
         menu.exec(global_pos)

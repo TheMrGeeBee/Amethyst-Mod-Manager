@@ -86,9 +86,9 @@ class ProtonStepWidget(QWidget):
         from Utils.steam_finder import list_installed_proton
         self._versions = [s.parent.name for s in list_installed_proton()]
         if not self._versions:
-            err = QLabel("No Proton versions were found.\n\n"
+            err = QLabel(self.tr("No Proton versions were found.\n\n"
                          "Install a Proton version in Steam, then reopen "
-                         "this wizard.")
+                         "this wizard."))
             err.setAlignment(Qt.AlignHCenter)
             err.setWordWrap(True)
             err.setStyleSheet(f"color:{_RED};")
@@ -113,13 +113,13 @@ class ProtonStepWidget(QWidget):
             mode = PREFIX_MODE_ISOLATED
 
         dim = f"color:{_c(p,'TEXT_DIM')};"
-        self._shared_chk = QCheckBox("Use shared prefix")
+        self._shared_chk = QCheckBox(self.tr("Use shared prefix"))
         self._shared_chk.setChecked(mode == PREFIX_MODE_SHARED)
         self._shared_chk.toggled.connect(self._on_shared_toggle)
         v.addWidget(self._shared_chk)
         shared_note = QLabel(
-            "Reuse one prefix (per Proton version) shared by every wizard "
-            "tool, kept in the app config folder instead of next to the exe.")
+            self.tr("Reuse one prefix (per Proton version) shared by every wizard "
+            "tool, kept in the app config folder instead of next to the exe."))
         shared_note.setWordWrap(True)
         shared_note.setStyleSheet(dim)
         shared_note.setContentsMargins(26, 0, 0, 6)
@@ -127,13 +127,13 @@ class ProtonStepWidget(QWidget):
 
         self._game_chk = None
         if allow_game_prefix and game_pfx_ok:
-            self._game_chk = QCheckBox("Use game prefix")
+            self._game_chk = QCheckBox(self.tr("Use game prefix"))
             self._game_chk.setChecked(mode == PREFIX_MODE_GAME)
             self._game_chk.toggled.connect(self._on_game_pfx_toggle)
             v.addWidget(self._game_chk)
             game_note = QLabel(
-                "Run inside the game's own prefix. No new prefix is created "
-                "and the Proton version follows the game's Steam setting.")
+                self.tr("Run inside the game's own prefix. No new prefix is created "
+                "and the Proton version follows the game's Steam setting."))
             game_note.setWordWrap(True)
             game_note.setStyleSheet(dim)
             game_note.setContentsMargins(26, 0, 0, 0)
@@ -150,7 +150,7 @@ class ProtonStepWidget(QWidget):
         self._proton_combo.currentTextChanged.connect(
             lambda _t: self._update_prefix_delete_state())
         rh.addWidget(self._proton_combo)
-        self._delete_btn = QPushButton("Delete Prefix")
+        self._delete_btn = QPushButton(self.tr("Delete Prefix"))
         self._delete_btn.setCursor(Qt.PointingHandCursor)
         self._delete_btn.clicked.connect(self._on_delete_prefix)
         rh.addWidget(self._delete_btn)
@@ -165,25 +165,25 @@ class ProtonStepWidget(QWidget):
 
         # ---- env vars ----
         v.addSpacing(8)
-        env_head = QLabel("Environment Variables (optional)")
+        env_head = QLabel(self.tr("Environment Variables (optional)"))
         env_head.setAlignment(Qt.AlignHCenter)
         env_head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         v.addWidget(env_head)
         env_note = QLabel(
-            "Space-separated KEY=VALUE pairs applied when the tool launches. "
-            "Saved next to the exe and reapplied on every run.")
+            self.tr("Space-separated KEY=VALUE pairs applied when the tool launches. "
+            "Saved next to the exe and reapplied on every run."))
         env_note.setWordWrap(True)
         env_note.setAlignment(Qt.AlignHCenter)
         env_note.setStyleSheet(dim)
         v.addWidget(env_note)
         self._env_entry = QLineEdit()
         self._env_entry.setPlaceholderText(
-            "e.g. PROTON_USE_WINED3D=1 WINEDLLOVERRIDES=dinput8=n,b")
+            self.tr("e.g. PROTON_USE_WINED3D=1 WINEDLLOVERRIDES=dinput8=n,b"))
         self._env_entry.setText(load_tool_launch_env(exe))
         v.addWidget(self._env_entry)
 
         v.addStretch(1)
-        cont = QPushButton("Continue")
+        cont = QPushButton(self.tr("Continue"))
         cont.setCursor(Qt.PointingHandCursor)
         cont.setStyleSheet(
             "QPushButton{background:#2d6a9e; color:#fff; border:none;"
@@ -245,8 +245,8 @@ class ProtonStepWidget(QWidget):
         if use_game:
             self._delete_btn.setEnabled(False)
             self._prefix_status.setText(
-                "Using the game's existing prefix — Proton version follows "
-                "the game's Steam setting and no new prefix is created.")
+                self.tr("Using the game's existing prefix — Proton version follows "
+                "the game's Steam setting and no new prefix is created."))
             self._prefix_status.setStyleSheet(
                 f"color:{_c(active_palette(),'TEXT_DIM')};")
         else:
@@ -289,13 +289,14 @@ class ProtonStepWidget(QWidget):
         self._confirm_delete = False
         d = self._selected_prefix_dir()
         exists = d is not None and d.is_dir()
-        self._delete_btn.setText("Delete Prefix")
+        self._delete_btn.setText(self.tr("Delete Prefix"))
         self._delete_btn.setStyleSheet("")
         self._delete_btn.setEnabled(exists)
         self._set_prefix_status(
-            f"A prefix already exists for this version. Delete it if "
-            f"{self._tool_display_name}\nhas issues — it is recreated "
-            "automatically on the next step." if exists else "")
+            self.tr("A prefix already exists for this version. Delete it if "
+            "{0}\nhas issues — it is recreated "
+            "automatically on the next step.").format(self._tool_display_name)
+            if exists else "")
 
     def _on_delete_prefix(self):
         d = self._selected_prefix_dir()
@@ -304,16 +305,16 @@ class ProtonStepWidget(QWidget):
             return
         if not self._confirm_delete:
             self._confirm_delete = True
-            self._delete_btn.setText("Confirm Delete")
+            self._delete_btn.setText(self.tr("Confirm Delete"))
             self._delete_btn.setStyleSheet(
                 "QPushButton{background:#7a2d2d; color:#fff;}"
                 "QPushButton:hover{background:#9e3a3a;}")
-            self._set_prefix_status(f"Click again to delete '{d.name}'.")
+            self._set_prefix_status(self.tr("Click again to delete '{0}'.").format(d.name))
             return
         self._confirm_delete = False
         self._delete_btn.setEnabled(False)
-        self._delete_btn.setText("Deleting…")
-        self._set_prefix_status(f"Deleting '{d.name}'…")
+        self._delete_btn.setText(self.tr("Deleting…"))
+        self._set_prefix_status(self.tr("Deleting '{0}'…").format(d.name))
 
         def worker(target=d):
             import shutil
@@ -337,12 +338,12 @@ class ProtonStepWidget(QWidget):
         if ok:
             self._log(f"{self._tool_display_name} Wizard: deleted prefix {msg}")
             self._set_prefix_status(
-                "Prefix deleted — a fresh one is created on the next step.",
+                self.tr("Prefix deleted — a fresh one is created on the next step."),
                 _GREEN)
         else:
             self._log(f"{self._tool_display_name} Wizard: prefix delete error: {msg}")
-            self._set_prefix_status(f"Could not delete prefix: {msg}", _RED)
+            self._set_prefix_status(self.tr("Could not delete prefix: {0}").format(msg), _RED)
         d = self._selected_prefix_dir()
-        self._delete_btn.setText("Delete Prefix")
+        self._delete_btn.setText(self.tr("Delete Prefix"))
         self._delete_btn.setStyleSheet("")
         self._delete_btn.setEnabled(d is not None and d.is_dir())

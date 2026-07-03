@@ -86,7 +86,7 @@ class WizardViewBase(QWidget):
         head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(head)
         hb.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setCursor(Qt.PointingHandCursor)
         close.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -209,17 +209,17 @@ class WizardViewBase(QWidget):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._browse_archive)
         rh.addWidget(browse)
-        retry = QPushButton("Try Again")
+        retry = QPushButton(self.tr("Try Again"))
         retry.setCursor(Qt.PointingHandCursor)
         retry.clicked.connect(self._locate_rescan)
         rh.addWidget(retry)
         self._locate_next_btn = None
         if with_next:
-            self._locate_next_btn = self._accent_btn("Next →")
+            self._locate_next_btn = self._accent_btn(self.tr("Next →"))
             self._locate_next_btn.setEnabled(False)
             self._locate_next_btn.clicked.connect(
                 lambda: self._locate_on_ready(self._archive_path))
@@ -237,7 +237,7 @@ class WizardViewBase(QWidget):
         self._locate_pick_title = pick_title
         self._locate_not_found = not_found_text
         self._locate_on_ready = on_ready
-        self._set_status(self._locate_status, "Searching Downloads folder…")
+        self._set_status(self._locate_status, self.tr("Searching Downloads folder…"))
         self._locate_rescan()
 
     def _locate_rescan(self):
@@ -288,7 +288,7 @@ class WizardViewBase(QWidget):
         top-level directory instead (VRAMr/BENDr/ParallaxR ship a tools/ dir,
         not a launcher exe)."""
         archive, game = self._archive_path, self._game
-        self._set_status(self._extract_status, "Extracting…")
+        self._set_status(self._extract_status, self.tr("Extracting…"))
 
         def worker():
             import shutil
@@ -350,7 +350,7 @@ class WizardViewBase(QWidget):
         page, lay = self._step_page(heading)
         self._run_status = self._make_status(lay)
         lay.addStretch(1)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)
@@ -459,23 +459,23 @@ class WizardViewBase(QWidget):
         thread. Returns False when no deploy hook is available."""
         run_deploy = getattr(self._ctx, "run_deploy", None)
         if run_deploy is None:
-            self._set_status(status_lbl, "Deploy is unavailable here.", RED)
+            self._set_status(status_lbl, self.tr("Deploy is unavailable here."), RED)
             return False
-        self._set_status(status_lbl, "Deploying…")
+        self._set_status(status_lbl, self.tr("Deploying…"))
 
         def _done(ok: bool):
             if self._closing:
                 return
             if ok:
-                self._set_status(status_lbl, "Deploy complete.", GREEN)
+                self._set_status(status_lbl, self.tr("Deploy complete."), GREEN)
                 on_ok()
             else:
-                self._set_status(status_lbl, "Deploy failed — see log.", RED)
+                self._set_status(status_lbl, self.tr("Deploy failed — see log."), RED)
                 if on_fail is not None:
                     on_fail()
 
         if not run_deploy(_done):
-            self._set_status(status_lbl, "Could not start deploy — see log.", RED)
+            self._set_status(status_lbl, self.tr("Could not start deploy — see log."), RED)
             if on_fail is not None:
                 on_fail()
             return False
@@ -493,11 +493,11 @@ class WizardViewBase(QWidget):
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(0, 8, 0, 0); rh.setSpacing(8)
         rh.addStretch(1)
-        self._deploy_skip_btn = QPushButton("Skip")
+        self._deploy_skip_btn = QPushButton(self.tr("Skip"))
         self._deploy_skip_btn.setCursor(Qt.PointingHandCursor)
         self._deploy_skip_btn.clicked.connect(lambda: on_next())
         rh.addWidget(self._deploy_skip_btn)
-        self._deploy_btn = self._accent_btn("Deploy")
+        self._deploy_btn = self._accent_btn(self.tr("Deploy"))
         self._deploy_btn.clicked.connect(lambda: self._start_deploy(on_next))
         rh.addWidget(self._deploy_btn)
         rh.addStretch(1)

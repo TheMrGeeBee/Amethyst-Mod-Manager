@@ -46,7 +46,7 @@ class _LockBox(QWidget):
         self.setEnabled(enabled)
         if enabled:
             self.setCursor(Qt.PointingHandCursor)
-            self.setToolTip("Locked profiles can't be removed")
+            self.setToolTip(self.tr("Locked profiles can't be removed"))
 
     def paintEvent(self, _event):
         p = active_palette()
@@ -131,7 +131,7 @@ class ProfileSettingsView(QWidget):
         # but a Close button matches the other overlays/panels).
         bar = QWidget(); bar.setObjectName("PSTitleBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 12, 8)
-        title = QLabel("Profile Settings"); title.setObjectName("PSTitle")
+        title = QLabel(self.tr("Profile Settings")); title.setObjectName("PSTitle")
         hb.addWidget(title); hb.addStretch(1)
         close = danger_close_button(pal=p)
         close.clicked.connect(self._close)
@@ -241,21 +241,21 @@ class ProfileSettingsView(QWidget):
         rl.addWidget(name, 1)
 
         # (3) Buttons — Rename / Open / Remove (NO Steam Cmd).
-        rename = QPushButton("Rename")
+        rename = QPushButton(self.tr("Rename"))
         rename.setObjectName("FormButton")
         rename.setCursor(Qt.PointingHandCursor)
         rename.clicked.connect(lambda _=False, pr=profile, rw=row:
                                self._show_rename(pr, rw))
         rl.addWidget(rename)
 
-        openb = QPushButton("Open")
+        openb = QPushButton(self.tr("Open"))
         openb.setObjectName("FormButton")
         openb.setCursor(Qt.PointingHandCursor)
         openb.clicked.connect(lambda _=False, pr=profile:
                               self._open_profile_folder(pr))
         rl.addWidget(openb)
 
-        remove = QPushButton("Remove")
+        remove = QPushButton(self.tr("Remove"))
         remove.setObjectName("DangerButton")
         remove.setEnabled(not is_default and not is_locked)
         if remove.isEnabled():
@@ -300,7 +300,7 @@ class ProfileSettingsView(QWidget):
         hb = QHBoxLayout(bar)
         hb.setContentsMargins(12, 6, 12, 6)
         hb.setSpacing(6)
-        lbl = QLabel(f"Rename '{profile}' to:")
+        lbl = QLabel(self.tr("Rename '{0}' to:").format(profile))
         lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         hb.addWidget(lbl)
         edit = QLineEdit(profile)
@@ -311,12 +311,12 @@ class ProfileSettingsView(QWidget):
         edit.installEventFilter(self)
         hb.addWidget(edit)
         self._rename_edit = edit
-        ok = QPushButton("OK")
+        ok = QPushButton(self.tr("OK"))
         ok.setObjectName("PrimaryButton")
         ok.setCursor(Qt.PointingHandCursor)
         ok.clicked.connect(self._do_rename)
         hb.addWidget(ok)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self._cancel_rename)
@@ -418,7 +418,7 @@ class ProfileSettingsView(QWidget):
         win = self._window
         # Coordinate with the app's deploy/restore mutex.
         if getattr(win, "_deploy_running", False):
-            self._notify("A deploy is in progress — try again shortly.", "warning")
+            self._notify(self.tr("A deploy is in progress — try again shortly."), "warning")
             return
         profile_dir = self._get_profile_dir(profile)
         if is_deployed:
@@ -496,7 +496,7 @@ class ProfileSettingsView(QWidget):
         self._populate_list()
         if ok:
             self._on_profile_removed(profile)
-            self._notify(f"Profile '{profile}' removed", "info")
+            self._notify(self.tr("Profile '{0}' removed").format(profile), "info")
 
     # -- misc ---------------------------------------------------------------
     def _close(self):

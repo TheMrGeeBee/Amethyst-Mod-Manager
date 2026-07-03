@@ -84,7 +84,7 @@ class CacheManagerOverlay(QWidget):
         self.raise_()
         # Populating the list walks staging roots (orphaned_tmp_dirs) which can
         # be slow on disk — defer it a tick so the overlay paints instantly.
-        self._total_lbl.setText("Total: calculating…")
+        self._total_lbl.setText(self.tr("Total: calculating…"))
         QTimer.singleShot(0, self._populate)
 
     @classmethod
@@ -102,12 +102,12 @@ class CacheManagerOverlay(QWidget):
                           f" border-top-right-radius:8px; }}")
         h = QHBoxLayout(bar)
         h.setContentsMargins(12, 8, 8, 8)
-        title = QLabel("Manage Download Caches")
+        title = QLabel(self.tr("Manage Download Caches"))
         title.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:15px;")
         h.addWidget(title)
         h.addStretch(1)
-        close = QPushButton("✕ Close")
+        close = QPushButton(self.tr("✕ Close"))
         close.setObjectName("DangerButton")
         close.setCursor(Qt.PointingHandCursor)
         close.clicked.connect(self._finish)
@@ -120,11 +120,11 @@ class CacheManagerOverlay(QWidget):
         v = QVBoxLayout(wrap)
         v.setContentsMargins(12, 12, 12, 4)
         v.setSpacing(6)
-        self._loc_lbl = QLabel(f"Location: {get_download_cache_dir()}")
+        self._loc_lbl = QLabel(self.tr("Location: {0}").format(get_download_cache_dir()))
         self._loc_lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:12px;")
         self._loc_lbl.setWordWrap(True)
         v.addWidget(self._loc_lbl)
-        self._total_lbl = QLabel("Total: calculating…")
+        self._total_lbl = QLabel(self.tr("Total: calculating…"))
         self._total_lbl.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-size:13px;")
         v.addWidget(self._total_lbl)
@@ -207,7 +207,7 @@ class CacheManagerOverlay(QWidget):
         n_orphans = len(orphaned_tmp_dirs())
 
         if not games and not n_orphans:
-            lbl = QLabel("No per-game caches found.")
+            lbl = QLabel(self.tr("No per-game caches found."))
             lbl.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:12px;")
             self._rows_v.insertWidget(0, lbl)
             return
@@ -276,7 +276,7 @@ class CacheManagerOverlay(QWidget):
             if lbl is not None:
                 lbl.setText(format_size(sz))
         self._total = total
-        self._total_lbl.setText(f"Total: {format_size(total)}")
+        self._total_lbl.setText(self.tr("Total: {0}").format(format_size(total)))
 
     # ---- selection ---------------------------------------------------------
     def _select_all(self):
@@ -305,42 +305,46 @@ class CacheManagerOverlay(QWidget):
     def _on_clear_selected(self):
         keys = self._selected()
         if not keys:
-            self._set_status("Nothing selected.", "dim")
+            self._set_status(self.tr("Nothing selected."), "dim")
             return
         from Utils.cache_tools import format_size
         total = self._selection_size(keys)
         shown = [self._label_for(k) for k in keys]
         listing = "\n".join(f"  • {n}" for n in shown[:10])
         if len(shown) > 10:
-            listing += f"\n  • …and {len(shown) - 10} more"
-        body = (f"Clear {format_size(total)} across {len(keys)} item(s)?\n\n"
-                f"{listing}\n\nArchives will be re-downloaded as needed.")
+            listing += self.tr("\n  • …and {0} more").format(len(shown) - 10)
+        body = self.tr("Clear {0} across {1} item(s)?\n\n"
+                "{2}\n\nArchives will be re-downloaded as needed.").format(
+                    format_size(total), len(keys), listing)
         n = len(keys)
         ConfirmOverlay.show_over(
-            self._host, f"Clear {n} Cache{'s' if n != 1 else ''}", body,
+            self._host,
+            self.tr("Clear {0} Cache(s)").format(n), body,
             lambda ok: self._run_clear(keys) if ok else None,
-            confirm_label="Clear", cancel_label="Cancel", danger=True)
+            confirm_label=self.tr("Clear"), cancel_label=self.tr("Cancel"),
+            danger=True)
 
     def _on_clear_all(self):
         keys = list(self._checks.keys())
         if not keys:
-            self._set_status("Cache is empty.", "dim")
+            self._set_status(self.tr("Cache is empty."), "dim")
             return
         from Utils.cache_tools import format_size
         total = self._selection_size(keys)
-        body = (f"Clear {format_size(total)} of cached downloads across every "
-                f"game?\n\nLocation: {get_download_cache_dir()}\n\n"
+        body = self.tr("Clear {0} of cached downloads across every "
+                "game?\n\nLocation: {1}\n\n"
                 "The md5 cache is preserved. Archives will be re-downloaded as "
-                "needed.")
+                "needed.").format(format_size(total), get_download_cache_dir())
         ConfirmOverlay.show_over(
-            self._host, "Clear All Download Caches", body,
+            self._host, self.tr("Clear All Download Caches"), body,
             lambda ok: self._run_clear(keys) if ok else None,
-            confirm_label="Clear", cancel_label="Cancel", danger=True)
+            confirm_label=self.tr("Clear"), cancel_label=self.tr("Cancel"),
+            danger=True)
 
     def _run_clear(self, keys: list[str]):
         self._clear_sel_btn.setEnabled(False)
         self._clear_all_btn.setEnabled(False)
-        self._set_status("Clearing…", "dim")
+        self._set_status(self.tr("Clearing…"), "dim")
         games = [k for k in keys if k != _ORPHANS]
         do_orphans = _ORPHANS in keys
 
@@ -371,10 +375,11 @@ class CacheManagerOverlay(QWidget):
         self._clear_all_btn.setEnabled(True)
         if errors:
             self._set_status(
-                f"Cleared {cleared}; {len(errors)} failed.", "err")
+                self.tr("Cleared {0}; {1} failed.").format(cleared, len(errors)), "err")
         else:
             self._set_status(
-                f"Cleared {cleared} cache{'s' if cleared != 1 else ''}.", "ok")
+                (self.tr("Cleared 1 cache.") if cleared == 1
+                 else self.tr("Cleared {0} caches.").format(cleared)), "ok")
         self._populate()
 
     def _set_status(self, text: str, kind: str = "dim"):

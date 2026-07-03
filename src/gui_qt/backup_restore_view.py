@@ -59,7 +59,7 @@ class BackupRestoreView(QWidget):
         # Toolbar: title + Close.
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Restore backup — {self._profile_name}")
+        title = QLabel(self.tr("Restore backup — {0}").format(self._profile_name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
@@ -70,7 +70,7 @@ class BackupRestoreView(QWidget):
 
         # Instruction line.
         info = QLabel(
-            "Select a backup to restore the modlist and plugins for this profile.")
+            self.tr("Select a backup to restore the modlist and plugins for this profile."))
         info.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:8px 12px 4px 12px;")
         v.addWidget(info)
 
@@ -81,7 +81,7 @@ class BackupRestoreView(QWidget):
         v.addWidget(self._list, 1)
 
         # Empty-state label (shown in place of the list when there are none).
-        self._empty = QLabel("No backups yet. Backups are created when you deploy.")
+        self._empty = QLabel(self.tr("No backups yet. Backups are created when you deploy."))
         self._empty.setAlignment(Qt.AlignCenter)
         self._empty.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:24px;")
         self._empty.setVisible(False)
@@ -90,18 +90,18 @@ class BackupRestoreView(QWidget):
         # Button row: New backup (left) | Keep, Cancel, Restore (right).
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(12, 8, 12, 12); rh.setSpacing(8)
-        self._new_btn = QPushButton("New backup")
+        self._new_btn = QPushButton(self.tr("New backup"))
         self._new_btn.clicked.connect(self._on_create)
         rh.addWidget(self._new_btn)
         rh.addStretch(1)
-        self._keep_btn = QPushButton("Keep")
+        self._keep_btn = QPushButton(self.tr("Keep"))
         self._keep_btn.setEnabled(False)
         self._keep_btn.clicked.connect(self._on_keep)
         rh.addWidget(self._keep_btn)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.clicked.connect(lambda: self._on_close())
         rh.addWidget(cancel)
-        self._restore_btn = QPushButton("Restore")
+        self._restore_btn = QPushButton(self.tr("Restore"))
         self._restore_btn.setEnabled(False)
         self._restore_btn.clicked.connect(self._on_restore)
         rh.addWidget(self._restore_btn)
@@ -137,9 +137,9 @@ class BackupRestoreView(QWidget):
         self._keep_btn.setEnabled(has_sel)
         if has_sel:
             _dt, bdir = self._backups[idx]
-            self._keep_btn.setText("Unkeep" if is_backup_kept(bdir) else "Keep")
+            self._keep_btn.setText(self.tr("Unkeep") if is_backup_kept(bdir) else self.tr("Keep"))
         else:
-            self._keep_btn.setText("Keep")
+            self._keep_btn.setText(self.tr("Keep"))
 
     def _on_create(self):
         try:

@@ -44,28 +44,25 @@ class ESLifierView(WizardViewBase):
         self._dl_done_sig.connect(self._guard(self._on_dl_done))
 
         # page 0: install (explicit button — Tk parity)
-        page, lay = self._step_page("Step 1: Install ESLifier")
+        page, lay = self._step_page(self.tr("Step 1: Install ESLifier"))
         self._make_note(lay, (
-            "ESLifier will be downloaded from GitHub and installed into this\n"
-            "game's Applications folder.\n\nClick Install to begin."))
+            self.tr("ESLifier will be downloaded from GitHub and installed into this\n"
+            "game's Applications folder.\n\nClick Install to begin.")))
         self._dl_status = self._make_status(lay)
         lay.addStretch(1)
-        self._install_btn = self._accent_btn("Install")
+        self._install_btn = self._accent_btn(self.tr("Install"))
         self._install_btn.clicked.connect(self._start_install)
         lay.addWidget(self._install_btn, 0, Qt.AlignHCenter)
         self._stack.addWidget(page)
         # page 1: proton
         self._stack.addWidget(self._build_proton_holder())
         # page 2: run
-        page2, lay2 = self._step_page("Step 3: Run ESLifier")
+        page2, lay2 = self._step_page(self.tr("Step 3: Run ESLifier"))
         self._make_note(lay2, (
-            "ESLifier runs in MO2 mode, reading your load order directly from\n"
-            "the mod staging folder, so no deploy is required.\n\n"
-            "When ESLifier finishes, it writes its output as the\n"
-            f"'{OUTPUT_NAME}' mod, which will appear in your mod list."))
+            self.tr("ESLifier runs in MO2 mode, reading your load order directly from\nthe mod staging folder, so no deploy is required.\n\nWhen ESLifier finishes, it writes its output as the\n'{0}' mod, which will appear in your mod list.").format(OUTPUT_NAME)))
         self._run_status = self._make_status(lay2)
         lay2.addStretch(1)
-        self._done_btn = self._green_btn("Done")
+        self._done_btn = self._green_btn(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.clicked.connect(self._finish)
         lay2.addWidget(self._done_btn, 0, Qt.AlignHCenter)
@@ -86,7 +83,7 @@ class ESLifierView(WizardViewBase):
                              "Please restart the wizard and let it install "
                              "ESLifier first.")
         elif idx == _PG_RUN:
-            self._set_status(self._run_status, "Launching ESLifier…")
+            self._set_status(self._run_status, self.tr("Launching ESLifier…"))
             self._start_run()
 
     def _start_install(self):
@@ -111,7 +108,7 @@ class ESLifierView(WizardViewBase):
         exe, game = self._exe, self._game
         if exe is None:
             self._set_status(self._run_status,
-                             f"{EXE_NAME} was not found.", RED)
+                             self.tr("{0} was not found.").format(EXE_NAME), RED)
             return
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
         profile = getattr(self._ctx, "profile_name", None) or "default"

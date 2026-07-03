@@ -139,7 +139,7 @@ class NexusBrowserView(QWidget):
         tb.setSpacing(6)
 
         self._cat_toggle = QToolButton()
-        self._cat_toggle.setText("☰ Categories")
+        self._cat_toggle.setText(self.tr("☰ Categories"))
         self._cat_toggle.setObjectName("ActionButton")
         self._cat_toggle.setCheckable(True)
         self._cat_toggle.setChecked(True)
@@ -169,13 +169,13 @@ class NexusBrowserView(QWidget):
             prefix="Time: ", min_width=130, on_select=self._on_time_changed)
         tb.addWidget(self._time_sel)
 
-        self._adult_cb = QCheckBox("Show adult")
+        self._adult_cb = QCheckBox(self.tr("Show adult"))
         self._adult_cb.setChecked(self._show_adult)
         self._adult_cb.toggled.connect(self._on_adult_toggled)
         tb.addWidget(self._adult_cb)
 
         refresh = QToolButton()
-        refresh.setText("Refresh")
+        refresh.setText(self.tr("Refresh"))
         refresh.setObjectName("ActionButton")
         refresh.setCursor(Qt.PointingHandCursor)
         refresh.clicked.connect(self._reload)
@@ -204,7 +204,7 @@ class NexusBrowserView(QWidget):
         cat_header.setObjectName("FilterHeader")
         chl = QHBoxLayout(cat_header)
         chl.setContentsMargins(10, 6, 8, 6)
-        cat_hdr = QLabel("Categories")
+        cat_hdr = QLabel(self.tr("Categories"))
         cat_hdr.setObjectName("FilterTitle")
         chl.addWidget(cat_hdr)
         chl.addStretch(1)
@@ -225,7 +225,7 @@ class NexusBrowserView(QWidget):
         self._cat_scroll.setWidget(self._cat_host)
         cv.addWidget(self._cat_scroll, 1)
         self._cat_checks: list[QCheckBox] = []
-        self._cat_status = QLabel("Loading…")
+        self._cat_status = QLabel(self.tr("Loading…"))
         self._cat_status.setObjectName("FilterEmpty")
         self._cat_layout.addWidget(self._cat_status)
         self._cat_panel.setStyleSheet(self._filter_qss(p))
@@ -261,14 +261,14 @@ class NexusBrowserView(QWidget):
         ft.setSpacing(6)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search mods…")
+        self._search.setPlaceholderText(self.tr("Search mods…"))
         self._search.setClearButtonEnabled(True)
         self._search.setFixedWidth(280)
         self._search.textChanged.connect(self._on_search_text)
         self._search.returnPressed.connect(self._do_search_now)
         ft.addWidget(self._search)
         sbtn = QToolButton()
-        sbtn.setText("Search")
+        sbtn.setText(self.tr("Search"))
         sbtn.setObjectName("ActionButton")
         sbtn.setCursor(Qt.PointingHandCursor)
         sbtn.clicked.connect(self._do_search_now)
@@ -277,19 +277,19 @@ class NexusBrowserView(QWidget):
         ft.addStretch(1)
 
         self._prev_btn = QToolButton()
-        self._prev_btn.setText("◂ Prev")
+        self._prev_btn.setText(self.tr("◂ Prev"))
         self._prev_btn.setObjectName("ActionButton")
         self._prev_btn.setCursor(Qt.PointingHandCursor)
         self._prev_btn.clicked.connect(self._prev_page)
         ft.addWidget(self._prev_btn)
         self._next_btn = QToolButton()
-        self._next_btn.setText("Next ▸")
+        self._next_btn.setText(self.tr("Next ▸"))
         self._next_btn.setObjectName("ActionButton")
         self._next_btn.setCursor(Qt.PointingHandCursor)
         self._next_btn.clicked.connect(self._next_page)
         ft.addWidget(self._next_btn)
 
-        ft.addWidget(QLabel("Page"))
+        ft.addWidget(QLabel(self.tr("Page")))
         self._page_edit = QLineEdit()
         self._page_edit.setFixedWidth(48)
         self._page_edit.setAlignment(Qt.AlignCenter)
@@ -366,7 +366,7 @@ class NexusBrowserView(QWidget):
                 w.deleteLater()
         self._cat_checks.clear()
         if not cats:
-            self._cat_status = QLabel("No categories")
+            self._cat_status = QLabel(self.tr("No categories"))
             self._cat_status.setStyleSheet(
                 f"color:{_c(active_palette(),'TEXT_DIM')}; padding:2px;")
             self._cat_layout.addWidget(self._cat_status)
@@ -511,7 +511,7 @@ class NexusBrowserView(QWidget):
 
     def _reload(self):
         if not self._domain:
-            self._status.setText("No Nexus domain for this game.")
+            self._status.setText(self.tr("No Nexus domain for this game."))
             return
         self._fetch_token += 1
         token = self._fetch_token
@@ -597,7 +597,7 @@ class NexusBrowserView(QWidget):
                   self._page_edit):
             w.setEnabled(not on)
         if on:
-            self._status.setText("Loading…")
+            self._status.setText(self.tr("Loading…"))
 
     def _update_page_buttons(self):
         paged = self._section in ("Browse", "Trending")
@@ -701,13 +701,13 @@ class NexusBrowserView(QWidget):
 
     def _show_card_menu(self, entry, global_pos):
         menu = QMenu(self)
-        menu.addAction("Open on Nexus", lambda: self._on_view(entry))
-        menu.addAction("Install", lambda: self._on_install(entry))
+        menu.addAction(self.tr("Open on Nexus"), lambda: self._on_view(entry))
+        menu.addAction(self.tr("Install"), lambda: self._on_install(entry))
         if self._section == "Tracked":
-            menu.addAction("Untrack", lambda: self._user_action(
+            menu.addAction(self.tr("Untrack"), lambda: self._user_action(
                 "untrack", entry))
         elif self._section == "Endorsed":
-            menu.addAction("Abstain", lambda: self._user_action(
+            menu.addAction(self.tr("Abstain"), lambda: self._user_action(
                 "abstain", entry))
         menu.exec(global_pos)
 

@@ -95,8 +95,8 @@ package() {
     [ -f "$SRC_TREE/Changelog.txt" ] && install -Dm644 "$SRC_TREE/Changelog.txt" "$app_share/Changelog.txt"
 
     local _dir
-    for _dir in gui_qt wizards_qt Utils Games LOOT Nexus icons wrappers gpak; do
-        cp -r "$_src/$_dir" "$app_share/$_dir"
+    for _dir in gui_qt wizards_qt Utils Games LOOT Nexus icons translations wrappers gpak; do
+        [ -d "$_src/$_dir" ] && cp -r "$_src/$_dir" "$app_share/$_dir"
     done
 
     # Drop build/dev artefacts that shouldn't be in the installed tree.

@@ -47,10 +47,12 @@ class RegisterGamePathView(WizardViewBase):
 
         page, lay = self._step_page("")
         p = active_palette()
+        not_cfg = self.tr("not configured")
         info = QLabel(
-            f"Registry key:  HKLM\\Software\\Bethesda Softworks\\{registry_name}\n"
-            f"Game path:     {game_path or 'not configured'}\n"
-            f"Proton prefix: {prefix_path or 'not configured'}")
+            self.tr("Registry key:  HKLM\\Software\\Bethesda Softworks\\{0}\n"
+            "Game path:     {1}\n"
+            "Proton prefix: {2}").format(
+                registry_name, game_path or not_cfg, prefix_path or not_cfg))
         info.setTextInteractionFlags(Qt.TextSelectableByMouse)
         info.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         lay.addWidget(info)
@@ -62,7 +64,7 @@ class RegisterGamePathView(WizardViewBase):
             f" color:{_c(p,'TEXT_MAIN')}; border:1px solid {_c(p,'BORDER')};}}")
         lay.addWidget(self._log_box, 1)
 
-        self._run_btn = self._accent_btn("Write Registry Keys")
+        self._run_btn = self._accent_btn(self.tr("Write Registry Keys"))
         self._run_btn.clicked.connect(self._on_run)
         lay.addWidget(self._run_btn, 0, Qt.AlignHCenter)
 
@@ -72,10 +74,10 @@ class RegisterGamePathView(WizardViewBase):
                 or not Path(prefix_path).is_dir()):
             self._run_btn.setEnabled(False)
             if game_path is None:
-                self._append_box("Game path is not configured — set it first.")
+                self._append_box(self.tr("Game path is not configured — set it first."))
             else:
-                self._append_box("Proton prefix not found — launch the game "
-                                 "once via Steam first.")
+                self._append_box(self.tr("Proton prefix not found — launch the game "
+                                 "once via Steam first."))
 
     # ---- logging ----------------------------------------------------------------
     def _append_box(self, msg: str):
@@ -89,13 +91,13 @@ class RegisterGamePathView(WizardViewBase):
     # ---- run --------------------------------------------------------------------
     def _on_run(self):
         self._run_btn.setEnabled(False)
-        self._run_btn.setText("Writing …")
+        self._run_btn.setText(self.tr("Writing …"))
         threading.Thread(target=self._do_register, daemon=True,
                          name="register-game-path").start()
 
     def _on_finished(self, ok: bool):
         self._run_btn.setEnabled(True)
-        self._run_btn.setText("Done — Write Again" if ok else "Retry")
+        self._run_btn.setText(self.tr("Done — Write Again") if ok else self.tr("Retry"))
 
     def _do_register(self):
         game = self._game

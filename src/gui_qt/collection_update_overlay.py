@@ -76,29 +76,31 @@ class UpdateOverlay(QWidget):
         v.setContentsMargins(20, 16, 20, 16)
         v.setSpacing(8)
 
-        title = QLabel("Update Collection", self._card)
+        title = QLabel(self.tr("Update Collection"), self._card)
         title.setStyleSheet(
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title)
 
         def _rev(r):
-            return f"Rev {r}" if r is not None else "?"
+            return self.tr("Rev {0}").format(r) if r is not None else self.tr("?")
         summary = QLabel(
-            f"Profile '{self._profile_name}' — {_rev(self._from_rev)} → "
-            f"{_rev(self._to_rev)}", self._card)
+            self.tr("Profile '{0}' — {1} → {2}").format(
+                self._profile_name, _rev(self._from_rev), _rev(self._to_rev)),
+            self._card)
         summary.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:13px;")
         v.addWidget(summary)
 
         counts = QLabel(
-            f"{len(self._to_remove)} to remove · {len(self._to_update)} to "
-            f"update · {len(self._to_add)} to add · {len(self._orphans)} orphan(s)",
+            self.tr("{0} to remove · {1} to update · {2} to add · {3} orphan(s)")
+            .format(len(self._to_remove), len(self._to_update),
+                    len(self._to_add), len(self._orphans)),
             self._card)
         counts.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:12px;")
         v.addWidget(counts)
 
         warn = QLabel(
-            "Removed and updated mods will be reinstalled. Your existing load "
-            "order is preserved where possible.", self._card)
+            self.tr("Removed and updated mods will be reinstalled. Your existing load "
+            "order is preserved where possible."), self._card)
         warn.setWordWrap(True)
         warn.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:11px;")
         v.addWidget(warn)
@@ -117,22 +119,22 @@ class UpdateOverlay(QWidget):
         blay = QVBoxLayout(body)
         blay.setContentsMargins(10, 8, 10, 8)
         blay.setSpacing(8)
-        self._add_section(blay, "Remove", self._to_remove)
-        self._add_section(blay, "Update", self._to_update)
-        self._add_section(blay, "Add", self._to_add)
-        self._add_section(blay, "Orphans", self._orphans)
+        self._add_section(blay, self.tr("Remove"), self._to_remove)
+        self._add_section(blay, self.tr("Update"), self._to_update)
+        self._add_section(blay, self.tr("Add"), self._to_add)
+        self._add_section(blay, self.tr("Orphans"), self._orphans)
         blay.addStretch(1)
         scroll.setWidget(body)
         v.addWidget(scroll, 1)
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel", self._card)
+        cancel = QPushButton(self.tr("Cancel"), self._card)
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(False))
         bar.addWidget(cancel)
-        apply_btn = QPushButton("Apply Update", self._card)
+        apply_btn = QPushButton(self.tr("Apply Update"), self._card)
         apply_btn.setObjectName("PrimaryButton")
         apply_btn.setCursor(Qt.PointingHandCursor)
         apply_btn.clicked.connect(lambda: self._finish(True))
@@ -140,7 +142,7 @@ class UpdateOverlay(QWidget):
         v.addLayout(bar)
 
     def _add_section(self, layout, title: str, items: "list[str]"):
-        hdr = QLabel(f"{title} ({len(items)})")
+        hdr = QLabel(self.tr("{0} ({1})").format(title, len(items)))
         hdr.setStyleSheet(
             f"color:{self._c('TEXT_MAIN')}; font-weight:600; font-size:12px;")
         layout.addWidget(hdr)
@@ -152,7 +154,7 @@ class UpdateOverlay(QWidget):
                 " background:transparent;")
             layout.addWidget(lbl)
         else:
-            none_lbl = QLabel("  (none)")
+            none_lbl = QLabel(self.tr("  (none)"))
             none_lbl.setStyleSheet(
                 f"color:{self._c('TEXT_DIM')}; font-size:11px;"
                 " background:transparent;")

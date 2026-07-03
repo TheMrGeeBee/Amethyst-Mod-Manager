@@ -48,14 +48,14 @@ class LauncherSettingsOverlay(QWidget):
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(8)
 
-        title_lbl = QLabel(f"Launch settings — {game_name}")
+        title_lbl = QLabel(self.tr("Launch settings — {0}").format(game_name))
         title_lbl.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         v.addWidget(title_lbl)
 
         row = QHBoxLayout()
         row.setSpacing(8)
-        via_lbl = QLabel("Launch via")
+        via_lbl = QLabel(self.tr("Launch via"))
         via_lbl.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         row.addWidget(via_lbl)
         self._mode_combo = QComboBox()
@@ -67,26 +67,26 @@ class LauncherSettingsOverlay(QWidget):
         row.addStretch(1)
         v.addLayout(row)
 
-        hint = QLabel("Auto detects Steam/Heroic ownership. Force a specific "
+        hint = QLabel(self.tr("Auto detects Steam/Heroic ownership. Force a specific "
                       "launcher, or None to always launch the exe directly "
-                      "via Proton.")
+                      "via Proton."))
         hint.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:13px;")
         hint.setWordWrap(True)
         v.addWidget(hint)
 
-        self._deploy_check = QCheckBox("Deploy mods before launching")
+        self._deploy_check = QCheckBox(self.tr("Deploy mods before launching"))
         self._deploy_check.setChecked(bool(deploy))
         v.addWidget(self._deploy_check)
         v.addStretch(1)
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setObjectName("FormButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(False))
         bar.addWidget(cancel)
-        save = QPushButton("Save")
+        save = QPushButton(self.tr("Save"))
         save.setObjectName("PrimaryButton")
         save.setCursor(Qt.PointingHandCursor)
         save.clicked.connect(lambda: self._finish(True))

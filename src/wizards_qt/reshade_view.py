@@ -109,11 +109,11 @@ class ReShadeView(QWidget):
 
         bar = QWidget(); bar.setObjectName("HeaderBar")
         hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        title = QLabel(f"Install ReShade — {self._game.name}")
+        title = QLabel(self.tr("Install ReShade — {0}").format(self._game.name))
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         hb.addWidget(title)
         hb.addStretch(1)
-        self._close_btn = QPushButton("✕ Close")
+        self._close_btn = QPushButton(self.tr("✕ Close"))
         self._close_btn.setCursor(Qt.PointingHandCursor)
         self._close_btn.setStyleSheet(
             "QPushButton{background:#6b3333; color:#fff; border:none;"
@@ -172,15 +172,15 @@ class ReShadeView(QWidget):
 
     # ---- step 1: API / arch -------------------------------------------------
     def _build_step_api(self) -> QWidget:
-        page, lay = self._page("Step 1: Rendering API & Architecture")
-        note = QLabel("Choose the graphics API this game uses and its executable "
+        page, lay = self._page(self.tr("Step 1: Rendering API & Architecture"))
+        note = QLabel(self.tr("Choose the graphics API this game uses and its executable "
                       "architecture. If you're not sure, dxgi.dll / 64-bit works "
-                      "for most modern games.")
+                      "for most modern games."))
         note.setWordWrap(True); note.setAlignment(Qt.AlignHCenter)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
 
-        lay.addWidget(self._field_label("Rendering API (DLL)"))
+        lay.addWidget(self._field_label(self.tr("Rendering API (DLL)")))
         self._api_combo = QComboBox()
         self._api_combo.addItems([lbl for lbl, _ in API_CHOICES])
         default = next((i for i, (_, dll) in enumerate(API_CHOICES)
@@ -188,7 +188,7 @@ class ReShadeView(QWidget):
         self._api_combo.setCurrentIndex(default)
         lay.addWidget(self._api_combo)
 
-        lay.addWidget(self._field_label("Executable architecture"))
+        lay.addWidget(self._field_label(self.tr("Executable architecture")))
         arch_row = QWidget()
         ah = QHBoxLayout(arch_row); ah.setContentsMargins(0, 0, 0, 0); ah.setSpacing(20)
         self._arch_group = QButtonGroup(self)
@@ -201,7 +201,7 @@ class ReShadeView(QWidget):
         lay.addWidget(arch_row)
 
         lay.addStretch(1)
-        nxt = self._primary("Next →")
+        nxt = self._primary(self.tr("Next →"))
         nxt.clicked.connect(self._apply_api_choice)
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
         return page
@@ -222,9 +222,9 @@ class ReShadeView(QWidget):
 
     # ---- step 2: shaders ----------------------------------------------------
     def _build_step_shaders(self) -> QWidget:
-        page, lay = self._page("Step 2: Select Shader Packs")
-        note = QLabel("The official ReShade shaders are always included. Select "
-                      "any additional packs to download:")
+        page, lay = self._page(self.tr("Step 2: Select Shader Packs"))
+        note = QLabel(self.tr("The official ReShade shaders are always included. Select "
+                      "any additional packs to download:"))
         note.setWordWrap(True); note.setAlignment(Qt.AlignHCenter)
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
@@ -235,20 +235,20 @@ class ReShadeView(QWidget):
         preset_box.setStyleSheet(
             f"QFrame{{background:{_c(p,'BG_PANEL')}; border-radius:6px;}}")
         pv = QVBoxLayout(preset_box); pv.setContentsMargins(12, 10, 12, 10); pv.setSpacing(4)
-        pv.addWidget(self._field_label("Install from a preset (optional)"))
-        pnote = QLabel("Pick a ReShade preset (.ini) to install only the effects "
-                       "it uses. All packs are downloaded then trimmed to the preset.")
+        pv.addWidget(self._field_label(self.tr("Install from a preset (optional)")))
+        pnote = QLabel(self.tr("Pick a ReShade preset (.ini) to install only the effects "
+                       "it uses. All packs are downloaded then trimmed to the preset."))
         pnote.setWordWrap(True); pnote.setStyleSheet(self._dim)
         pv.addWidget(pnote)
         prow = QWidget(); ph = QHBoxLayout(prow); ph.setContentsMargins(0, 0, 0, 0); ph.setSpacing(8)
-        self._preset_label = QLabel("No preset selected")
+        self._preset_label = QLabel(self.tr("No preset selected"))
         self._preset_label.setStyleSheet(self._dim)
         ph.addWidget(self._preset_label, 1)
-        self._clear_preset_btn = QPushButton("Clear")
+        self._clear_preset_btn = QPushButton(self.tr("Clear"))
         self._clear_preset_btn.clicked.connect(self._clear_preset)
         self._clear_preset_btn.setVisible(False)
         ph.addWidget(self._clear_preset_btn)
-        browse = QPushButton("Browse…")
+        browse = QPushButton(self.tr("Browse…"))
         browse.clicked.connect(self._browse_preset)
         ph.addWidget(browse)
         pv.addWidget(prow)
@@ -273,10 +273,10 @@ class ReShadeView(QWidget):
         lay.addWidget(scroll, 1)
 
         nav = QWidget(); nh = QHBoxLayout(nav); nh.setContentsMargins(0, 0, 0, 0); nh.setSpacing(8)
-        back = QPushButton("← Back"); back.clicked.connect(lambda: self._stack.setCurrentIndex(0))
+        back = QPushButton(self.tr("← Back")); back.clicked.connect(lambda: self._stack.setCurrentIndex(0))
         nh.addWidget(back)
         nh.addStretch(1)
-        nxt = self._primary("Next →")
+        nxt = self._primary(self.tr("Next →"))
         nxt.clicked.connect(self._start_download)
         nh.addWidget(nxt)
         lay.addWidget(nav)
@@ -297,7 +297,7 @@ class ReShadeView(QWidget):
             self._log("ReShade wizard: preset has no Techniques= list — ignoring "
                       "it and using the ticked packs instead.")
             self._preset_label.setText(
-                f"{path.name} (no effects found — using pack selection)")
+                self.tr("{0} (no effects found — using pack selection)").format(path.name))
             self._preset_label.setStyleSheet(f"color:{_WARN};")
             return
         self._preset_path = path
@@ -311,7 +311,7 @@ class ReShadeView(QWidget):
     def _clear_preset(self):
         self._preset_path = None
         self._preset_wanted = set()
-        self._preset_label.setText("No preset selected")
+        self._preset_label.setText(self.tr("No preset selected"))
         self._preset_label.setStyleSheet(self._dim)
         self._clear_preset_btn.setVisible(False)
         self._apply_preset_lock(False)
@@ -322,20 +322,20 @@ class ReShadeView(QWidget):
         self._packs_hint.setVisible(locked)
         if locked:
             self._packs_hint.setText(
-                "A preset is loaded — all packs will be downloaded and trimmed "
-                "to it, so individual selection is disabled.")
+                self.tr("A preset is loaded — all packs will be downloaded and trimmed "
+                "to it, so individual selection is disabled."))
 
     # ---- step 3: download ---------------------------------------------------
     def _build_step_download(self) -> QWidget:
-        page, lay = self._page("Step 3: Download ReShade")
+        page, lay = self._page(self.tr("Step 3: Download ReShade"))
         self._dl_status = self._status(lay)
-        self._dl_status.setText("Fetching latest ReShade version…")
+        self._dl_status.setText(self.tr("Fetching latest ReShade version…"))
         self._dl_bar = QProgressBar()
         self._dl_bar.setRange(0, 0)   # indeterminate
         self._dl_bar.setTextVisible(False)
         lay.addWidget(self._dl_bar)
         lay.addStretch(1)
-        self._dl_next_btn = self._primary("Next →")
+        self._dl_next_btn = self._primary(self.tr("Next →"))
         self._dl_next_btn.setEnabled(False)
         self._dl_next_btn.clicked.connect(lambda: self._stack.setCurrentIndex(3))
         lay.addWidget(self._dl_next_btn, 0, Qt.AlignHCenter)
@@ -346,7 +346,7 @@ class ReShadeView(QWidget):
         self._dl_bar.setRange(0, 0)
         self._dl_bar.setVisible(True)
         self._dl_next_btn.setEnabled(False)
-        self._dl_next_btn.setText("Next →")
+        self._dl_next_btn.setText(self.tr("Next →"))
         safe_emit(self._dl_status_sig, "Downloading ReShade and shaders…", "")
 
         arch = self._reshade_arch
@@ -432,14 +432,14 @@ class ReShadeView(QWidget):
         self._dl_bar.setVisible(False)
         self._dl_next_btn.setEnabled(True)
         if ok:
-            self._dl_next_btn.setText("Next →")
+            self._dl_next_btn.setText(self.tr("Next →"))
             try:
                 self._dl_next_btn.clicked.disconnect()
             except Exception:
                 pass
             self._dl_next_btn.clicked.connect(lambda: self._stack.setCurrentIndex(3))
         else:
-            self._dl_next_btn.setText("Retry ↺")
+            self._dl_next_btn.setText(self.tr("Retry ↺"))
             try:
                 self._dl_next_btn.clicked.disconnect()
             except Exception:
@@ -448,7 +448,7 @@ class ReShadeView(QWidget):
 
     # ---- step 4: d3dcompiler ------------------------------------------------
     def _build_step_d3d(self) -> QWidget:
-        page, lay = self._page("Step 4: Install d3dcompiler_47")
+        page, lay = self._page(self.tr("Step 4: Install d3dcompiler_47"))
         self._d3d_info = QLabel("")
         self._d3d_info.setWordWrap(True); self._d3d_info.setAlignment(Qt.AlignHCenter)
         lay.addWidget(self._d3d_info)
@@ -456,9 +456,9 @@ class ReShadeView(QWidget):
         lay.addStretch(1)
         nav = QWidget(); nh = QHBoxLayout(nav); nh.setContentsMargins(0, 0, 0, 0); nh.setSpacing(8)
         nh.addStretch(1)
-        skip = QPushButton("Skip"); skip.clicked.connect(lambda: self._enter_install())
+        skip = QPushButton(self.tr("Skip")); skip.clicked.connect(lambda: self._enter_install())
         nh.addWidget(skip)
-        self._d3d_btn = self._primary("Install d3dcompiler_47")
+        self._d3d_btn = self._primary(self.tr("Install d3dcompiler_47"))
         self._d3d_btn.clicked.connect(self._install_d3d)
         nh.addWidget(self._d3d_btn)
         nh.addStretch(1)
@@ -476,31 +476,31 @@ class ReShadeView(QWidget):
         already = has_prefix and is_dep_installed(Path(prefix), D3D_DEP_KEY)
 
         if already:
-            self._d3d_info.setText("d3dcompiler_47 is already installed in this "
-                                   "prefix.\nYou can skip this step.")
+            self._d3d_info.setText(self.tr("d3dcompiler_47 is already installed in this "
+                                   "prefix.\nYou can skip this step."))
             self._d3d_info.setStyleSheet(f"color:{_GREEN};")
-            self._d3d_btn.setText("Next →")
+            self._d3d_btn.setText(self.tr("Next →"))
             self._rewire(self._d3d_btn, self._enter_install)
         elif not can_install:
             self._d3d_info.setText(
-                "No Proton prefix or Steam ID is configured for this game — "
+                self.tr("No Proton prefix or Steam ID is configured for this game — "
                 "d3dcompiler_47 cannot be installed automatically. Install it "
-                "manually via winecfg before running the game with ReShade.")
+                "manually via winecfg before running the game with ReShade."))
             self._d3d_info.setStyleSheet(f"color:{_WARN};")
             self._d3d_btn.setEnabled(False)
         else:
             self._d3d_info.setText(
-                "d3dcompiler_47 will be installed into the Proton prefix for this "
+                self.tr("d3dcompiler_47 will be installed into the Proton prefix for this "
                 "game (via protontricks if available, otherwise bundled "
-                "winetricks).\n\nThis may take up to a minute.")
+                "winetricks).\n\nThis may take up to a minute."))
             self._d3d_info.setStyleSheet(self._dim)
             self._d3d_btn.setEnabled(True)
-            self._d3d_btn.setText("Install d3dcompiler_47")
+            self._d3d_btn.setText(self.tr("Install d3dcompiler_47"))
             self._rewire(self._d3d_btn, self._install_d3d)
 
     def _install_d3d(self):
         self._d3d_btn.setEnabled(False)
-        self._d3d_btn.setText("Installing…")
+        self._d3d_btn.setText(self.tr("Installing…"))
         game = self._game
 
         def worker():
@@ -521,13 +521,13 @@ class ReShadeView(QWidget):
             self._set_lbl(self._d3d_status,
                           "d3dcompiler_47 installed successfully.\nClick Next to "
                           "continue.", _GREEN)
-            self._d3d_btn.setText("Next →")
+            self._d3d_btn.setText(self.tr("Next →"))
             self._rewire(self._d3d_btn, self._enter_install)
         else:
             self._set_lbl(self._d3d_status,
                           "Install failed — you can Skip and install it manually.",
                           _RED)
-            self._d3d_btn.setText("Retry")
+            self._d3d_btn.setText(self.tr("Retry"))
             self._rewire(self._d3d_btn, self._install_d3d)
 
     def _rewire(self, btn: QPushButton, slot):
@@ -539,7 +539,7 @@ class ReShadeView(QWidget):
 
     # ---- step 5: install ----------------------------------------------------
     def _build_step_install(self) -> QWidget:
-        page, lay = self._page("Step 5: Install ReShade")
+        page, lay = self._page(self.tr("Step 5: Install ReShade"))
         self._install_info = QLabel("")
         self._install_info.setWordWrap(True); self._install_info.setAlignment(Qt.AlignHCenter)
         self._install_info.setStyleSheet(self._dim)
@@ -549,7 +549,7 @@ class ReShadeView(QWidget):
         box = QFrame()
         box.setStyleSheet(f"QFrame{{background:{_c(p,'BG_PANEL')}; border-radius:6px;}}")
         bv = QVBoxLayout(box); bv.setContentsMargins(12, 10, 12, 10); bv.setSpacing(4)
-        bv.addWidget(self._field_label("Install destination"))
+        bv.addWidget(self._field_label(self.tr("Install destination")))
         self._dest_group = QButtonGroup(self)
         for val, label in (("game", "Game folder"),
                            ("root_folder", "Root_Folder (staging)"),
@@ -563,7 +563,7 @@ class ReShadeView(QWidget):
             bv.addWidget(rb)
 
         mod_row = QWidget(); mh = QHBoxLayout(mod_row); mh.setContentsMargins(0, 4, 0, 0); mh.setSpacing(8)
-        self._mod_name_lbl = QLabel("Mod name")
+        self._mod_name_lbl = QLabel(self.tr("Mod name"))
         self._mod_name_lbl.setStyleSheet(self._dim)
         mh.addWidget(self._mod_name_lbl)
         self._mod_name_edit = QLineEdit("ReShade")
@@ -577,10 +577,10 @@ class ReShadeView(QWidget):
 
         nav = QWidget(); nh = QHBoxLayout(nav); nh.setContentsMargins(0, 0, 0, 0); nh.setSpacing(8)
         nh.addStretch(1)
-        self._install_btn = self._primary("Install")
+        self._install_btn = self._primary(self.tr("Install"))
         self._install_btn.clicked.connect(self._do_install)
         nh.addWidget(self._install_btn)
-        self._done_btn = QPushButton("Done")
+        self._done_btn = QPushButton(self.tr("Done"))
         self._done_btn.setEnabled(False)
         self._done_btn.setCursor(Qt.PointingHandCursor)
         self._done_btn.setStyleSheet(
@@ -596,16 +596,14 @@ class ReShadeView(QWidget):
     def _enter_install(self):
         # Populate the fields that depend on earlier steps, then show it.
         self._install_info.setText(
-            f"ReShade will be installed as  {self._reshade_dll}\n"
-            f"and the Wine DLL override  {self._override_key}=native,builtin\n"
-            "will be written to the Proton prefix.")
+            self.tr('ReShade will be installed as  {0}\nand the Wine DLL override  {1}=native,builtin\nwill be written to the Proton prefix.').format(self._reshade_dll, self._override_key))
         # Default the mod name to "<preset> - ReShade" when a preset is loaded
         # and the field is still the untouched "ReShade".
         if (self._preset_path is not None and not self._mod_name_edited
                 and self._mod_name_edit.text().strip() in ("", "ReShade")):
             label = self._preset_path.stem.replace("_", " ").strip()
             if label:
-                self._mod_name_edit.setText(f"{label} - ReShade")
+                self._mod_name_edit.setText(self.tr("{0} - ReShade").format(label))
         self._sync_mod_name_state()
         self._stack.setCurrentIndex(4)
 
@@ -620,7 +618,7 @@ class ReShadeView(QWidget):
 
     def _do_install(self):
         self._install_btn.setEnabled(False)
-        self._install_btn.setText("Installing…")
+        self._install_btn.setText(self.tr("Installing…"))
         game = self._game
         dest = self._selected_dest()
         self._installed_dest = dest
@@ -652,7 +650,7 @@ class ReShadeView(QWidget):
         if ok:
             self._installed = True
             self._install_btn.setEnabled(False)
-            self._install_btn.setText("Install")
+            self._install_btn.setText(self.tr("Install"))
             self._done_btn.setEnabled(True)
             # A managed-mod install changed modlist.txt — reload it now, on the
             # GUI thread, so the new mod shows without waiting for Done.
@@ -662,7 +660,7 @@ class ReShadeView(QWidget):
                     refresh()
         else:
             self._install_btn.setEnabled(True)
-            self._install_btn.setText("Retry")
+            self._install_btn.setText(self.tr("Retry"))
 
     # ---- shared -------------------------------------------------------------
     def _finish(self):

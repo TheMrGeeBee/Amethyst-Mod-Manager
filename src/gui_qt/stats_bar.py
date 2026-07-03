@@ -81,5 +81,5 @@ class StatsBar(QWidget):
             pill.setParent(None)
             pill.deleteLater()
         for pill, (label, value) in zip(self._pills, stats):
-            pill.setText(f"{label}: {value}" if label else str(value))
+            pill.setText(self.tr("{0}: {1}").format(label, value) if label else str(value))
             pill.show()

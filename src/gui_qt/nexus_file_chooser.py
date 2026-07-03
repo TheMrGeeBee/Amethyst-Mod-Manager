@@ -59,12 +59,12 @@ class NexusFileChooser(QWidget):
         v.setContentsMargins(16, 14, 16, 14)
         v.setSpacing(8)
 
-        hdr = QLabel(f"'{mod_name}' has multiple main files.")
+        hdr = QLabel(self.tr("'{0}' has multiple main files.").format(mod_name))
         hdr.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         hdr.setWordWrap(True)
         v.addWidget(hdr)
-        sub = QLabel("Select which file to install:")
+        sub = QLabel(self.tr("Select which file to install:"))
         sub.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:13px;")
         v.addWidget(sub)
 
@@ -93,11 +93,11 @@ class NexusFileChooser(QWidget):
 
         bar = QHBoxLayout()
         bar.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(self.tr("Cancel"))
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(lambda: self._finish(None))
         bar.addWidget(cancel)
-        install = QPushButton("Install")
+        install = QPushButton(self.tr("Install"))
         install.setObjectName("GameSelectBtn")    # green, matches the cards
         install.setCursor(Qt.PointingHandCursor)
         install.clicked.connect(self._pick)
