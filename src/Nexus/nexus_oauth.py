@@ -407,10 +407,12 @@ def _pkce_pair() -> tuple[str, str]:
 # Logo shown on the browser callback page (the http://localhost:7890/callback
 # page the browser lands on after the user authorises). Inlined as a base64
 # data-URI so the page is self-contained — no second request back to the local
-# server. Loaded + cached once; None (and the page falls back to text-only) if
-# the asset isn't present in this build.
+# server. Uses src/icons/Logo.png (bundled into both the AppImage and Flatpak
+# source trees — src/appimage/ is NOT shipped, only used as an icon source at
+# build time). Loaded + cached once; None (and the page falls back to text-only)
+# if the asset isn't present in this build.
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "appimage", "mod-manager.png")
+                          "icons", "Logo.png")
 _logo_data_uri: Optional[str] = None
 _logo_loaded = False
 
