@@ -1,10 +1,11 @@
 """Witcher 3 Script Merger wizard — Qt port of wizards/script_merger_tw3.py.
 
 Deploy → manual Nexus download → locate (sm-fae archive) → extract to
-Applications/ScriptMerger/ → install .NET 8 into the GAME's Proton prefix
-(dep-marked in amethyst_deps.json) → run WitcherScriptMerger.exe.  On Done
-the game is restored so merged files are rescued into staging, then the
-modlist refreshes.
+Applications/ScriptMerger/ → choose Proton version/prefix (shared wizard
+step) → install .NET 8 into the chosen prefix (dep-marked in
+amethyst_deps.json) → run WitcherScriptMerger.exe.  On Done the game is
+restored so merged files are rescued into staging, then the modlist
+refreshes.
 """
 
 from __future__ import annotations
@@ -24,10 +25,10 @@ if TYPE_CHECKING:
 _NEXUS_URL = "https://www.nexusmods.com/witcher3/mods/8405?tab=files&file_id=59566"
 _MERGER_EXE = "WitcherScriptMerger.exe"
 _MERGER_DIR = "ScriptMerger"
-_NET8_URL = "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.25/windowsdesktop-runtime-8.0.25-win-x64.exe"
-_NET8_FILENAME = "windowsdesktop-runtime-8.0.25-win-x64.exe"
+# .NET 8 install runs through Utils.proton_tools.install_dotnet_runtime.
 
-_PG_DEPLOY, _PG_DOWNLOAD, _PG_LOCATE, _PG_EXTRACT, _PG_NET8, _PG_RUN = range(6)
+(_PG_DEPLOY, _PG_DOWNLOAD, _PG_LOCATE, _PG_EXTRACT, _PG_PROTON, _PG_NET8,
+ _PG_RUN) = range(7)
 
 
 class ScriptMergerView(WizardViewBase):
@@ -40,6 +41,9 @@ class ScriptMergerView(WizardViewBase):
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
                          title=f"Run Script Merger — {game.name}")
+        self._proton_name = ""
+        self._prefix_mode = ""
+        self._prefix_env = None
 
         self._net8_status_sig.connect(self._guard(
             lambda t, c: self._set_status(self._net8_status, t, c)))
@@ -70,13 +74,15 @@ class ScriptMergerView(WizardViewBase):
         # page 3: extract
         self._stack.addWidget(self._build_extract_page(
             "Step 4: Extract Script Merger"))
-        # page 4: .NET 8
-        page, lay = self._step_page("Step 5: Install .NET 8")
+        # page 4: proton
+        self._stack.addWidget(self._build_proton_holder())
+        # page 5: .NET 8
+        page, lay = self._step_page("Step 6: Install .NET 8")
         self._net8_status = self._make_status(lay)
         lay.addStretch(1)
         self._stack.addWidget(page)
-        # page 5: run
-        self._stack.addWidget(self._build_run_page("Step 6: Run Script Merger"))
+        # page 6: run
+        self._stack.addWidget(self._build_run_page("Step 7: Run Script Merger"))
 
         self._goto_step(_PG_DEPLOY)
 
@@ -94,6 +100,15 @@ class ScriptMergerView(WizardViewBase):
         elif idx == _PG_EXTRACT:
             self._extract_to_applications(_MERGER_DIR, _MERGER_EXE,
                                           "Script Merger")
+        elif idx == _PG_PROTON:
+            self._exe = tool_exe_path(self._game, _MERGER_EXE, _MERGER_DIR)
+            self._enter_proton(
+                self._exe, _MERGER_EXE, "Script Merger",
+                self._on_proton_chosen,
+                title="Step 5: Choose Proton Version",
+                missing_text=f"{_MERGER_EXE} was not found.\n"
+                             "Please restart the wizard and install "
+                             "Script Merger first.")
         elif idx == _PG_NET8:
             self._set_status(self._net8_status, "Checking .NET 8…")
             self._start_net8()
@@ -105,37 +120,44 @@ class ScriptMergerView(WizardViewBase):
     def _advance_from_deploy(self):
         # Skip download step if WitcherScriptMerger.exe is already present.
         if tool_exe_path(self._game, _MERGER_EXE, _MERGER_DIR) is not None:
-            self._goto_step(_PG_NET8)
+            self._goto_step(_PG_PROTON)
         else:
             self._goto_step(_PG_DOWNLOAD)
 
     def _on_extract_done(self, ok: bool):
         if ok:
-            self._goto_step(_PG_NET8)
+            self._goto_step(_PG_PROTON)
 
-    # ---- .NET 8 into the GAME prefix -----------------------------------------------
+    def _on_proton_chosen(self, proton_name: str, prefix_mode: str):
+        self._proton_name = proton_name
+        self._prefix_mode = prefix_mode
+        self._goto_step(_PG_NET8)
+
+    # ---- .NET 8 into the chosen tool prefix ------------------------------------------
     def _start_net8(self):
         game = self._game
+        exe = self._exe
+        proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
         def worker():
-            import subprocess
-            from Utils.ca_bundle import download_file
-            from Utils.config_paths import get_dotnet_cache_dir
-            from Utils.exe_launch import get_game_prefix_env
-            from Utils.protontricks import (
-                dotnet_dep_key, is_dep_installed, mark_dep_installed,
-            )
-            from Utils.steam_finder import proton_run_command
+            from Utils.exe_launch import resolve_tool_prefix
+            from Utils.protontricks import dotnet_dep_key, is_dep_installed
             _wlog = lambda m: self._log(f"Script Merger Wizard: {m}")
             try:
-                prefix_path = game.get_prefix_path()
-                if prefix_path is None or not prefix_path.is_dir():
+                safe_emit(self._net8_status_sig,
+                          "Preparing Script Merger's Wine prefix…", "")
+                result = resolve_tool_prefix(
+                    exe, game, proton_name, prefix_mode, log_fn=_wlog)
+                if result is None:
                     safe_emit(self._net8_status_sig,
-                              "No Proton prefix configured for this game.\n"
-                              "Configure the prefix in Game Settings, then "
-                              "reopen this wizard.", RED)
+                              f"Could not find Proton '{proton_name}' — check "
+                              "that it is installed in Steam, then reopen this "
+                              "wizard.", RED)
                     safe_emit(self._net8_done_sig, False)
                     return
+                self._prefix_env = result
+                proton_script, compat_data, env = result
+                prefix_path = compat_data / "pfx"
 
                 net8_key = dotnet_dep_key("8")
                 if is_dep_installed(prefix_path, net8_key):
@@ -144,43 +166,15 @@ class ScriptMergerView(WizardViewBase):
                     safe_emit(self._net8_done_sig, True)
                     return
 
-                result = get_game_prefix_env(game, log_fn=_wlog,
-                                             allow_runner_fallback=True)
-                if result is None:
-                    safe_emit(self._net8_status_sig,
-                              "Could not find Proton — check that the prefix "
-                              "is configured.", RED)
-                    safe_emit(self._net8_done_sig, False)
-                    return
-                proton_script, _compat_data, env = result
-
-                cache_path = get_dotnet_cache_dir() / _NET8_FILENAME
-                if not cache_path.is_file():
-                    safe_emit(self._net8_status_sig,
-                              "Downloading .NET 8 runtime…", "")
-                    _wlog("downloading .NET 8 runtime …")
-                    download_file(_NET8_URL, cache_path)
-                    _wlog(".NET 8 download complete.")
-                else:
-                    _wlog("using cached .NET 8 installer.")
-
+                from Utils.proton_tools import install_dotnet_runtime
+                ok = install_dotnet_runtime(
+                    "8", proton_script, env, prefix_path,
+                    log_fn=_wlog,
+                    status_fn=lambda m: safe_emit(self._net8_status_sig, m, ""))
+                if not ok:
+                    raise RuntimeError(".NET 8 install failed (see log).")
                 safe_emit(self._net8_status_sig,
-                          "Installing .NET 8 into game prefix…\n"
-                          "(this may take a few minutes)", "")
-                _wlog("launching .NET 8 installer in game prefix …")
-                proc = subprocess.run(
-                    proton_run_command(proton_script, "run", str(cache_path),
-                                       "/quiet", "/norestart"),
-                    env=env,
-                    cwd=str(cache_path.parent),
-                )
-                # 0 installed / 102 no-op / 1638 other version / 3010 reboot
-                if proc.returncode not in {0, 102, 1638, 3010}:
-                    raise RuntimeError(
-                        f".NET 8 installer exited with code {proc.returncode}.")
-                mark_dep_installed(prefix_path, net8_key)
-                safe_emit(self._net8_status_sig,
-                          ".NET 8 installed successfully.", GREEN)
+                          ".NET 8 ready.", GREEN)
                 safe_emit(self._net8_done_sig, True)
             except Exception as exc:
                 safe_emit(self._net8_status_sig, f"Error: {exc}", RED)
@@ -205,20 +199,33 @@ class ScriptMergerView(WizardViewBase):
                 RED)
             return
 
+        proton_name, prefix_mode = self._proton_name, self._prefix_mode
+        prefix_env = self._prefix_env
+
         def worker():
             import subprocess
-            from Utils.exe_launch import get_game_prefix_env
+            from Utils.exe_launch import (
+                link_game_documents, resolve_tool_prefix,
+                shutdown_prefix_wineserver,
+            )
             from Utils.steam_finder import proton_run_command
             _wlog = lambda m: self._log(f"Script Merger Wizard: {m}")
             try:
-                result = get_game_prefix_env(game, log_fn=_wlog,
-                                             allow_runner_fallback=True)
+                result = prefix_env or resolve_tool_prefix(
+                    exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              "Could not find Proton — check that the prefix "
-                              "is configured.", RED)
+                              f"Could not find Proton '{proton_name}' — check "
+                              "that it is installed in Steam.", RED)
                     return
-                proton_script, _compat_data, env = result
+                proton_script, compat_data, env = result
+
+                # Script Merger watches Documents\The Witcher 3 (the mod load
+                # order) and crashes if it's missing — a fresh tool prefix has
+                # no such folder, so link the game prefix's real one in.
+                link_game_documents(game, compat_data / "pfx",
+                                    game.name, log_fn=_wlog)
+
                 game_path = game.get_game_path()
                 if game_path:
                     env["STEAM_COMPAT_INSTALL_PATH"] = str(game_path)
@@ -247,6 +254,8 @@ class ScriptMergerView(WizardViewBase):
                           "conflicts, then close it and click Done.", GREEN)
                 safe_emit(self._run_started_sig)
                 proc.wait()
+                shutdown_prefix_wineserver(proton_script, compat_data,
+                                           log_fn=_wlog)
                 _wlog("WitcherScriptMerger closed.")
                 safe_emit(self._run_status_sig,
                           "WitcherScriptMerger closed.", GREEN)

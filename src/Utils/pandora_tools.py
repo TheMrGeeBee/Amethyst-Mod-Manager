@@ -25,9 +25,8 @@ from Utils.protontricks import dotnet_dep_key as _dotnet_dep_key
 
 EXE_NAME = "Pandora Behaviour Engine+.exe"
 
-NET10_URL = ("https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/"
-             "10.0.0/windowsdesktop-runtime-10.0.0-win-x64.exe")
-NET10_FILENAME = "windowsdesktop-runtime-10.0.0-win-x64.exe"
+# .NET 10 install now runs through Utils.proton_tools.install_dotnet_runtime
+# (single source of truth for URL/filename/exit-code handling).
 NET10_DEP_KEY = _dotnet_dep_key("10")
 
 
@@ -59,41 +58,13 @@ def install_net10(proton_script: Path, compat_data: Path, env: dict,
     *status_fn* receives short user-facing progress strings; *log_fn* the
     detailed log lines.
     """
-    from Utils.ca_bundle import download_file
-    from Utils.config_paths import get_dotnet_cache_dir
-    from Utils.protontricks import mark_dep_installed
-    from Utils.steam_finder import proton_run_command
+    from Utils.proton_tools import install_dotnet_runtime
 
-    cache_path = get_dotnet_cache_dir() / NET10_FILENAME
-    if not cache_path.is_file():
-        status_fn("Downloading .NET 10 runtime…")
-        log_fn("downloading .NET 10 runtime …")
-        download_file(NET10_URL, cache_path)
-        log_fn(".NET 10 download complete.")
-    else:
-        log_fn("using cached .NET 10 installer.")
-
-    status_fn("Installing .NET 10 into Pandora's prefix…\n"
-              "(this may take a few minutes)")
-    log_fn("launching .NET 10 installer in Pandora's prefix …")
-
-    proc = subprocess.run(
-        proton_run_command(proton_script, "run", str(cache_path),
-                           "/quiet", "/norestart"),
-        env=env,
-        cwd=str(cache_path.parent),
-    )
-
-    # Exit codes from the .NET desktop runtime installer:
-    #   0    = installed successfully
-    #   1602 = user cancel
-    #   1638 = another version already installed (success, no-op)
-    #   3010 = installed, reboot required (success)
-    #   102  = already installed / no-op (success)
-    if proc.returncode not in {0, 102, 1638, 3010}:
-        raise RuntimeError(f".NET 10 installer exited with code {proc.returncode}.")
-
-    mark_dep_installed(Path(compat_data) / "pfx", NET10_DEP_KEY)
+    ok = install_dotnet_runtime(
+        "10", proton_script, env, Path(compat_data) / "pfx",
+        log_fn=log_fn, status_fn=status_fn, dep_key=NET10_DEP_KEY)
+    if not ok:
+        raise RuntimeError("Pandora .NET 10 install failed (see log).")
 
 
 def run_pandora(exe: Path, game: "BaseGame", proton_script: Path,

@@ -38,6 +38,82 @@ def _noop(_msg: str) -> None:
     pass
 
 
+# --- shared .NET desktop-runtime installer ---------------------------------
+# Exit codes from Microsoft's windowsdesktop-runtime bundle under proton/wine:
+#   0    = installed successfully
+#   102  = already installed / no-op
+#   1638 = another (newer) version already present
+#   3010 = installed, reboot required
+#   1    = ambiguous under Wine but ~always means the runtime is already present
+#          and the bundle declined to reinstall — treat as done, not a failure.
+DOTNET_OK_CODES: frozenset[int] = frozenset({0, 102, 1638, 3010, 1})
+
+
+def install_dotnet_runtime(
+    version: str,
+    proton_script: "Path",
+    env: dict,
+    prefix_path: "Path | None",
+    *,
+    log_fn: LogFn = _noop,
+    status_fn: "Callable[[str], None] | None" = None,
+    dep_key: "str | None" = None,
+) -> bool:
+    """Download (cached) + silently install the .NET desktop runtime *version*
+    into the prefix behind *proton_script*/*env*.
+
+    Single source of truth shared by the Proton dropdown and every wizard that
+    needs .NET: given an already-resolved proton script + env + target prefix,
+    it caches the official installer, runs it via ``proton run`` and records
+    success in the prefix's dep marker. Returns ``True`` on success (including
+    the already-installed exit codes in :data:`DOTNET_OK_CODES`).
+
+    *status_fn* (optional) receives short user-facing status strings; *log_fn*
+    receives detailed log lines.
+    """
+    from Utils.ca_bundle import download_file
+    from Utils.config_paths import get_dotnet_cache_dir
+    from Utils.protontricks import dotnet_dep_key, mark_dep_installed
+
+    _status = status_fn or (lambda _m: None)
+
+    dl_url = DOTNET_URLS.get(version)
+    if dl_url is None:
+        log_fn(f"no download URL known for .NET {version}.")
+        return False
+
+    cache_path = get_dotnet_cache_dir() / f"windowsdesktop-runtime-{version}-win-x64.exe"
+    if not cache_path.is_file():
+        _status(f"Downloading .NET {version} runtime…")
+        log_fn(f"downloading .NET {version} runtime …")
+        download_file(dl_url, cache_path)
+        log_fn(f".NET {version} download complete.")
+    else:
+        log_fn(f"using cached .NET {version} installer.")
+
+    _status(f"Installing .NET {version} (silent)…\n(this may take a few minutes)")
+    log_fn(f"installing .NET {version} in prefix (silent) …")
+    proc = subprocess.run(
+        proton_run_command(proton_script, "run",
+                           str(cache_path), "/quiet", "/norestart"),
+        env=env, cwd=str(cache_path.parent),
+    )
+    if proc.returncode not in DOTNET_OK_CODES:
+        log_fn(f".NET {version} installer exited with code {proc.returncode}.")
+        return False
+
+    if prefix_path and Path(prefix_path).is_dir():
+        mark_dep_installed(Path(prefix_path), dep_key or dotnet_dep_key(version))
+
+    if proc.returncode == 1:
+        _status(f".NET {version} already installed — continuing.")
+        log_fn(f".NET {version} already installed (installer exit 1) — marking done.")
+    else:
+        _status(f".NET {version} installed successfully.")
+        log_fn(f".NET {version} installed (exit {proc.returncode}).")
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Proton environment resolution
 # ---------------------------------------------------------------------------
@@ -255,44 +331,14 @@ def install_d3dcompiler_47(game, log_fn: LogFn = _noop) -> bool:
 def install_dotnet(game, version: str, log_fn: LogFn = _noop) -> bool:
     """Download (cached) + silently install the .NET desktop runtime *version*
     into the game's prefix. Mirrors the Tk panel's ``_run_install_dotnet``
-    worker."""
-    from Utils.config_paths import get_dotnet_cache_dir
-    from Utils.protontricks import dotnet_dep_key, mark_dep_installed
-
+    worker. Thin wrapper over :func:`install_dotnet_runtime`."""
     proton_script, env = resolve_proton_env(game, log_fn)
     if proton_script is None:
         return False
     prefix_path = getattr(game, "_prefix_path", None)
-
-    dl_url = DOTNET_URLS.get(version)
-    if dl_url is None:
-        log_fn(f"Proton Tools: no download URL known for .NET {version}.")
-        return False
-
-    cache_dir = get_dotnet_cache_dir()
-    cache_path = cache_dir / f"windowsdesktop-runtime-{version}-win-x64.exe"
     try:
-        if not cache_path.is_file():
-            log_fn(f"Downloading .NET {version} runtime …")
-            from Utils.ca_bundle import download_file
-            download_file(dl_url, cache_path)
-            log_fn("Download complete.")
-        else:
-            log_fn(f"Using cached .NET {version} installer.")
-        log_fn(f"Installing .NET {version} in game prefix (silent) — may take a few minutes …")
-        proc = subprocess.run(
-            proton_run_command(proton_script, "run",
-                               str(cache_path), "/quiet", "/norestart"),
-            env=env, cwd=cache_path.parent,
-        )
-        # 0 = success, 102 = already installed, 1638 = newer present, 3010 = reboot req'd
-        if proc.returncode in {0, 102, 1638, 3010}:
-            log_fn(f".NET {version} installed (exit {proc.returncode}).")
-            if prefix_path and Path(prefix_path).is_dir():
-                mark_dep_installed(Path(prefix_path), dotnet_dep_key(version))
-            return True
-        log_fn(f"Installer exited with code {proc.returncode}.")
-        return False
+        return install_dotnet_runtime(
+            version, proton_script, env, prefix_path, log_fn=log_fn)
     except Exception as e:
         log_fn(f"Error: {e}")
         return False

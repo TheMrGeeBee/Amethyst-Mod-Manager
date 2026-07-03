@@ -27,8 +27,7 @@ if TYPE_CHECKING:
 _GITHUB_API = "https://api.github.com/repos/hakasapl/PGPatcher/releases/latest"
 _PATCHER_EXE = "PGPatcher.exe"
 _PATCHER_DIR = "PGPatcher"
-_NET8_URL = "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.25/windowsdesktop-runtime-8.0.25-win-x64.exe"
-_NET8_FILENAME = "windowsdesktop-runtime-8.0.25-win-x64.exe"
+# .NET 8 install runs through Utils.proton_tools.install_dotnet_runtime.
 _AMBER = "#e0a83c"
 
 _PG_DOWNLOAD, _PG_PROTON, _PG_DEPS, _PG_CONFIG, _PG_DEPLOY, _PG_RUN = range(6)
@@ -167,15 +166,11 @@ class PGPatcherView(WizardViewBase):
         proton_name, prefix_mode = self._proton_name, self._prefix_mode
 
         def worker():
-            import subprocess
-            from Utils.ca_bundle import download_file
-            from Utils.config_paths import get_dotnet_cache_dir
             from Utils.exe_launch import resolve_tool_prefix
             from Utils.protontricks import (
                 D3D_DEP_KEY, dotnet_dep_key, install_d3dcompiler_47,
-                is_dep_installed, mark_dep_installed,
+                is_dep_installed,
             )
-            from Utils.steam_finder import proton_run_command
             _wlog = lambda m: self._log(f"PGPatcher Wizard: {m}")
             try:
                 safe_emit(self._d3d_status_sig,
@@ -221,33 +216,14 @@ class PGPatcherView(WizardViewBase):
                     safe_emit(self._deps_done_sig, True)
                     return
 
-                cache_path = get_dotnet_cache_dir() / _NET8_FILENAME
-                if not cache_path.is_file():
-                    safe_emit(self._net8_status_sig,
-                              "Downloading .NET 8 runtime…", "")
-                    _wlog("downloading .NET 8 runtime …")
-                    download_file(_NET8_URL, cache_path)
-                    _wlog(".NET 8 download complete.")
-                else:
-                    _wlog("using cached .NET 8 installer.")
-
-                safe_emit(self._net8_status_sig,
-                          "Installing .NET 8 into PGPatcher's prefix…\n"
-                          "(this may take a few minutes)", "")
-                _wlog("launching .NET 8 installer in PGPatcher's prefix …")
-                proc = subprocess.run(
-                    proton_run_command(proton_script, "run", str(cache_path),
-                                       "/quiet", "/norestart"),
-                    env=env,
-                    cwd=str(cache_path.parent),
-                )
-                # 0 installed / 102 no-op / 1638 other version / 3010 reboot
-                if proc.returncode not in {0, 102, 1638, 3010}:
-                    raise RuntimeError(
-                        f".NET 8 installer exited with code {proc.returncode}.")
-                mark_dep_installed(prefix_path, net8_key)
-                safe_emit(self._net8_status_sig,
-                          ".NET 8 installed successfully.", GREEN)
+                from Utils.proton_tools import install_dotnet_runtime
+                ok = install_dotnet_runtime(
+                    "8", proton_script, env, prefix_path,
+                    log_fn=_wlog,
+                    status_fn=lambda m: safe_emit(self._net8_status_sig, m, ""))
+                if not ok:
+                    raise RuntimeError(".NET 8 install failed (see log).")
+                safe_emit(self._net8_status_sig, ".NET 8 ready.", GREEN)
                 safe_emit(self._deps_done_sig, True)
             except Exception as exc:
                 safe_emit(self._net8_status_sig, f"Error: {exc}", RED)

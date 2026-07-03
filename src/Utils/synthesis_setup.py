@@ -309,7 +309,8 @@ def _step_dotnet9_sdk(pfx: Path, wine: Path, log: LogFn) -> bool:
         env=_base_env(pfx, wine),
         capture_output=True, text=True, errors="replace", timeout=900,
     )
-    if result.returncode not in (0, 3010):
+    # exit 1 under Wine ~ already present, bundle declined to reinstall — accept it
+    if result.returncode not in (0, 3010, 1):
         log(f"  .NET 9 SDK installer exited with {result.returncode}")
         return False
     _mark_done(pfx, "dotnet9_sdk")
@@ -330,7 +331,8 @@ def _step_dotnet10_desktop(pfx: Path, wine: Path, log: LogFn) -> bool:
         env=_base_env(pfx, wine),
         capture_output=True, text=True, errors="replace", timeout=600,
     )
-    if result.returncode not in (0, 3010):
+    # exit 1 under Wine ~ already present, bundle declined to reinstall — accept it
+    if result.returncode not in (0, 3010, 1):
         log(f"  .NET 10 Desktop Runtime installer exited with {result.returncode}")
         return False
     _mark_done(pfx, "dotnet10_desktop")
@@ -354,7 +356,8 @@ def _install_desktop_runtime(
         env=_base_env(pfx, wine),
         capture_output=True, text=True, errors="replace", timeout=600,
     )
-    if result.returncode not in (0, 3010):
+    # exit 1 under Wine ~ already present, bundle declined to reinstall — accept it
+    if result.returncode not in (0, 3010, 1):
         log(f"  {label} installer exited with {result.returncode}")
         return False
     _mark_done(pfx, marker)
