@@ -246,7 +246,8 @@ def get_default_selections(step: InstallStep, flag_state: dict[str, str],
             defaults[group.name] = [p.name for p in plugins]
 
         elif gtype == "SelectExactlyOne":
-            # Required → Recommended → first
+            # Required → Recommended → first selectable (skip NotUsable, which
+            # is greyed out / un-clickable in the UI — never default to it)
             for i, p in enumerate(plugins):
                 if plugin_types[i] == "Required":
                     defaults[group.name] = [p.name]
@@ -257,7 +258,12 @@ def get_default_selections(step: InstallStep, flag_state: dict[str, str],
                         defaults[group.name] = [p.name]
                         break
                 else:
-                    defaults[group.name] = [plugins[0].name]
+                    for i, p in enumerate(plugins):
+                        if plugin_types[i] != "NotUsable":
+                            defaults[group.name] = [p.name]
+                            break
+                    else:
+                        defaults[group.name] = [plugins[0].name]
 
         elif gtype == "SelectAtMostOne":
             # Required → Recommended → none
