@@ -143,6 +143,12 @@ jobs:
           # plugins. qt6-wayland: explicit because pyside6 doesn't hard-
           # depend on it and quick-sharun only deploys wayland plugin dirs
           # that exist on disk.
+          # qt6-imageformats: provides the extra image-format plugins that
+          # qt6-base omits — critically libqwebp.so. Nexus Mods serves its
+          # mod/collection thumbnails as WebP, so without this plugin
+          # QImage.fromData() returns null and the browser cards render
+          # blank. quick-sharun only deploys imageformats/*.so that exist
+          # on disk, so the plugin must be installed here to be bundled.
           # libarchive: bsdtar + libarchive.so.13 for fast extraction.
           # sudo: needed for `sudo -u builder` makepkg invocation.
           # (base-devel is already pulled in by anylinux-setup-action.)
@@ -151,6 +157,7 @@ jobs:
           pacman -Syu --noconfirm \
               pyside6 \
               qt6-wayland \
+              qt6-imageformats \
               python-pip \
               libarchive \
               wget \
