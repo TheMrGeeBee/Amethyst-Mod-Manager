@@ -4277,8 +4277,38 @@ class MainWindow(QMainWindow):
             saved = read_selected_exe(pdir)
             if saved in self._play_exe_paths:
                 current = saved
-        self._play_exe_selector.set_items(items, current=current)
+        self._play_exe_selector.set_items(
+            items, current=current, item_icons=self._build_exe_icon_map(game))
         self._update_play_btn_label(current)
+
+    def _build_exe_icon_map(self, game) -> dict:
+        """{label: QIcon} for the play-bar dropdown: the game's logo for the
+        game entry, each custom exe's own extracted icon for the exe entries
+        (falling back to the game logo when an exe has no embeddable icon).
+
+        Icons are loaded at 2x the display size so the ~28px play-bar face + menu
+        entries stay crisp on HiDPI (QIcon.paint downscales cleanly)."""
+        px = 56
+        icons: dict = {}
+        game_logo = None
+        try:
+            from gui_qt.add_game_view import _game_logo
+            pm = _game_logo(getattr(game, "game_id", "") or game.name, px)
+            if pm is not None and not pm.isNull():
+                from PySide6.QtGui import QIcon
+                game_logo = QIcon(pm)
+        except Exception:
+            game_logo = None
+        if game_logo is not None:
+            icons[game.name] = game_logo
+        from gui_qt.icons import exe_icon
+        for name, path in self._play_exe_paths.items():
+            ic = exe_icon(path, px)
+            if ic is None:
+                ic = game_logo
+            if ic is not None:
+                icons[name] = ic
+        return icons
 
     def _update_play_btn_label(self, label: str):
         game = self._gs.game
@@ -7262,6 +7292,7 @@ class MainWindow(QMainWindow):
             items=["—"],
             current="—",
             min_width=0,
+            icon_px=28,   # bigger game/exe icon on the play-bar face + menu
             on_select=self._on_play_exe_selected,
             actions=[("+ Add custom EXE…", self._on_add_custom_exe)],
         )

@@ -51,6 +51,43 @@ def icon(name: str, size: int = 18, color: str | None = None) -> QIcon:
     return ic
 
 
+_exe_icon_cache: dict[tuple[str, float], "QIcon | None"] = {}
+
+
+def exe_icon(path, size: int = 18) -> "QIcon | None":
+    """Return the QIcon embedded in a Windows .exe, or None.
+
+    Parses the PE icon resource (Utils.exe_icon) into .ico bytes and loads them
+    via QImage so the exe entries in the play-bar dropdown carry their own icon.
+    Cached by (path, mtime); None is cached too so a bad exe isn't reparsed.
+    """
+    from pathlib import Path as _Path
+    p = _Path(path)
+    try:
+        key = (str(p), p.stat().st_mtime)
+    except OSError:
+        return None
+    if key in _exe_icon_cache:
+        return _exe_icon_cache[key]
+    ic: "QIcon | None" = None
+    try:
+        from Utils.exe_icon import extract_exe_icon
+        from PySide6.QtGui import QImage
+        blob = extract_exe_icon(p)
+        if blob:
+            img = QImage.fromData(blob, "ICO")
+            if not img.isNull():
+                pm = QPixmap.fromImage(img).scaled(
+                    QSize(size, size), Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation)
+                if not pm.isNull():
+                    ic = QIcon(pm)
+    except Exception:
+        ic = None
+    _exe_icon_cache[key] = ic
+    return ic
+
+
 def hamburger_icon(size: int = 18, color: str = "#ffffff") -> QIcon:
     """Return a drawn 3-bar 'hamburger' menu QIcon tinted to *color*.
 

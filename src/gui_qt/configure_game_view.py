@@ -65,6 +65,10 @@ class _ScanSignals(QObject):
     # the UI when run in the click handler.
     remove_done = Signal()
     clean_done = Signal(object, object)     # (removed count|None, error|None)
+    # Staging migration (old root scan + move) → GUI thread.
+    staging_scanned = Signal(object, object, object, object)  # (old, new, files, size)
+    staging_progress = Signal(int, int, str)                  # (done, total, message)
+    staging_move_done = Signal(int, int, int)                 # (moved, skipped, failed)
 
 
 class ConfigureGameView(QWidget):
@@ -89,6 +93,10 @@ class ConfigureGameView(QWidget):
         self._sig.staging_picked.connect(self._on_staging_picked)
         self._sig.remove_done.connect(self._on_remove_finished)
         self._sig.clean_done.connect(self._on_clean_finished)
+        self._sig.staging_scanned.connect(self._on_staging_scanned)
+        self._sig.staging_progress.connect(self._on_staging_progress)
+        self._sig.staging_move_done.connect(self._on_staging_move_done)
+        self._staging_popup = None
         self._destructive_busy = False
 
         self._build()
@@ -693,6 +701,15 @@ class ConfigureGameView(QWidget):
         mode = (LinkMode.HARDLINK if self._rb_hardlink.isChecked()
                 else LinkMode.SYMLINK)
 
+        # Capture the staging root currently on disk, before any setters mutate
+        # it — needed to offer a migration if the staging location changed.
+        old_profile_root: Path | None = None
+        try:
+            if g.is_configured():
+                old_profile_root = g.get_profile_root()
+        except Exception:
+            old_profile_root = None
+
         # Persist via the backend setters (live write to paths.json / overrides).
         g.set_game_path(self._found_path)
         if self._found_prefix is not None:
@@ -719,10 +736,25 @@ class ConfigureGameView(QWidget):
                     g.set_patch_version(val)
                     break
 
+        # If the staging root moved and the old root has content, offer to
+        # migrate the existing mods/profiles/overwrite tree before finalizing.
+        new_profile_root: Path | None = None
+        try:
+            new_profile_root = g.get_profile_root()
+        except Exception:
+            new_profile_root = None
+        from Utils.staging_migrate import staging_move_needed
+        if staging_move_needed(old_profile_root, new_profile_root):
+            self._start_staging_scan(old_profile_root, new_profile_root)
+            return
+
+        self._finalize_save()
+
+    def _finalize_save(self):
         # Ensure the profile structure exists (mods/profiles/overwrite + default).
         try:
             from Utils.profile_structure import create_profile_structure
-            create_profile_structure(g)
+            create_profile_structure(self._game)
         except Exception as exc:
             print(f"[gui_qt] profile structure create failed: {exc}", flush=True)
 
@@ -731,6 +763,79 @@ class ConfigureGameView(QWidget):
         self._install_prefix_deps()
 
         self._on_done(True, False)
+
+    # ---- staging migration --------------------------------------------------
+    def _start_staging_scan(self, old_root: Path, new_root: Path):
+        """Staging root changed — size up the old tree off-thread, then offer
+        to move it. The new path is already saved, so Skip just leaves the old
+        files behind (Tk parity)."""
+        self._save_btn.setEnabled(False)
+        self._game_status.setText("Checking existing staging files…")
+        self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
+        sig = self._sig
+
+        def worker():
+            from Utils.staging_migrate import collect_staging_files
+            files, size = collect_staging_files(old_root)
+            safe_emit(sig.staging_scanned, old_root, new_root, files, size)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="staging-scan").start()
+
+    def _on_staging_scanned(self, old_root, new_root, files, size):
+        if not files:
+            self._finalize_save()
+            return
+        from Utils.prefix_manager import fmt_size
+        from gui_qt.confirm_overlay import ConfirmOverlay
+        body = (f"The staging location for {self._game.name} has changed.\n\n"
+                f"Move {fmt_size(size)} of mods, profiles and overwrite "
+                f"files from\n{old_root}\nto\n{new_root}?\n\n"
+                "Existing items at the destination are kept; only items not "
+                "already present at the new location are moved.")
+        ConfirmOverlay.show_over(
+            self, "Move Mod Staging Files?", body,
+            lambda ok: (self._run_staging_move(old_root, new_root, files)
+                        if ok else self._finalize_save()),
+            confirm_label="Move", cancel_label="Skip", danger=False,
+            card_h=340)
+
+    def _run_staging_move(self, old_root, new_root, files):
+        from gui_qt.notifications import ProgressPopup
+        self._game_status.setText("Moving staging files…")
+        self._staging_popup = ProgressPopup(self.window())
+        self._staging_popup.set_progress(0, len(files), phase=str(old_root),
+                                         title="Moving Mod Staging Files")
+        sig = self._sig
+        game_name = self._game.name
+
+        def _prog(done, total, msg):
+            if done == total or done % 20 == 0:
+                safe_emit(sig.staging_progress, done, total, msg)
+
+        def worker():
+            from Utils.app_log import app_log
+            from Utils.staging_migrate import migrate_staging_files
+            moved, skipped, failed = migrate_staging_files(
+                old_root, new_root, files, progress_cb=_prog, log_fn=app_log)
+            app_log(f"{game_name}: moved {moved} staging file(s) to {new_root}"
+                    + (f", skipped {skipped}" if skipped else "")
+                    + (f", failed {failed}" if failed else ""))
+            safe_emit(sig.staging_move_done, moved, skipped, failed)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="staging-migrate").start()
+
+    def _on_staging_progress(self, done, total, msg):
+        if self._staging_popup is not None:
+            self._staging_popup.set_progress(done, total, phase=msg)
+
+    def _on_staging_move_done(self, moved, skipped, failed):
+        if self._staging_popup is not None:
+            self._staging_popup.clear()
+            self._staging_popup.deleteLater()
+            self._staging_popup = None
+        self._finalize_save()
 
     def _install_prefix_deps(self) -> None:
         """Silently install this game's prefix dependencies in the background.

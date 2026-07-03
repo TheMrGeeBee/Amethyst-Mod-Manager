@@ -235,9 +235,13 @@ class CollectionInstallOverlay(QWidget):
 
     def set_agg(self, cur: int, tot: int, mbps: float):
         if tot > 0:
+            # Total download bytes can be under- or over-estimated (a mod's
+            # size is often unknown → 0, yet its real bytes still accumulate),
+            # so clamp the reported fraction to [0, 1] to keep the bar, the
+            # percentage and the "X / Y GB" figures sane.
+            frac = max(0.0, min(1.0, cur / tot))
             self._agg_bar.setRange(0, 1000)
-            self._agg_bar.setValue(max(0, min(1000, int(cur * 1000 / tot))))
-            frac = cur / tot
+            self._agg_bar.setValue(int(frac * 1000))
             pct = int(frac * 100)
             # Show the true collection size as the total when known; keep the
             # label internally consistent by scaling the "current" figure to the

@@ -595,12 +595,13 @@ def run_collection_install(
         _agg_state["last_emit"] = now
         with _dl_lock:
             agg = _dl_bytes_done
+            total = _total_bytes
         dt = now - _agg_state["prev_time"]
         if dt >= 0.5:
             _agg_state["speed"] = (agg - _agg_state["prev_bytes"]) / dt
             _agg_state["prev_bytes"] = agg
             _agg_state["prev_time"] = now
-        cb.on_agg_download(agg, _total_bytes, _agg_state["speed"] / (1024 * 1024))
+        cb.on_agg_download(agg, total, _agg_state["speed"] / (1024 * 1024))
 
     def _build_prebuilt_meta(mod, effective_domain):
         try:
@@ -640,13 +641,22 @@ def run_collection_install(
             return
 
         def _progress_cb(cur, tot, _fid=mod.file_id, _mod=mod):
-            nonlocal _dl_bytes_done
+            nonlocal _dl_bytes_done, _total_bytes
             with _dl_lock:
                 prev = _per_mod_prev.get(_fid, 0)
                 delta = max(cur - prev, 0)
                 _per_mod_prev[_fid] = cur
                 _dl_bytes_done += delta
                 is_first = prev == 0 and cur > 0
+                # A mod's declared size is often unknown (0) or an estimate; the
+                # real content-length (`tot`) or bytes seen so far may exceed it.
+                # Grow the aggregate denominator so the download bar stays within
+                # 0–100% instead of pegging early / overshooting.
+                _declared = getattr(_mod, "size_bytes", 0) or 0
+                _real = max(tot if tot and tot > 0 else 0, cur)
+                if _real > _declared:
+                    _total_bytes += _real - _declared
+                    _mod.size_bytes = _real
             if is_first:
                 cb.on_dl_mod_start(_fid, _mod.mod_name or _mod.file_name or "",
                                    getattr(_mod, "size_bytes", 0) or 0)

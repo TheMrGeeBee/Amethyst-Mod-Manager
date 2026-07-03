@@ -28,11 +28,13 @@ class ConfirmOverlay(QWidget):
     def __init__(self, host: QWidget, title: str, body: str, on_done,
                  confirm_label: str = "Remove",
                  cancel_label: str | None = "Cancel",
-                 danger: bool = True):
+                 danger: bool = True,
+                 card_h: int | None = None):
         super().__init__(host)
         self._host = host
         self._on_done = on_done
         self._done = False
+        self._card_h = card_h if card_h is not None else self.CARD_H
         p = active_palette()
 
         self.setObjectName("OverlayBackdrop")
@@ -99,7 +101,7 @@ class ConfirmOverlay(QWidget):
     def _reposition(self):
         self.setGeometry(self._host.rect())
         w = min(self.CARD_W, self._host.width() - 40)
-        h = min(self.CARD_H, self._host.height() - 40)
+        h = min(self._card_h, self._host.height() - 40)
         self._card.setFixedSize(max(340, w), max(180, h))
         self._card.move((self.width() - self._card.width()) // 2,
                         (self.height() - self._card.height()) // 2)

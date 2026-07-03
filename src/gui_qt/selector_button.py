@@ -18,7 +18,8 @@ from PySide6.QtCore import Qt, QSize
 class SelectorButton(QToolButton):
     def __init__(self, *, items=None, current=None, actions=None,
                  on_select: "Callable[[str], None] | None" = None,
-                 prefix="", min_width=170, icon=None, icon_px=18, parent=None):
+                 prefix="", min_width=170, icon=None, icon_px=18,
+                 item_icons=None, parent=None):
         """*items*   — list of selectable labels.
         *current*   — initially selected label (defaults to items[0]).
         *actions*   — list of (label, callback) pinned below a separator.
@@ -27,6 +28,9 @@ class SelectorButton(QToolButton):
                       (e.g. "Profile: "); not part of the selectable values.
         *icon*      — a QIcon to show INSTEAD of the current-label text (the
                       button becomes an icon button; the menu is unchanged).
+        *item_icons* — {label: QIcon} shown next to each menu entry, and on the
+                      button face beside the current label (text stays). Only
+                      used in text mode (ignored when *icon* replaces the text).
         """
         super().__init__(parent)
         self._items: list[str] = list(items or [])
@@ -34,6 +38,8 @@ class SelectorButton(QToolButton):
         self._on_select = on_select
         self._prefix = prefix
         self._icon = icon
+        self._item_icons: dict = dict(item_icons or {})
+        self._item_icon_px = icon_px
         self._current = current or (self._items[0] if self._items else "")
         self._highlighted: str | None = None   # green "active/deployed" item
         self.setObjectName("ActionButton")   # share the flat toolbar styling
@@ -85,12 +91,19 @@ class SelectorButton(QToolButton):
         self.style().polish(self)
 
     # -- public API ---------------------------------------------------------
-    def set_items(self, items, current=None):
+    def set_items(self, items, current=None, item_icons=None):
         self._items = list(items)
+        if item_icons is not None:
+            self._item_icons = dict(item_icons)
         if current is not None:
             self._current = current
         elif self._current not in self._items and self._items:
             self._current = self._items[0]
+        self._rebuild()
+
+    def set_item_icons(self, item_icons: dict):
+        """Replace the {label: QIcon} map without touching the item list."""
+        self._item_icons = dict(item_icons or {})
         self._rebuild()
 
     def current(self) -> str:
@@ -115,11 +128,21 @@ class SelectorButton(QToolButton):
             label = self._current or "—"
             # No trailing glyph — the split-button's arrow section shows it now.
             self.setText(f"{self._prefix}{label}")
+            # The current item's icon is drawn ourselves in paintEvent (to the
+            # left of the still-centred text). Keep the QToolButton in text-only
+            # mode so Qt centres the label; using its built-in icon slot would
+            # left-align the icon+text group instead.
+            self.setToolButtonStyle(Qt.ToolButtonTextOnly)
         # Tint the button green (via the `deployed` property) when the current
         # selection IS the highlighted/active item; QSS reads the property.
         self.setProperty("deployed", self._highlighted is not None
                          and self._current == self._highlighted)
         self.style().unpolish(self); self.style().polish(self)
+        # Enlarge the menu-entry icons to match the bigger face icon (Qt draws
+        # action icons at PM_SmallIconSize = 16px otherwise, which reads tiny).
+        self._menu.setStyleSheet(
+            f"QMenu {{ icon-size: {self._item_icon_px}px; }}"
+            if self._item_icons else "")
         self._menu.clear()
         # Exclusive action group → the selectable items render as radio buttons.
         self._group = QActionGroup(self._menu)
@@ -128,6 +151,9 @@ class SelectorButton(QToolButton):
             a = self._menu.addAction(label)
             a.setCheckable(True)
             a.setChecked(label == self._current)
+            item_icon = self._item_icons.get(label)
+            if item_icon is not None:
+                a.setIcon(item_icon)
             if self._highlighted is not None and label == self._highlighted:
                 # QAction can't set foreground colour; mark the deployed item
                 # with a green check + bold so it reads as active in the list.
@@ -152,6 +178,26 @@ class SelectorButton(QToolButton):
                 a.triggered.connect(lambda _=False, c=cb: c())
             else:
                 menu.addAction(label)
+
+    def paintEvent(self, event):
+        # Let the base class paint the (centred) text + chrome, then draw the
+        # current item's icon ourselves pinned to the LEFT edge of the button —
+        # the label stays centred (QToolButton's own icon slot would left-align
+        # the icon+text group together instead).
+        super().paintEvent(event)
+        if self._icon is not None:
+            return
+        face = self._item_icons.get(self._current)
+        if face is None:
+            return
+        from PySide6.QtGui import QPainter
+        from PySide6.QtCore import QRect
+        px = self._item_icon_px
+        x = 8   # left-edge inset
+        y = (self.height() - px) // 2
+        p = QPainter(self)
+        face.paint(p, QRect(x, y, px, px))
+        p.end()
 
     def _choose(self, label):
         if label != self._current:

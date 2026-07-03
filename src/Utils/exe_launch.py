@@ -526,6 +526,39 @@ def link_mygames(game, pfx: Path, log_fn=_noop_log) -> None:
         log_fn(f"My Games link failed: {exc}")
 
 
+_DOCUMENTS_REL = Path("drive_c/users/steamuser/Documents")
+
+
+def link_game_documents(game, pfx: Path, subpath, log_fn=_noop_log) -> None:
+    """Link the game prefix's Documents/<subpath> folder into a tool prefix.
+
+    Some tools (e.g. Witcher 3 Script Merger) put a FileSystemWatcher on the
+    game's user-documents folder (Documents\\The Witcher 3, where the mod
+    load order lives) and crash on construction if it doesn't exist.  A fresh
+    isolated/shared tool prefix has no such folder, so we symlink the game
+    prefix's real one in (keeping the load order in sync).  If the game prefix
+    doesn't have it either, create an empty directory so the watcher is happy.
+    """
+    sub = Path(subpath)
+    dst = pfx / _DOCUMENTS_REL / sub
+    if dst.is_symlink() or dst.exists():
+        return
+    game_pfx = game.get_prefix_path() if hasattr(game, "get_prefix_path") else None
+    src = (Path(game_pfx) / "pfx" / _DOCUMENTS_REL / sub
+           if game_pfx is not None else None)
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src is not None and src.is_dir():
+            dst.symlink_to(src, target_is_directory=True)
+            log_fn(f"linked Documents/{sub} → {dst}")
+        else:
+            dst.mkdir(parents=True, exist_ok=True)
+            log_fn(f"created empty Documents/{sub} in tool prefix "
+                   "(game prefix copy not found).")
+    except OSError as exc:
+        log_fn(f"Documents/{sub} link failed: {exc}")
+
+
 def get_tool_prefix_env(
     exe_path: Path, proton_name: str, prefix_dir: Path | None = None,
     steam_id: str | None = None,
