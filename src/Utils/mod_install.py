@@ -814,6 +814,11 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
             subpkgs = None
             bain_root = str(extract_dir)
         if subpkgs:
+            # Fill the per-package file sets here (worker thread) — the Qt
+            # picker's win/lose recolour needs them and must not walk the
+            # disk on the GUI thread.
+            from Utils.bain_installer import scan_subpackage_files
+            scan_subpackage_files(subpkgs)
             prepared.bain_subpkgs = subpkgs
             prepared.bain_root = bain_root
             prepared.readme_text = _read_bain_readme(bain_root)
@@ -1185,6 +1190,11 @@ def install_collection_archive(
                     selected = bain_auto_selections.get("selected", [])
                     log_fn("BAIN: applying exported selection automatically.")
                 elif resolve_bain is not None:
+                    # Worker thread: fill the per-package file sets before the
+                    # picker shows (its recolour must not walk the disk on the
+                    # GUI thread).
+                    from Utils.bain_installer import scan_subpackage_files
+                    scan_subpackage_files(bain_subpkgs)
                     result = resolve_bain(bain_subpkgs, bain_root, prepared.mod_name)
                     if result is None:
                         log_fn("BAIN install cancelled.")

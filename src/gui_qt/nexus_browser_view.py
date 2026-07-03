@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.safe_emit import safe_emit
 from gui_qt.selector_button import SelectorButton
 from gui_qt.nexus_mod_card import NexusModCard, ThumbnailLoader, CARD_W
 
@@ -351,7 +352,7 @@ class NexusBrowserView(QWidget):
             except Exception as exc:
                 self._log(f"Nexus: categories error: {exc}")
                 cats = []
-            self._cats_ready.emit(cats)
+            safe_emit(self._cats_ready, cats)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -558,7 +559,7 @@ class NexusBrowserView(QWidget):
                 self._log(f"Nexus: fetch error: {exc}")
                 status = f"Error: {exc}"
                 entries = []
-            self._results_ready.emit(entries, status, token)
+            safe_emit(self._results_ready, entries, status, token)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -746,7 +747,7 @@ class NexusBrowserView(QWidget):
             except Exception as exc:
                 self._log(f"Nexus: could not check account: {exc}")
                 ok = None
-            self._premium_checked.emit(entry, ok)
+            safe_emit(self._premium_checked, entry, ok)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -770,7 +771,7 @@ class NexusBrowserView(QWidget):
                 files = list(resp.files)
             except Exception as exc:
                 self._log(f"Nexus: file list error: {exc}")
-            self._files_ready.emit(entry, files)
+            safe_emit(self._files_ready, entry, files)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -835,7 +836,7 @@ class NexusBrowserView(QWidget):
                               f"{result.error or 'unknown error'}")
             except Exception as exc:
                 self._log(f"Nexus: download error: {exc}")
-            self._download_done.emit(archive, meta)
+            safe_emit(self._download_done, archive, meta)
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -222,6 +222,22 @@ class ModListModel(QAbstractTableModel):
         if self._sort_key in keys:
             self._rebuild_display()
 
+    def set_meta(self, versions: dict[str, str], installed: dict[str, str],
+                 categories: dict[str, str]) -> None:
+        """Set the meta.ini-derived per-mod dicts (Version / Installed /
+        Category columns), repaint those columns, and re-sort if the active
+        sort reads them. The reload pushes entries first and applies the
+        meta async (reading one ini per mod is disk work)."""
+        self._versions = versions or {}
+        self._installed = installed or {}
+        self._categories = categories or {}
+        if self._entries:
+            self.dataChanged.emit(
+                self.index(0, COL_CATEGORY),
+                self.index(len(self._entries) - 1, COL_VERSION),
+                [Qt.DisplayRole])
+        self._resort_if_key("version", "installed", "category")
+
     def set_sizes(self, sizes: dict[str, str],
                   size_bytes: dict[str, int] | None = None) -> None:
         """Set formatted mod sizes (Size column) + raw bytes (Size sort).
@@ -475,6 +491,12 @@ class ModListModel(QAbstractTableModel):
             hi = len(self._entries) - 1
         return lo, hi
 
+    def movable_span(self) -> tuple[int, int]:
+        """Public accessor for the [lo, hi) valid-drop range (see
+        _movable_span). The view clamps its drop indicator to this so the
+        blue line never renders at/below the Root Folder boundary."""
+        return self._movable_span()
+
     def canDropMimeData(self, data, action, row, col, parent):
         if action != Qt.MoveAction or not data.hasFormat(_MIME):
             return False
@@ -489,8 +511,11 @@ class ModListModel(QAbstractTableModel):
         if e.is_separator or e.locked:
             return
         e.enabled = not e.enabled
-        idx = self.index(row, COL_NAME)
-        self.dataChanged.emit(idx, idx, [EntryRole, Qt.DisplayRole])
+        # Whole row: the enabled state dims the text in EVERY column, not
+        # just the Name cell with the checkbox.
+        self.dataChanged.emit(self.index(row, 0),
+                              self.index(row, len(COLUMNS) - 1),
+                              [EntryRole, Qt.DisplayRole])
         self.save()
         self.enabled_changed.emit([(e.name, e.enabled)])
 
@@ -504,8 +529,9 @@ class ModListModel(QAbstractTableModel):
                 continue
             e.enabled = enabled
             changed.append((e.name, enabled))
-            idx = self.index(r, COL_NAME)
-            self.dataChanged.emit(idx, idx, [EntryRole, Qt.DisplayRole])
+            self.dataChanged.emit(self.index(r, 0),
+                                  self.index(r, len(COLUMNS) - 1),
+                                  [EntryRole, Qt.DisplayRole])
         if changed:
             self.save()
             self.enabled_changed.emit(changed)
@@ -599,8 +625,8 @@ class ModListModel(QAbstractTableModel):
                 changed.append((e.name, enabled))
         if changed:
             self.dataChanged.emit(
-                self.index(0, COL_NAME),
-                self.index(len(self._entries) - 1, COL_NAME),
+                self.index(0, 0),
+                self.index(len(self._entries) - 1, len(COLUMNS) - 1),
                 [EntryRole, Qt.DisplayRole])
             self.save()
             self.enabled_changed.emit(changed)
@@ -630,6 +656,27 @@ class ModListModel(QAbstractTableModel):
         while end < len(self._entries) and not self._entries[end].is_separator:
             end += 1
         return range(sep_row + 1, end)
+
+    def sep_block_summary(self, block) -> tuple[int, set, set]:
+        """(flag-bit union, loose conflict codes, BSA conflict codes) for the
+        mods at *block* display rows — the collapsed-separator icon summary.
+        Walks the dicts directly: the delegate asks per paint, and two
+        data()/QModelIndex round-trips per row add up on big blocks."""
+        bits = 0
+        codes: set = set()
+        bsa: set = set()
+        for r in block:
+            e = self._entries[r]
+            if e.is_separator:
+                continue
+            bits |= self._effective_flags(e.name)
+            cc = self._conflicts.get(e.name, 0)
+            if cc:
+                codes.add(cc)
+            bc = self._bsa_conflicts.get(e.name, 0)
+            if bc:
+                bsa.add(bc)
+        return bits, codes, bsa
 
     # ---- persistence ------------------------------------------------------
     def save(self) -> None:

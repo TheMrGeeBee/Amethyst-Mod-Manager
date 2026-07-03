@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.safe_emit import safe_emit
 from Utils.collection_manifest import fmt_size
 
 
@@ -391,9 +392,9 @@ class CollectionDetailView(QWidget):
                     slug, domain, revision_number=rev)
             except Exception as exc:
                 self._log(f"Collection detail error: {exc}")
-                self._detail_ready.emit((token, None))
+                safe_emit(self._detail_ready, (token, None))
                 return
-            self._detail_ready.emit((token, result))
+            safe_emit(self._detail_ready, (token, result))
 
         threading.Thread(target=worker, daemon=True,
                          name="collection-detail").start()
@@ -679,7 +680,7 @@ class CollectionDetailView(QWidget):
                     pass
             except Exception as exc:
                 self._log(f"Collection manifest error: {exc}")
-            self._manifest_ready.emit(offsite)
+            safe_emit(self._manifest_ready, offsite)
 
         threading.Thread(target=worker, daemon=True,
                          name="collection-manifest").start()

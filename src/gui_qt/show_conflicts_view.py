@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.safe_emit import safe_emit
 from Utils.conflicts_view import BSA_ROW_RE
 
 # Exact Tk tone colours (section headers) + BSA row tint.
@@ -132,9 +133,9 @@ class ShowConflictsView(QWidget):
                 win, lose, none = compute_mod_conflicts(mod, **ctx)
             except Exception as exc:
                 self._log(f"[conflicts] compute failed: {exc}")
-                self._ready.emit(None, None, None)
+                safe_emit(self._ready, None, None, None)
                 return
-            self._ready.emit(win, lose, none)
+            safe_emit(self._ready, win, lose, none)
 
         threading.Thread(target=worker, daemon=True, name="show-conflicts").start()
 

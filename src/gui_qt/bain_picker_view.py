@@ -57,9 +57,14 @@ class BainPickerView(QWidget):
 
         # Per-package set of relative file keys (rel, lower-cased) so we can show
         # which selected packages win/lose shared files live — matches how
-        # conflicts resolve on a case-insensitive game install.
+        # conflicts resolve on a case-insensitive game install. The prepare /
+        # install worker pre-fills file_keys (scan_subpackage_files) so this
+        # normally costs nothing; the walk is only a fallback.
         self._pkg_files: dict[str, set[str]] = {
-            pkg.name: self._scan_pkg_files(pkg.path) for pkg in self._subpackages
+            pkg.name: (pkg.file_keys
+                       if getattr(pkg, "file_keys", None) is not None
+                       else self._scan_pkg_files(pkg.path))
+            for pkg in self._subpackages
         }
 
         saved = None

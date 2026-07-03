@@ -764,7 +764,14 @@ class ModListView(QTreeView):
             # Above the first / below the last visible row.
             first_rect = self.visualRect(m.index(vis[0], 0))
             slot = vis[0] if y < first_rect.top() else vis[-1] + 1
-        slot = max(0, min(slot, n))
+        # Clamp the indicator to the valid-drop range so the blue line never
+        # renders at/below the Root Folder boundary (or above Overwrite). In
+        # reverse mode boundaries flip in display space and move_block_display
+        # handles its own clamping, so leave the full [0, n] range there.
+        lo, hi = (0, n)
+        if not getattr(m, "reverse_mode_active", False):
+            lo, hi = m.movable_span()
+        slot = max(lo, min(slot, hi))
         # Never leave the slot on a hidden row (inside a collapsed block):
         # visualRect() of a hidden row is empty (top()==0), which would draw
         # the indicator at the viewport top instead of under the cursor. Snap
@@ -825,10 +832,19 @@ class ModListView(QTreeView):
             return
         m = self.model()
         n = m.rowCount()
+        # A slot that lands ON a pinned boundary row (Root Folder / Overwrite)
+        # is a valid drop (the gap between the last mod and Root Folder), but
+        # anchoring the line to the boundary row's top() flickers: during
+        # autoscroll the boundary rect can be measured mid-layout, so the same
+        # slot paints at two heights on consecutive frames. Anchor those to the
+        # previous movable row's bottom instead — one stable y for the gap.
+        from gui_qt.modlist_model import _PINNED_NAMES
+        on_boundary = (0 <= self._drop_slot < n
+                       and m.entry(self._drop_slot).name in _PINNED_NAMES)
         # Anchor the line to visible rows only: visualRect() of a hidden row
         # (collapsed block) is empty, which would paint the line at y=0.
-        if self._drop_slot < n and not self.isRowHidden(self._drop_slot,
-                                                        self.rootIndex()):
+        if (not on_boundary and self._drop_slot < n
+                and not self.isRowHidden(self._drop_slot, self.rootIndex())):
             y = self.visualRect(m.index(self._drop_slot, 0)).top()
         else:
             vis = self._visible_rows()

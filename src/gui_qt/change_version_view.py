@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.icons import icon
+from gui_qt.safe_emit import safe_emit
 from Utils.mod_files_versions import resolve_latest_name_match, fmt_size, sort_key
 
 # Exact Tk highlight colours (mod_files_overlay.py) — user chose to keep these.
@@ -198,9 +199,9 @@ class ChangeVersionView(QWidget):
         def worker():
             try:
                 resp = self._api.get_mod_files(domain, mod_id)
-                self._files_ready.emit(list(resp.files), None)
+                safe_emit(self._files_ready, list(resp.files), None)
             except Exception as exc:
-                self._files_ready.emit(None, str(exc))
+                safe_emit(self._files_ready, None, str(exc))
 
         threading.Thread(target=worker, daemon=True, name="change-version-fetch").start()
 
@@ -353,7 +354,7 @@ class ChangeVersionView(QWidget):
                               f"{result.error or 'unknown error'}")
             except Exception as exc:
                 self._log(f"Nexus: download error: {exc}")
-            self._download_done.emit(archive, meta)
+            safe_emit(self._download_done, archive, meta)
 
         threading.Thread(target=worker, daemon=True, name="change-version-dl").start()
 

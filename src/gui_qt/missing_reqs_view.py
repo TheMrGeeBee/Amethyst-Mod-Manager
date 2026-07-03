@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.safe_emit import safe_emit
 
 
 class _ReqCard(QFrame):
@@ -200,10 +201,10 @@ class MissingReqsView(QWidget):
                             seen.add(r.mod_id)
                             out.append(r)
             except Exception as e:
-                self._reqs_ready.emit(None, str(e))
+                safe_emit(self._reqs_ready, None, str(e))
                 return
             err = ("; ".join(errors) if errors and not out else None)
-            self._reqs_ready.emit(out, err)
+            safe_emit(self._reqs_ready, out, err)
 
         threading.Thread(target=worker, daemon=True, name="missing-reqs-fetch").start()
 

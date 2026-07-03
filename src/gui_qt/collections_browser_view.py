@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.safe_emit import safe_emit
 from gui_qt.nexus_mod_card import ThumbnailLoader
 from gui_qt.collection_card import CollectionCard, CARD_W, IMG_W, IMG_H
 
@@ -266,7 +267,7 @@ class CollectionsBrowserView(QWidget):
                 self._log(f"Nexus: collections error: {exc}")
                 status = f"Error: {exc}"
                 entries = []
-            self._results_ready.emit(entries, status, token)
+            safe_emit(self._results_ready, entries, status, token)
 
         threading.Thread(target=worker, daemon=True).start()
 

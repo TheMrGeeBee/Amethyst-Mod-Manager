@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.icons import icon
+from gui_qt.safe_emit import safe_emit
 from Utils.profile_state import (
     read_profile_settings, merge_profile_settings, profile_uses_specific_mods,
 )
@@ -447,7 +448,7 @@ class ProfileSettingsView(QWidget):
                 self._log(f"Remove failed: {exc}")
             finally:
                 win._deploy_running = False
-                self._remove_finished.emit(profile, ok)
+                safe_emit(self._remove_finished, profile, ok)
 
         threading.Thread(target=worker, daemon=True, name="profile-remove").start()
 

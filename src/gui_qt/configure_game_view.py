@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.add_game_view import _game_logo
+from gui_qt.safe_emit import safe_emit
 from Utils.deploy import LinkMode
 
 # Left column width — the image panel and the options panel share it.
@@ -59,6 +60,11 @@ class _ScanSignals(QObject):
     game_picked = Signal(object)            # (path|None)
     prefix_picked = Signal(object)          # (path|None)
     staging_picked = Signal(object)         # (path|None)
+    # Remove-instance / clean-game-folder workers → GUI thread. Both do heavy
+    # disk work (restore + rmtree / full game-dir scan) that used to freeze
+    # the UI when run in the click handler.
+    remove_done = Signal()
+    clean_done = Signal(object, object)     # (removed count|None, error|None)
 
 
 class ConfigureGameView(QWidget):
@@ -81,6 +87,9 @@ class ConfigureGameView(QWidget):
         self._sig.game_picked.connect(self._on_game_picked)
         self._sig.prefix_picked.connect(self._on_prefix_picked)
         self._sig.staging_picked.connect(self._on_staging_picked)
+        self._sig.remove_done.connect(self._on_remove_finished)
+        self._sig.clean_done.connect(self._on_clean_finished)
+        self._destructive_busy = False
 
         self._build()
         self._prepopulate()
@@ -736,39 +745,63 @@ class ConfigureGameView(QWidget):
         self._confirm(f"Remove Instance — {g.name}", msg, self._do_remove)
 
     def _do_remove(self):
+        """Restore the game to vanilla + drop config/caches on a daemon worker
+        (a big restore + rmtree freezes the UI for many seconds otherwise)."""
+        if self._destructive_busy:
+            return
+        self._destructive_busy = True
+        self._set_destructive_enabled(False)
+        self._game_status.setText("Removing instance…")
+        self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         g = self._game
-        from Utils.config_paths import get_game_config_path
-        profile_root = g.get_profile_root()
-        paths_json = get_game_config_path(g.name)
-        try:
-            if hasattr(g, "restore"):
-                g.restore()
-        except Exception:
-            pass
-        try:
-            from Utils.deploy import restore_root_folder
-            rf = profile_root / "Root_Folder"
-            game_root = g.get_game_path()
-            if rf.is_dir() and game_root:
-                restore_root_folder(
-                    rf, game_root,
-                    data_deploy_dirs=(g.root_restore_protect_dirs()
-                                      if hasattr(g, "root_restore_protect_dirs") else None))
-        except Exception:
-            pass
-        keep = {"mods", "profiles", "overwrite"}
-        if profile_root.is_dir():
-            for child in profile_root.iterdir():
-                if child.name in keep:
-                    continue
-                if child.is_dir():
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    child.unlink(missing_ok=True)
-        cfg_dir = paths_json.parent
-        if cfg_dir.is_dir():
-            shutil.rmtree(cfg_dir, ignore_errors=True)
+        sig = self._sig
+
+        def worker():
+            from Utils.config_paths import get_game_config_path
+            profile_root = g.get_profile_root()
+            paths_json = get_game_config_path(g.name)
+            try:
+                if hasattr(g, "restore"):
+                    g.restore()
+            except Exception:
+                pass
+            try:
+                from Utils.deploy import restore_root_folder
+                rf = profile_root / "Root_Folder"
+                game_root = g.get_game_path()
+                if rf.is_dir() and game_root:
+                    restore_root_folder(
+                        rf, game_root,
+                        data_deploy_dirs=(g.root_restore_protect_dirs()
+                                          if hasattr(g, "root_restore_protect_dirs") else None))
+            except Exception:
+                pass
+            keep = {"mods", "profiles", "overwrite"}
+            if profile_root.is_dir():
+                for child in profile_root.iterdir():
+                    if child.name in keep:
+                        continue
+                    if child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)
+            cfg_dir = paths_json.parent
+            if cfg_dir.is_dir():
+                shutil.rmtree(cfg_dir, ignore_errors=True)
+            safe_emit(sig.remove_done)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="remove-instance").start()
+
+    def _on_remove_finished(self):
+        self._destructive_busy = False
         self._on_done(False, True)
+
+    def _set_destructive_enabled(self, on: bool) -> None:
+        for b in (getattr(self, "_remove_btn", None),
+                  getattr(self, "_clean_btn", None)):
+            if b is not None:
+                b.setEnabled(on)
 
     def _on_clean(self):
         g = self._game
@@ -789,25 +822,50 @@ class ConfigureGameView(QWidget):
                       lambda: self._do_clean(target))
 
     def _do_clean(self, target):
+        """Scan the game folder for leftover deployed files on a daemon worker
+        (the scan walks the whole install — a long freeze on the GUI thread)."""
+        if self._destructive_busy:
+            return
+        self._destructive_busy = True
+        self._set_destructive_enabled(False)
+        self._game_status.setText("Cleaning game folder…")
+        self._game_status.setStyleSheet(f"color:{self._c('TEXT_WARN')};")
         g = self._game
-        try:
-            from Utils.deploy import remove_deployed_files, restore_filemap_from_root
-            target = Path(target)
-            removed = 0
-            if hasattr(g, "get_effective_filemap_path"):
-                try:
-                    fm = g.get_effective_filemap_path()
-                    removed += restore_filemap_from_root(fm, target, move_runtime_files=False)
-                except Exception:
-                    pass
-            removed += remove_deployed_files(target)
-            if hasattr(g, "post_clean_game_folder"):
-                try:
-                    g.post_clean_game_folder()
-                except Exception:
-                    pass
-            self._game_status.setText(f"Clean complete — {removed} deployed file(s) removed.")
-            self._game_status.setStyleSheet(f"color:{self._c('TEXT_OK')};")
-        except Exception as exc:
-            self._game_status.setText(f"Clean failed: {exc}")
+        sig = self._sig
+
+        def worker():
+            try:
+                from Utils.deploy import (
+                    remove_deployed_files, restore_filemap_from_root)
+                tgt = Path(target)
+                removed = 0
+                if hasattr(g, "get_effective_filemap_path"):
+                    try:
+                        fm = g.get_effective_filemap_path()
+                        removed += restore_filemap_from_root(
+                            fm, tgt, move_runtime_files=False)
+                    except Exception:
+                        pass
+                removed += remove_deployed_files(tgt)
+                if hasattr(g, "post_clean_game_folder"):
+                    try:
+                        g.post_clean_game_folder()
+                    except Exception:
+                        pass
+                safe_emit(sig.clean_done, removed, None)
+            except Exception as exc:
+                safe_emit(sig.clean_done, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True,
+                         name="clean-game-folder").start()
+
+    def _on_clean_finished(self, removed, error):
+        self._destructive_busy = False
+        self._set_destructive_enabled(True)
+        if error is not None:
+            self._game_status.setText(f"Clean failed: {error}")
             self._game_status.setStyleSheet(f"color:{self._c('TEXT_ERR')};")
+        else:
+            self._game_status.setText(
+                f"Clean complete — {removed} deployed file(s) removed.")
+            self._game_status.setStyleSheet(f"color:{self._c('TEXT_OK')};")

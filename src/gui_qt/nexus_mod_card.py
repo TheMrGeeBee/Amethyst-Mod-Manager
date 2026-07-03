@@ -116,22 +116,24 @@ def _fmt_date(s: str) -> str:
     return dt.strftime("%d %b %Y").lstrip("0")
 
 
-def _cover_scale(pm: QPixmap, w: int, h: int) -> QPixmap:
-    """Center-crop *pm* to the w:h aspect ratio, then scale to (w, h)."""
-    if pm.isNull():
-        return pm
-    sw, sh = pm.width(), pm.height()
+def _cover_scale(img: QImage, w: int, h: int) -> QImage:
+    """Center-crop *img* to the w:h aspect ratio, then scale to (w, h).
+    Works on QImage (not QPixmap) so it can run on the fetch worker —
+    QPixmap is documented GUI-thread-only."""
+    if img.isNull():
+        return img
+    sw, sh = img.width(), img.height()
     target = w / h
     src = sw / sh if sh else target
     if src > target:                     # too wide → crop sides
         new_w = int(sh * target)
         x = (sw - new_w) // 2
-        pm = pm.copy(x, 0, new_w, sh)
+        img = img.copy(x, 0, new_w, sh)
     else:                                # too tall → crop top/bottom
         new_h = int(sw / target)
         y = (sh - new_h) // 2
-        pm = pm.copy(0, y, sw, new_h)
-    return pm.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        img = img.copy(0, y, sw, new_h)
+    return img.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
 
 
 class ThumbnailLoader(QObject):
@@ -141,6 +143,9 @@ class ThumbnailLoader(QObject):
     mod card (300×150 landscape); the collections browser passes a portrait size."""
 
     loaded = Signal(int, object)         # (mod_id, QPixmap)
+    # Fetch worker → GUI thread: the decoded + cropped QImage. The QPixmap
+    # conversion happens in the slot — QPixmap is GUI-thread-only.
+    _img_ready = Signal(int, str, object)
 
     def __init__(self, parent=None, crop_w: int = CARD_W, crop_h: int = IMG_H):
         super().__init__(parent)
@@ -149,6 +154,7 @@ class ThumbnailLoader(QObject):
         self._lock = threading.Lock()
         self._crop_w = crop_w
         self._crop_h = crop_h
+        self._img_ready.connect(self._on_img_ready)
 
     def cached(self, url: str) -> QPixmap | None:
         with self._lock:
@@ -171,7 +177,7 @@ class ThumbnailLoader(QObject):
         threading.Thread(target=self._worker, args=(mod_id, url), daemon=True).start()
 
     def _worker(self, mod_id: int, url: str) -> None:
-        pm = QPixmap()
+        img = QImage()
         try:
             import requests
             from Utils.ca_bundle import resolve_ca_bundle
@@ -179,21 +185,27 @@ class ThumbnailLoader(QObject):
             if resp.ok:
                 img = QImage.fromData(resp.content)
                 if not img.isNull():
-                    pm = _cover_scale(QPixmap.fromImage(img),
-                                      self._crop_w, self._crop_h)
+                    img = _cover_scale(img, self._crop_w, self._crop_h)
         except Exception:
-            pm = QPixmap()
+            img = QImage()
         with self._lock:
             self._inflight.discard(url)
-            if not pm.isNull():
-                self._cache[url] = pm
-                while len(self._cache) > IMG_CACHE_MAX:
-                    self._cache.popitem(last=False)
-        if not pm.isNull():
+        if not img.isNull():
             try:
-                self.loaded.emit(mod_id, pm)
+                self._img_ready.emit(mod_id, url, img)
             except RuntimeError:
                 pass        # view/loader was destroyed while the fetch was in flight
+
+    def _on_img_ready(self, mod_id: int, url: str, img: QImage) -> None:
+        """GUI thread: convert the fetched QImage, cache, notify the cards."""
+        pm = QPixmap.fromImage(img)
+        if pm.isNull():
+            return
+        with self._lock:
+            self._cache[url] = pm
+            while len(self._cache) > IMG_CACHE_MAX:
+                self._cache.popitem(last=False)
+        self.loaded.emit(mod_id, pm)
 
 
 class _TwoLineLabel(QLabel):

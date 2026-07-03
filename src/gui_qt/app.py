@@ -101,6 +101,14 @@ class MainWindow(QMainWindow):
     _nexus_validated = Signal(object)          # (username str | None)
     # LOOT Sort Plugins worker → UI thread (SortResult | None on error).
     _sort_plugins_ready = Signal(object)
+    # Plugin reload worker → UI thread: (gen, rows, plugin_paths, userlist
+    # state). The disk work (per-plugin header reads) runs off-thread; a
+    # generation counter drops results from a superseded reload.
+    _plugins_loaded = Signal(int, object, object, object)
+    # Size-column disk walk worker → UI thread (gen, sizes, size_bytes).
+    _sizes_ready = Signal(int, object, object)
+    # Modlist meta.ini read worker → UI thread (gen, payload dict).
+    _modlist_meta_ready = Signal(int, object)
     # Filter-data disk scan worker → UI thread (gen, payload dict | None).
     _filter_data_ready = Signal(int, object)
     # Nexus OAuth client (background thread) → UI thread.
@@ -186,6 +194,12 @@ class MainWindow(QMainWindow):
         self._dll_overrides_view = None
         self._sort_running = False
         self._sort_plugins_ready.connect(self._on_sort_plugins_ready)
+        self._plugins_gen = 0
+        self._plugins_loaded.connect(self._on_plugins_loaded)
+        self._sizes_gen = 0
+        self._sizes_ready.connect(self._on_sizes_ready)
+        self._modlist_meta_gen = 0
+        self._modlist_meta_ready.connect(self._on_modlist_meta_ready)
         self._filter_data_gen = 0
         self._filter_data_ready.connect(self._on_filter_data_ready)
         try:
@@ -6354,7 +6368,6 @@ class MainWindow(QMainWindow):
         staging = self._gs.staging_dir()
         entries = read_modlist(ml_path) if (ml_path and ml_path.is_file()) else []
 
-        versions = installed = flags = {}
         self._mod_categories: dict[str, str] = {}
         self._mod_updates: set[str] = set()
         self._mod_fomod: set[str] = set()
@@ -6370,23 +6383,38 @@ class MainWindow(QMainWindow):
                         read_ignored_missing_requirements(pdir))
                 except Exception:
                     self._ignored_missing_reqs = frozenset()
-            (versions, installed, flags,
-             self._mod_categories, self._mod_updates,
-             self._mod_fomod, self._mod_bain,
-             self._mod_missing_reqs) = read_meta_for_entries(
-                entries, staging, self._ignored_missing_reqs,
-                profile_dir=self._gs.profile_dir(),
-                is_bg3=(getattr(self._gs.game, "game_id", "") == "baldurs_gate_3"))
 
-        # Meta dicts BEFORE set_entries — set_entries re-derives the display
-        # order, and an active column sort (version/installed/category) must
-        # see the fresh data.
-        self._modlist_model._versions = versions
-        self._modlist_model._installed = installed
-        self._modlist_model._categories = self._mod_categories
+        # Entries go up immediately with blank meta so a game/profile switch
+        # never blocks on disk; the per-mod meta.ini reads (one file per mod)
+        # run on a worker → _modlist_meta_ready fills the columns/flags in.
+        # The gen bump also drops a stale in-flight read on switch.
+        self._modlist_meta_gen += 1
+        meta_gen = self._modlist_meta_gen
+        self._modlist_model._versions = {}
+        self._modlist_model._installed = {}
+        self._modlist_model._categories = {}
         self._modlist_model.set_entries(entries)
-        self._modlist_model.set_flags(flags)
+        self._modlist_model.set_flags({})
         self._modlist_model.set_notes(self._read_mod_notes())
+        if entries and staging is not None:
+            import threading
+            ignored = self._ignored_missing_reqs
+            pdir = self._gs.profile_dir()
+            is_bg3 = (getattr(self._gs.game, "game_id", "") == "baldurs_gate_3")
+            meta_entries = list(entries)
+
+            def meta_worker():
+                try:
+                    payload = read_meta_for_entries(
+                        meta_entries, staging, ignored,
+                        profile_dir=pdir, is_bg3=is_bg3)
+                except Exception as exc:
+                    print(f"[gui_qt] meta read failed: {exc}", flush=True)
+                    return
+                self._modlist_meta_ready.emit(meta_gen, payload)
+
+            threading.Thread(target=meta_worker, daemon=True,
+                             name="modlist-meta").start()
         self._modlist_model.set_conflicts({}, {})   # clear stale; recomputed async
         # Persist edits back to this modlist; rebuild conflicts after each save.
         self._modlist_model.modlist_path = ml_path
@@ -6485,16 +6513,53 @@ class MainWindow(QMainWindow):
         if entries:
             self._rebuild_conflicts_async(rescan_index=rescan_index)
 
+    def _on_modlist_meta_ready(self, gen, payload):
+        """UI thread: apply the worker-read per-mod meta (see _reload_modlist)."""
+        if gen != self._modlist_meta_gen:
+            return   # superseded — the game/profile switched mid-read
+        (versions, installed, flags, categories, updates,
+         fomod, bain, missing_reqs) = payload
+        self._mod_categories = categories
+        self._mod_updates = updates
+        self._mod_fomod = fomod
+        self._mod_bain = bain
+        self._mod_missing_reqs = missing_reqs
+        self._modlist_model.set_meta(versions, installed, categories)
+        self._modlist_model.set_flags(flags)
+
     def _apply_modlist_sizes(self):
         """Scan mod folder sizes and push them to the model. Called on reload
         when the Size column is visible, and when the user enables Size from the
-        column menu (the disk walk is skipped while Size stays hidden)."""
+        column menu (the disk walk is skipped while Size stays hidden).
+
+        The walk covers every mod folder, so it runs on a daemon worker —
+        a generation counter drops a stale result (profile switched or a
+        newer scan started mid-walk)."""
+        import threading
         staging = self._gs.staging_dir()
         if staging is None:
             return
-        from gui_qt.modlist_data import compute_sizes
-        entries = self._modlist_model.natural_entries()
-        sizes, size_bytes = compute_sizes(entries, staging)
+        self._sizes_gen = getattr(self, "_sizes_gen", 0) + 1
+        gen = self._sizes_gen
+        # Snapshot the entry list — the user can reorder/rename while the
+        # worker walks the disk.
+        entries = list(self._modlist_model.natural_entries())
+
+        def worker():
+            from gui_qt.modlist_data import compute_sizes
+            try:
+                sizes, size_bytes = compute_sizes(entries, staging)
+            except Exception as exc:
+                print(f"[gui_qt] size scan failed: {exc}", flush=True)
+                return
+            self._sizes_ready.emit(gen, sizes, size_bytes)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="modlist-sizes").start()
+
+    def _on_sizes_ready(self, gen, sizes, size_bytes):
+        if gen != getattr(self, "_sizes_gen", 0):
+            return   # superseded — a newer scan is in flight
         self._modlist_model.set_sizes(sizes, size_bytes)
 
     def _refresh_modlist_stats(self):
@@ -6581,9 +6646,43 @@ class MainWindow(QMainWindow):
                        ("ESL", s["esl"]), ("Non-ESL", s["non_esl"])])
 
     def _reload_plugins(self):
-        """Load the active game/profile's plugins into the Plugins tab."""
-        from gui_qt.plugin_state import load_plugins
-        rows = load_plugins(self._gs.game, self._gs.profile)
+        """Load the active game/profile's plugins into the Plugins tab.
+
+        The disk work (per-plugin header reads for the ESL/master flags,
+        master checks, filemap parse) is hundreds of file opens on a large
+        load order, so it runs on a daemon worker → _plugins_loaded → the
+        UI applies the rows. A generation counter drops results from a
+        superseded reload (game/profile switched mid-read)."""
+        import threading
+        self._plugins_gen += 1
+        gen = self._plugins_gen
+        game, profile = self._gs.game, self._gs.profile
+        ul_path = self._userlist_path()
+
+        def worker():
+            from gui_qt.plugin_state import (
+                load_plugins, resolve_plugin_paths_for_game)
+            from Utils.userlist import read_userlist_state
+            try:
+                rows = load_plugins(game, profile)
+            except Exception as exc:
+                print(f"[gui_qt] plugin load failed: {exc}", flush=True)
+                rows = []
+            paths = (resolve_plugin_paths_for_game(game)
+                     if game is not None else {})
+            try:
+                state = read_userlist_state(ul_path)
+            except Exception:
+                state = None
+            self._plugins_loaded.emit(gen, rows, paths, state)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="plugins-reload").start()
+
+    def _on_plugins_loaded(self, gen, rows, paths, state):
+        """UI thread: apply a finished plugin reload (see _reload_plugins)."""
+        if gen != self._plugins_gen:
+            return   # superseded — a newer reload is in flight
         self._plugin_model.set_rows(rows, game=self._gs.game,
                                     profile=self._gs.profile,
                                     profile_dir=self._gs.profile_dir())
@@ -6597,9 +6696,7 @@ class MainWindow(QMainWindow):
         self._plugin_view.refresh_missing_marker()
         # Resolved plugin paths (name.lower → on-disk path) power the master-
         # highlight on plugin selection; clear any stale master ticks.
-        from gui_qt.plugin_state import resolve_plugin_paths_for_game
-        self._plugin_paths = (resolve_plugin_paths_for_game(self._gs.game)
-                              if self._gs.game is not None else {})
+        self._plugin_paths = paths
         self._plugin_view.set_master_highlight(set())
         # Row indices/flags changed — re-apply any active plugin filter.
         if getattr(self, "_plugin_filter_panel", None) is not None:
@@ -6610,8 +6707,9 @@ class MainWindow(QMainWindow):
         # Userlist state → PF_USERLIST/PF_UL_CYCLE bits were already applied by
         # load_plugins; push the membership sets (context-menu predicates), the
         # group map (flags tooltip), and the userlist action callbacks.
-        from Utils.userlist import read_userlist_state
-        state = read_userlist_state(self._userlist_path())
+        if state is None:
+            from Utils.userlist import read_userlist_state
+            state = read_userlist_state(self._userlist_path())
         self._userlist_state = state
         self._plugin_view.userlist_plugins = state.plugins
         self._plugin_view.userlist_cycles = state.cycle_plugins

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.icons import icon, icon_rotated
+from gui_qt.safe_emit import safe_emit
 from Games.Custom.custom_game import (
     _make_game_id,
     delete_custom_game_definition,
@@ -695,15 +696,16 @@ class CustomGameView(QWidget):
             try:
                 import requests
                 from PIL import Image as PilImage
-                self._img_sig.status.emit("Downloading image…", "TEXT_WARN")
+                safe_emit(self._img_sig.status, "Downloading image…", "TEXT_WARN")
                 resp = requests.get(url, timeout=15)
                 resp.raise_for_status()
                 img = PilImage.open(io.BytesIO(resp.content)).convert("RGBA")
                 out = get_custom_game_images_dir() / f"{game_id}.png"
                 img.save(out, "PNG")
-                self._img_sig.status.emit("Image cached.", "TEXT_OK")
+                safe_emit(self._img_sig.status, "Image cached.", "TEXT_OK")
             except Exception as exc:
-                self._img_sig.status.emit(f"Image download failed: {exc}", "TEXT_ERR")
+                safe_emit(self._img_sig.status,
+                          f"Image download failed: {exc}", "TEXT_ERR")
 
         threading.Thread(target=_worker, daemon=True).start()
 

@@ -139,6 +139,13 @@ class ModRowDelegate(QStyledItemDelegate):
         self.c_hl_anchor = QColor("#A45500")   # plugin-selected mod (orange)
         self.c_root_text = QColor(_c(p, "TONE_BLUE_SOFT"))
         self.c_overwrite_text = QColor(_c(p, "TEXT_OK_BRIGHT"))
+        # Shared row/label fonts — paint() runs per visible cell, so build
+        # these once instead of allocating a QFont per call.
+        self.f_row = QFont()
+        self.f_row.setPixelSize(FONT_PX)
+        self.f_bold = QFont()
+        self.f_bold.setBold(True)
+        self.f_bold.setPixelSize(FONT_PX)
 
     def sizeHint(self, opt, index):
         e = index.data(EntryRole)
@@ -232,7 +239,7 @@ class ModRowDelegate(QStyledItemDelegate):
             # centred headers + the icon columns.
             val = index.data(Qt.DisplayRole) or ""
             p.setPen(text_color)
-            _df = QFont(); _df.setPixelSize(FONT_PX); p.setFont(_df)
+            p.setFont(self.f_row)
             pad = QRect(r.left() + 6, r.top(), r.width() - 12, r.height())
             p.drawText(pad, Qt.AlignVCenter | Qt.AlignHCenter, str(val))
 
@@ -271,7 +278,7 @@ class ModRowDelegate(QStyledItemDelegate):
         from gui_qt.modlist_model import (_BOUNDARY_NAMES, ROOT_FOLDER_NAME,
                                           OVERWRITE_NAME)
         if e.name in _BOUNDARY_NAMES:
-            f = QFont(); f.setBold(True); f.setPixelSize(FONT_PX); p.setFont(f)
+            p.setFont(self.f_bold)
             cy = r.center().y()
             nr = self._col_rect(COL_NAME, r)
             tw = p.fontMetrics().horizontalAdvance(e.display_name)
@@ -292,7 +299,7 @@ class ModRowDelegate(QStyledItemDelegate):
         block = model.sep_block_rows(index.row())
 
         name_rect = self._col_rect(COL_NAME, r)
-        f = QFont(); f.setBold(True); f.setPixelSize(FONT_PX); p.setFont(f)
+        p.setFont(self.f_bold)
         label = f"{name}   ({len(block)})"
         tw = p.fontMetrics().horizontalAdvance(label)
         cx = name_rect.center().x()
@@ -335,17 +342,7 @@ class ModRowDelegate(QStyledItemDelegate):
         """Collapsed-separator summary: union of the block's flag icons painted
         in the Flags column, and its conflict icons in the Conflicts column —
         each kept under the relevant header."""
-        bits = 0
-        conflicts = set()
-        bsa_conflicts = set()
-        for row in block:
-            bits |= model.data(model.index(row, COL_FLAGS), FlagsRole) or 0
-            cc = model.data(model.index(row, COL_CONFLICTS), ConflictRole) or 0
-            if cc:
-                conflicts.add(cc)
-            bc = model.data(model.index(row, COL_CONFLICTS), BsaConflictRole) or 0
-            if bc:
-                bsa_conflicts.add(bc)
+        bits, conflicts, bsa_conflicts = model.sep_block_summary(block)
 
         def _summarise(codes, icons):
             # Both winners + losers (or any mixed) → one mixed icon, else lone.
@@ -395,7 +392,7 @@ class ModRowDelegate(QStyledItemDelegate):
 
         # Name (elided).
         p.setPen(text_color)
-        _nf = QFont(); _nf.setPixelSize(FONT_PX); p.setFont(_nf)
+        p.setFont(self.f_row)
         name_rect = QRect(tx, r.top(), r.right() - tx - 6, r.height())
         elided = opt_fm(p).elidedText(e.display_name, Qt.ElideRight,
                                       name_rect.width())

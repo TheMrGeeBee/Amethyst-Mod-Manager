@@ -141,8 +141,10 @@ class PluginModel(QAbstractTableModel):
         if r.vanilla:
             return   # vanilla plugins are always-on; can't be disabled
         r.enabled = not r.enabled
-        idx = self.index(i, COL_NAME)
-        self.dataChanged.emit(idx, idx, [RowRole, Qt.DisplayRole])
+        # Whole row: enabled state dims the text in every column.
+        self.dataChanged.emit(self.index(i, 0),
+                              self.index(i, len(COLUMNS) - 1),
+                              [RowRole, Qt.DisplayRole])
         self._save()
 
     def set_enabled(self, indices, enabled: bool):
@@ -155,8 +157,8 @@ class PluginModel(QAbstractTableModel):
         for i in changed:
             self._rows[i].enabled = enabled
         lo, hi = min(changed), max(changed)
-        self.dataChanged.emit(self.index(lo, COL_NAME),
-                              self.index(hi, COL_NAME),
+        self.dataChanged.emit(self.index(lo, 0),
+                              self.index(hi, len(COLUMNS) - 1),
                               [RowRole, Qt.DisplayRole])
         self._save()
 

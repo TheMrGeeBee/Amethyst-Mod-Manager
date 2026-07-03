@@ -74,6 +74,26 @@ class BainSubPackage:
     display_name: str    # prefix stripped, e.g. "Core"
     path: str            # absolute path to the folder
     default_selected: bool = False
+    # Relative file paths (lower-cased) under `path` — populated by
+    # scan_subpackage_files on the prepare/install WORKER so the Qt picker
+    # never walks the disk on the GUI thread. None = not scanned yet.
+    file_keys: set | None = None
+
+
+def scan_subpackage_files(subpackages: "list[BainSubPackage]") -> None:
+    """Fill each sub-package's ``file_keys`` (the picker's live win/lose
+    conflict recolour needs the per-package file sets). Call from the worker
+    that detected the package, right before handing off to the picker."""
+    for pkg in subpackages:
+        out: set = set()
+        try:
+            for dirpath, _dirs, files in os.walk(pkg.path):
+                for fn in files:
+                    rel = os.path.relpath(os.path.join(dirpath, fn), pkg.path)
+                    out.add(rel.replace("\\", "/").lower())
+        except OSError:
+            pass
+        pkg.file_keys = out
 
 
 def _strip_numeric_prefix(name: str) -> str:
