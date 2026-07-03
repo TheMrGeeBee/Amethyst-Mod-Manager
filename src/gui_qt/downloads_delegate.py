@@ -39,7 +39,8 @@ class DownloadsDelegate(QStyledItemDelegate):
         self.c_install = QColor(_c(p, "BTN_SUCCESS"))
         self.c_reinstall = QColor(_c(p, "BTN_WARN"))   # orange (already installed)
         self.c_blue = QColor(_c(p, "ACCENT"))          # Select-all button
-        self.c_btn_text = QColor("#ffffff")
+        self.c_btn_text = QColor(_c(p, "TEXT_WHITE"))          # text on green/orange
+        self.c_selall_text = QColor(_c(p, "TEXT_ON_ACCENT"))   # text on ACCENT button
 
     # -- paint --------------------------------------------------------------
     def paint(self, p, opt, index):
@@ -63,7 +64,7 @@ class DownloadsDelegate(QStyledItemDelegate):
                 p.setPen(Qt.NoPen)
                 p.setBrush(self.c_blue)
                 p.drawRoundedRect(rect, 4, 4)
-                p.setPen(self.c_btn_text)
+                p.setPen(self.c_selall_text)
                 f = QFont(); f.setPixelSize(BTN_FONT_PX); f.setBold(True); p.setFont(f)
                 p.drawText(rect, Qt.AlignCenter, "Select all")
                 p.setRenderHint(p.RenderHint.Antialiasing, False)
