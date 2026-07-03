@@ -189,6 +189,21 @@ REGISTRY: dict[str, QtWizardSpec] = {
         QtWizardSpec(_simple("wizards_qt.skygen_view", "SkyGenView"), panel="modlist"),
     "wizards.plugin_audit.PluginAuditWizard":
         QtWizardSpec(_simple("wizards_qt.plugin_audit_view", "PluginAuditView"), panel="modlist"),
+
+    # -- ported former external plugins (attached per game_id via
+    #    Utils.plugin_loader.BUILTIN_WIZARD_TOOLS) --
+    "wizards.bethesda_register_game_path.RegisterGamePathWizard":
+        QtWizardSpec(_simple("wizards_qt.bethesda_register_view", "RegisterGamePathView")),
+    "wizards.bethesda_synthesis.SynthesisWizard":
+        QtWizardSpec(_simple("wizards_qt.synthesis_view", "SynthesisView")),
+    "wizards.bg3_import.BG3ImportWizard":
+        QtWizardSpec(_simple("wizards_qt.bg3_import_view", "BG3ImportView")),
+    "wizards.sdv_smapi.SmapiWizard":
+        QtWizardSpec(_simple("wizards_qt.smapi_view", "SmapiView")),
+    "wizards.sr_srml.SRMLWizard":
+        QtWizardSpec(_simple("wizards_qt.srml_view", "SRMLView")),
+    "wizards.msc_mscloader.MSCLoaderWizard":
+        QtWizardSpec(_simple("wizards_qt.mscloader_view", "MSCLoaderView")),
 }
 
 
