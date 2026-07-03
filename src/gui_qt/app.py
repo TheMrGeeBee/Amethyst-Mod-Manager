@@ -140,6 +140,8 @@ class MainWindow(QMainWindow):
     # BSA/BA2 pack + unpack workers → UI thread (result dict | error str). See
     # _on_pack_bsa / _on_unpack_bsa.
     _bsa_op_done = Signal(object)
+    # Custom-handler background sync worker → UI thread (files were written).
+    _handlers_synced = Signal()
 
     _PLAY_BAR_W = 380       # play-bar (header right) fixed width
     _BTN_H = 42          # consistent height for all header buttons (~30% bigger)
@@ -307,6 +309,16 @@ class MainWindow(QMainWindow):
         self._col_fomod.connect(self._on_col_fomod_ui)
         self._col_bain.connect(self._on_col_bain_ui)
         QTimer.singleShot(0, self._ensure_nexus_api)
+        # Silently sync custom handlers + Qt wizard plugins from the Resources
+        # branch on GitHub (background threads). A fresh/updated build re-fetches
+        # immediately because the gh_cache is wiped when the app version changes.
+        self._handlers_synced.connect(self._on_handlers_synced)
+        try:
+            from Utils.gh_cache import clear_if_version_changed
+            clear_if_version_changed(_mm_version)
+        except Exception:
+            pass
+        QTimer.singleShot(3000, self._start_gh_sync)
         # First-run onboarding: show it (as a fullscreen tab) when the flag is
         # unset/0 OR no games are configured (Tk parity — re-appears after the
         # last game is removed). Deferred so the window finishes building first.
@@ -1330,6 +1342,52 @@ class MainWindow(QMainWindow):
         view = CustomGameView(on_done=_done)
         self._tabs.open_tab(view, "Define custom game", key="custom_game")
 
+    def _start_gh_sync(self):
+        """Kick off background sync of custom handlers + Qt plugins from GitHub."""
+        from gui_qt.safe_emit import safe_emit
+        from Utils.gh_sync import sync_custom_handlers, sync_plugins
+        # Handler downloads land on a worker thread; marshal the "refresh games"
+        # signal to the UI thread. Plugin sync only touches the plugin cache
+        # (discover_plugins) and picks up on the next tools-menu open — no UI
+        # refresh needed here.
+        sync_custom_handlers(on_changed=lambda: safe_emit(self._handlers_synced))
+        sync_plugins()
+
+    def _on_handlers_synced(self):
+        """A background handler sync wrote new .json files — reload the registry
+        so an open Add-Game picker (and the game selector) sees them, and pull
+        down any missing custom-game banner images."""
+        try:
+            from Utils.game_helpers import _load_games, _GAMES
+            _load_games()
+        except Exception:
+            return
+        # Refresh an open Add-Game tab IN PLACE (don't close+reopen — that
+        # deletes the view while its scan/image threads may still emit).
+        view = self._tabs._keys.get("add_game") if hasattr(self._tabs, "_keys") else None
+        if view is not None and hasattr(view, "refresh_games"):
+            try:
+                view.refresh_games(dict(_GAMES))
+            except Exception:
+                pass
+        # Now that the definitions are on disk, download their banner images.
+        self._download_custom_game_images(view)
+
+    def _download_custom_game_images(self, view=None):
+        """Background-download missing custom-game banner images. If *view* is an
+        AddGameView, refresh each card's logo as its image lands."""
+        try:
+            from Games.Custom.custom_game import download_missing_custom_game_images
+        except Exception:
+            return
+        cb = None
+        if view is not None and hasattr(view, "on_image_downloaded"):
+            cb = view.on_image_downloaded
+        try:
+            download_missing_custom_game_images(on_done=cb)
+        except Exception:
+            pass
+
     def _open_add_game_tab(self):
         """Open the Add Game card-grid picker as a (detachable) tab."""
         from gui_qt.add_game_view import AddGameView
@@ -1339,6 +1397,9 @@ class MainWindow(QMainWindow):
                            on_select=self._on_add_game_select,
                            on_add=self._on_add_game_add)
         self._tabs.open_tab(page, "Add game", key="add_game")
+        # Pull down any custom-game banner images still missing on disk (e.g.
+        # handlers synced on a previous run but their images never fetched).
+        self._download_custom_game_images(page)
 
     def _ensure_nexus_api(self):
         """Build the shared NexusAPI from saved OAuth tokens (idempotent) and

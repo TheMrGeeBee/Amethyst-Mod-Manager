@@ -67,24 +67,18 @@ class _GameCard(QFrame):
         configured = bool(game and game.is_configured())
         game_id = (getattr(game, "game_id", None)
                    or name.lower().replace(" ", "_"))
+        self._game_id = game_id
 
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 8, 8, 8)
         v.setSpacing(6)
 
         # Logo (or a "?" placeholder).
-        logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedHeight(IMG_SQ)
-        pm = _game_logo(game_id, IMG_SQ)
-        if pm is not None:
-            logo.setPixmap(pm)
-        else:
-            logo.setText("?")
-            logo.setStyleSheet(
-                f"color:{_c(active_palette(),'TEXT_DIM')}; font-size:36px;"
-                " font-weight:bold;")
-        v.addWidget(logo)
+        self._logo = QLabel()
+        self._logo.setAlignment(Qt.AlignCenter)
+        self._logo.setFixedHeight(IMG_SQ)
+        self.reload_logo()
+        v.addWidget(self._logo)
 
         # Name (wraps, centered).
         title = QLabel(name)
@@ -101,12 +95,30 @@ class _GameCard(QFrame):
             (lambda: on_select(name)) if configured else (lambda: on_add(name)))
         v.addWidget(btn)
 
+    def reload_logo(self) -> None:
+        """(Re)load the logo pixmap from disk, falling back to a '?' placeholder.
+        Called once at build and again when a background image download lands."""
+        pm = _game_logo(self._game_id, IMG_SQ)
+        if pm is not None:
+            self._logo.setText("")
+            self._logo.setStyleSheet("")
+            self._logo.setPixmap(pm)
+        else:
+            self._logo.setPixmap(QPixmap())
+            self._logo.setText("?")
+            self._logo.setStyleSheet(
+                f"color:{_c(active_palette(),'TEXT_DIM')}; font-size:36px;"
+                " font-weight:bold;")
+
 
 class AddGameView(QWidget):
     """The reflowing card grid. *on_select(name)* / *on_add(name)* are required."""
 
     # Emitted (from the scan worker) with the set of installed game names.
     _installed_scanned = Signal(set)
+
+    # game_id whose freshly-downloaded logo just landed → refresh its card.
+    _image_ready = Signal(str)
 
     def __init__(self, games: dict, on_select, on_add, parent=None):
         super().__init__(parent)
@@ -118,8 +130,33 @@ class AddGameView(QWidget):
         # Installed-only filter state. None = not yet scanned.
         self._installed_game_names: set[str] | None = None
         self._installed_scanned.connect(self._on_installed_scanned)
+        self._image_ready.connect(self._on_image_ready)
         self._build()
         self._populate()
+
+    def refresh_games(self, games: dict) -> None:
+        """Rebuild the card grid from *games* in place (e.g. after a background
+        handler sync downloaded new definitions). Keeps the view alive so no
+        running scan/image thread emits on a deleted signal."""
+        self._games = games
+        for _s, card in self._cards:
+            card.setParent(None)
+            card.deleteLater()
+        self._cards.clear()
+        self._installed_game_names = None
+        self._populate()
+
+    def on_image_downloaded(self, game_id: str) -> None:
+        """Worker-thread callback from download_missing_custom_game_images —
+        marshal to the GUI thread to refresh the matching card's logo."""
+        from gui_qt.safe_emit import safe_emit
+        safe_emit(self._image_ready, game_id)
+
+    def _on_image_ready(self, game_id: str) -> None:
+        for _s, card in self._cards:
+            if getattr(card, "_game_id", "") == game_id:
+                card.reload_logo()
+                break
 
     def _build(self):
         outer = QVBoxLayout(self)
@@ -215,13 +252,14 @@ class AddGameView(QWidget):
 
         Emits _installed_scanned with the set of matching game names. Never
         touches Qt widgets directly (see project memory on worker threads)."""
+        from gui_qt.safe_emit import safe_emit
         try:
             from Utils.steam_finder import (
                 find_steam_libraries, find_game_by_steam_id, find_game_in_libraries)
             from Utils.heroic_finder import (
                 find_heroic_game, find_heroic_game_info_by_exe)
         except Exception:
-            self._installed_scanned.emit(set())
+            safe_emit(self._installed_scanned, set())
             return
 
         libraries = find_steam_libraries()
@@ -250,7 +288,8 @@ class AddGameView(QWidget):
                         break
             if found:
                 installed.add(name)
-        self._installed_scanned.emit(installed)
+        from gui_qt.safe_emit import safe_emit
+        safe_emit(self._installed_scanned, installed)
 
     def _on_installed_scanned(self, installed: set):
         self._installed_game_names = installed
