@@ -754,17 +754,40 @@ class ModListView(QTreeView):
         if not vis:
             self._drop_slot = 0
             return
-        # Find the visible row under the cursor; drop before/after by half-row.
-        slot = None
+        # Resolve the drop from the ON-SCREEN rows only. Two traps:
+        #  1) A row scrolled out of the viewport has an EMPTY visualRect
+        #     (top==bottom==0). vis[] includes such rows (it only excludes
+        #     collapse-hidden ones), so when Root Folder is scrolled below the
+        #     fold, its rect.bottom()==0 made "y >= last.bottom()" true for any
+        #     y — forcing the slot onto the boundary every move. That was the
+        #     random flicker.
+        #  2) Consecutive row rects can leave a 1px seam; requiring
+        #     top() <= y < bottom() would miss a y in the seam.
+        # Build the list of rows actually painted, in viewport order, then pick
+        # by seam-tolerant bottom() comparison.
+        vp_h = self.viewport().height()
+        onscreen = []
         for r in vis:
             rect = self.visualRect(m.index(r, 0))
-            if rect.top() <= y < rect.bottom():
-                slot = r if y < rect.center().y() else r + 1
-                break
-        if slot is None:
-            # Above the first / below the last visible row.
-            first_rect = self.visualRect(m.index(vis[0], 0))
-            slot = vis[0] if y < first_rect.top() else vis[-1] + 1
+            if rect.height() > 0 and rect.bottom() > 0 and rect.top() < vp_h:
+                onscreen.append((r, rect))
+        if not onscreen:
+            self._drop_slot = max(0, min(self._drop_slot, n))
+            return
+        first_r, first_rect = onscreen[0]
+        last_r, last_rect = onscreen[-1]
+        if y < first_rect.top():
+            slot = first_r
+        elif y >= last_rect.bottom():
+            slot = last_r + 1
+        else:
+            slot = None
+            for r, rect in onscreen:
+                if y < rect.bottom():        # seam belongs to the nearer row
+                    slot = r if y < rect.center().y() else r + 1
+                    break
+            if slot is None:                 # defensive: treat as below last
+                slot = last_r + 1
         # Clamp the indicator to the valid-drop range so the blue line never
         # renders at/below the Root Folder boundary (or above Overwrite). In
         # reverse mode boundaries flip in display space and move_block_display
@@ -822,7 +845,14 @@ class ModListView(QTreeView):
         elif y > h - zone:
             depth = (y - (h - zone)) / zone
             step = int(2 + depth * 22)
-        if step:
+        # Only act when the bar can actually move that direction. At the very
+        # bottom (or top) setValue() clamps to a no-op, but re-running
+        # _update_drop_slot + repaint every tick against a static viewport lets
+        # sub-pixel mouse jitter oscillate the drop slot — the indicator
+        # flickers near the Root Folder boundary. Skip the churn when pinned.
+        at_edge = (step < 0 and bar.value() <= bar.minimum()) or \
+                  (step > 0 and bar.value() >= bar.maximum())
+        if step and not at_edge:
             bar.setValue(bar.value() + step)
             self._update_drop_slot(y)
             self.viewport().update()
