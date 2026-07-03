@@ -142,6 +142,11 @@ class MainWindow(QMainWindow):
     _bsa_op_done = Signal(object)
     # Custom-handler background sync worker → UI thread (files were written).
     _handlers_synced = Signal()
+    # NXM link received from a second instance via the IPC socket (fires on a
+    # worker thread → marshal to the UI thread). Also used for --nxm at startup.
+    _nxm_received = Signal(str)
+    # NXM download worker → UI thread: (DownloadResult, mod_info, file_info).
+    _nxm_download_done = Signal(object)
 
     _PLAY_BAR_W = 380       # play-bar (header right) fixed width
     _BTN_H = 42          # consistent height for all header buttons (~30% bigger)
@@ -309,6 +314,13 @@ class MainWindow(QMainWindow):
         self._col_fomod.connect(self._on_col_fomod_ui)
         self._col_bain.connect(self._on_col_bain_ui)
         QTimer.singleShot(0, self._ensure_nexus_api)
+        # NXM protocol handling: the IPC callback fires on a worker thread, so
+        # it emits _nxm_received to hop onto the UI thread. Process a --nxm URL
+        # passed on our own command line once the window has finished building.
+        self._nxm_install_queue: list = []
+        self._nxm_received.connect(self._receive_nxm)
+        self._nxm_download_done.connect(self._on_nxm_download_done)
+        self._handle_nxm_argv()
         # Silently sync custom handlers + Qt wizard plugins from the Resources
         # branch on GitHub (background threads). A fresh/updated build re-fetches
         # immediately because the gh_cache is wiped when the app version changes.
@@ -1140,6 +1152,7 @@ class MainWindow(QMainWindow):
             ("Wizard", "wizard.png", []),
             ("Nexus", "nexus.png", [
                 ("Open Nexus Mods", self._open_nexus_browser_tab),
+                ("Open game on nexus", self._open_game_on_nexus),
                 None,
                 ("Login to Nexus", [
                     ("Login via SSO", self._nexus_login_sso),
@@ -1471,6 +1484,201 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._onboarding_view = None
+
+    # ---- NXM protocol handling ("Download with Manager") -----------------
+
+    # Enderal can install Skyrim mods; Enderal SE can install Skyrim SE mods.
+    # If the user is already on Enderal(SE) and the link is for the Skyrim(SE)
+    # counterpart, stay on Enderal instead of switching away.
+    _ENDERAL_ACCEPTS = {
+        "enderal": "skyrim",
+        "enderalspecialedition": "skyrimspecialedition",
+    }
+
+    def _handle_nxm_argv(self):
+        """Check sys.argv for --nxm <url> and kick off a download once the
+        window has finished building."""
+        import sys
+        if "--nxm" not in sys.argv:
+            return
+        try:
+            idx = sys.argv.index("--nxm")
+            nxm_url = sys.argv[idx + 1]
+        except (IndexError, ValueError):
+            return
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(500, lambda: self._process_nxm_link(nxm_url))
+
+    def _start_nxm_ipc(self):
+        """Start the IPC server so this (running) instance receives NXM links
+        handed off by later instances. The callback fires on a worker thread,
+        so it emits _nxm_received to marshal onto the UI thread."""
+        from Nexus.nxm_handler import NxmIPC
+        from gui_qt.safe_emit import safe_emit
+
+        def _on_nxm(url: str):
+            safe_emit(self._nxm_received, url)
+
+        NxmIPC.start_server(_on_nxm)
+
+    def _receive_nxm(self, nxm_url: str):
+        """UI thread: handle an NXM link (from --nxm at startup or delivered via
+        IPC from a second instance). Raise the window so the user sees it."""
+        self._append_log("[nexus] received NXM link from browser")
+        try:
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+        self._process_nxm_link(nxm_url)
+
+    def _match_game_for_domain(self, game_domain: str):
+        """Return (name, game) for the configured game matching *game_domain*,
+        honouring the Enderal→Skyrim exception if the current game already
+        accepts this domain. None if nothing configured matches."""
+        from Utils.game_helpers import _GAMES
+        current = self._gs.game
+        current_domain = (getattr(current, "nexus_game_domain", "") or "") if current else ""
+        if (current is not None and current.is_configured()
+                and self._ENDERAL_ACCEPTS.get(current_domain) == game_domain):
+            return (self._gs.game_name, current)
+        for name, game in _GAMES.items():
+            if getattr(game, "nexus_game_domain", "") == game_domain and game.is_configured():
+                return (name, game)
+        return None
+
+    def _process_nxm_link(self, nxm_url: str):
+        """Handle an nxm:// link — download a mod or open a collection."""
+        from Nexus.nxm_handler import parse_nxm_url
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.",
+                         "warning")
+            self._append_log("[nexus] NXM link ignored — not logged in")
+            return
+
+        try:
+            mod_link, coll_link = parse_nxm_url(nxm_url)
+        except ValueError as exc:
+            self._append_log(f"[nexus] bad nxm:// URL — {exc}")
+            self._notify("Received a malformed NXM link.", "warning")
+            return
+
+        if coll_link is not None:
+            self._process_nxm_collection_link(coll_link)
+            return
+
+        link = mod_link
+        self._append_log(
+            f"[nexus] downloading mod {link.mod_id} file {link.file_id} "
+            f"from {link.game_domain}…")
+
+        matched = self._match_game_for_domain(link.game_domain)
+        if matched and matched[0] != self._gs.game_name:
+            self._on_game_changed(matched[0])
+            self._append_log(f"[nexus] switched to game '{matched[0]}'")
+
+        self._notify("Downloading mod from Nexus…", "info")
+
+        import threading
+
+        def _worker():
+            from Nexus.nexus_download import NexusDownloader
+            from Utils.config_paths import get_download_cache_dir_for_game
+            from gui_qt.safe_emit import safe_emit
+            # Fetch mod + file info for accurate meta.ini (best-effort).
+            mod_info = file_info = None
+            try:
+                mod_info, file_info = api.get_mod_and_file_info_graphql(
+                    link.game_domain, link.mod_id, link.file_id)
+            except Exception as exc:
+                self._op_log.emit(
+                    f"[nexus] could not fetch mod info ({exc}) — meta partial")
+            dest_name = matched[0] if matched else (self._gs.game_name or "")
+            dest = get_download_cache_dir_for_game(dest_name)
+            downloader = NexusDownloader(api, download_dir=dest)
+            result = downloader.download_from_nxm(
+                link, dest_dir=dest,
+                known_file_name=getattr(file_info, "file_name", "") or "")
+            safe_emit(self._nxm_download_done,
+                      (result, mod_info, file_info))
+
+        threading.Thread(target=_worker, daemon=True, name="nxm-download").start()
+
+    def _on_nxm_download_done(self, payload):
+        """UI thread: an NXM download finished. Install it (via the shared
+        install pipeline) with a prebuilt meta from the link data."""
+        result, mod_info, file_info = payload
+        if not (result.success and result.file_path):
+            self._append_log(f"[nexus] download failed — {result.error}")
+            self._notify(f"Nexus download failed — {result.error}", "error")
+            return
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._append_log(
+                f"[nexus] downloaded {result.file_name} — no configured game "
+                "selected; install manually from Downloads.")
+            self._notify("Downloaded — no game selected; see Downloads tab.",
+                         "warning")
+            return
+
+        from Nexus.nexus_meta import build_meta_from_download
+        meta = None
+        try:
+            meta = build_meta_from_download(
+                game_domain=result.game_domain, mod_id=result.mod_id,
+                file_id=result.file_id, archive_name=result.file_name,
+                mod_info=mod_info, file_info=file_info)
+        except Exception as exc:
+            self._append_log(f"[nexus] could not build metadata: {exc}")
+
+        path = str(result.file_path)
+        metas = {path: meta} if meta is not None else None
+        self._install_paths([path], metas=metas)
+
+    def _process_nxm_collection_link(self, coll_link):
+        """Switch to the matching game and open the collection's detail tab."""
+        self._append_log(
+            f"[nexus] opening collection '{coll_link.slug}' "
+            f"from {coll_link.game_domain}")
+        matched = self._match_game_for_domain(coll_link.game_domain)
+        if not matched:
+            self._notify(
+                f"No configured game for Nexus domain "
+                f"'{coll_link.game_domain}'.", "warning")
+            self._append_log(
+                f"[nexus] no configured game for domain "
+                f"'{coll_link.game_domain}' — cannot open collection")
+            return
+        if getattr(matched[1], "collections_disabled", False):
+            self._notify(
+                f"Collections aren't supported for '{matched[0]}'.", "warning")
+            return
+        if matched[0] != self._gs.game_name:
+            self._on_game_changed(matched[0])
+            self._append_log(f"[nexus] switched to game '{matched[0]}'")
+
+        from Nexus.nexus_api import NexusCollection
+        collection = NexusCollection(
+            slug=coll_link.slug, game_domain=coll_link.game_domain)
+        revision = coll_link.revision_id or None
+        self._open_collection_detail_tab(collection, revision_number=revision)
+
+    def _open_game_on_nexus(self):
+        """Open the current game's Nexus Mods page in the browser."""
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify("No configured game selected.", "warning")
+            return
+        domain = getattr(game, "nexus_game_domain", "") or ""
+        if not domain:
+            self._notify(f"'{game.name}' has no Nexus Mods page.", "warning")
+            return
+        from Utils.xdg import open_url
+        open_url(f"https://www.nexusmods.com/{domain}",
+                 log_fn=self._append_log)
 
     def _open_nexus_browser_tab(self):
         """Open the Nexus Mods browser as a detachable tab. Needs a configured
@@ -4254,6 +4462,11 @@ class MainWindow(QMainWindow):
         """On close, optionally restore every deployed game to vanilla (the
         'Restore on close' setting). Synchronous (the app is exiting) — mirrors
         the Tk gui.py shutdown path."""
+        try:
+            from Nexus.nxm_handler import NxmIPC
+            NxmIPC.shutdown()      # release the IPC socket(s)
+        except Exception:
+            pass
         try:
             from Utils.ui_config import load_restore_on_close
             if load_restore_on_close():
@@ -7287,6 +7500,28 @@ def _apply_app_identity(app) -> None:
 def run() -> int:
     import sys
     from PySide6.QtWidgets import QApplication
+    from Nexus.nxm_handler import NxmIPC, NxmHandler
+
+    # Register as the nxm:// handler on every launch (idempotent) so "Download
+    # with Manager" on Nexus routes here.
+    try:
+        NxmHandler.register()
+    except Exception:
+        pass
+
+    # Single-instance: if launched with --nxm and an instance is already
+    # running, hand the link off over the IPC socket and exit — don't build a
+    # second window. Done BEFORE the QApplication so the browser-spawned
+    # process is cheap. If no instance answers, fall through and open normally.
+    if "--nxm" in sys.argv:
+        try:
+            idx = sys.argv.index("--nxm")
+            nxm_url = sys.argv[idx + 1]
+        except (IndexError, ValueError):
+            nxm_url = None
+        if nxm_url and NxmIPC.send_to_running(nxm_url):
+            return 0
+
     # Migrate/clean amethyst.ini BEFORE anything reads it (theme loader, GameState).
     # Wipes a pre-Qt ini (missing [meta] version=2) so everyone starts fresh.
     from Utils.ui_config import ensure_ini_version
@@ -7296,4 +7531,7 @@ def run() -> int:
     apply_theme(app)
     win = MainWindow(app)
     win.show()
+    # Listen for NXM links handed off by future instances (after the window is
+    # up so the received-link handler has a live UI to drive).
+    win._start_nxm_ipc()
     return app.exec()
