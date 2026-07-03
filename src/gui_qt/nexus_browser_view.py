@@ -173,13 +173,6 @@ class NexusBrowserView(QWidget):
         self._adult_cb.toggled.connect(self._on_adult_toggled)
         tb.addWidget(self._adult_cb)
 
-        open_btn = QToolButton()
-        open_btn.setText("Open on Nexus")
-        open_btn.setObjectName("ActionButton")
-        open_btn.setCursor(Qt.PointingHandCursor)
-        open_btn.clicked.connect(self._open_game_on_nexus)
-        tb.addWidget(open_btn)
-
         refresh = QToolButton()
         refresh.setText("Refresh")
         refresh.setObjectName("ActionButton")
@@ -703,10 +696,6 @@ class NexusBrowserView(QWidget):
     def _on_view(self, entry):
         from Utils.xdg import open_url
         open_url(self._mod_url(entry), log_fn=self._log)
-
-    def _open_game_on_nexus(self):
-        from Utils.xdg import open_url
-        open_url(f"https://www.nexusmods.com/{self._domain}", log_fn=self._log)
 
     def _show_card_menu(self, entry, global_pos):
         menu = QMenu(self)
