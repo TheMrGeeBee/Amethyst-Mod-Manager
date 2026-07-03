@@ -142,15 +142,20 @@ echo "=== Installing $PKG_FILE ==="
 # which are already present in the container.
 pacman -U --noconfirm --overwrite '*' --nodeps "$PKG_FILE"
 
-# ── Resolve the system Qt6 libs + plugins for PySide6 ────────────────
+# ── Resolve the system Qt6 libs for PySide6 ──────────────────────────
 # PySide6 dlopens Qt at runtime from its own extension modules, so
 # quick-sharun's ldd trace of the (shell → python3) wrapper never sees
 # libQt6Gui.so and skips its Qt-plugin deployment entirely — the AppImage
-# then dies with "Could not find the Qt platform plugin 'xcb'". We fix
-# this by handing quick-sharun the Qt GUI/Widgets/Network libs (so its
-# `*libQt*Gui.so*` case fires and pulls platforms/imageformats/etc.) plus
-# the platform plugins directly (so its `*/qt*/plugins/*.so` case writes
-# qt.conf). Arch's pyside6 depends on qt6-base and uses the SYSTEM Qt at
+# then dies with "Could not find the Qt platform plugin 'xcb'".
+#
+# The fix is just to get the Qt LIBS into the arg list: once libQt6Gui.so
+# is traced, quick-sharun's own handler globs and deploys the plugin dirs
+# (platforms/imageformats/styles/wayland/xcbglintegrations), and libQt6-
+# Network.so pulls tls/. We do NOT pass the individual plugin .so files —
+# that just doubled the (expensive) per-file ldd work in quick-sharun's
+# dependency-collection pass, making the build take many extra minutes.
+#
+# Arch's pyside6 depends on qt6-base and uses the SYSTEM Qt at
 # /usr/lib/libQt6*.so + /usr/lib/qt6/plugins/, so those paths are stable.
 QT_PLUGIN_DIR=""
 for _d in /usr/lib/qt6/plugins /usr/lib/qt/plugins; do
@@ -158,35 +163,22 @@ for _d in /usr/lib/qt6/plugins /usr/lib/qt/plugins; do
 done
 [ -n "$QT_PLUGIN_DIR" ] || { echo "ERROR: qt6 platform plugins not found (is qt6-base installed?)" >&2; exit 1; }
 
+# Remove the GTK theme-integration plugin so quick-sharun's platform*/*
+# glob can't pick it up: it links libgtk-3 (which we don't bundle), and
+# tracing it makes quick-sharun abort with "missing libraries". We keep
+# libqxdgdesktopportal.so (portal-based theme, no GTK dep). The Qt app
+# applies its own Breeze/QSS theme, so it needs neither.
+rm -f "$QT_PLUGIN_DIR/platformthemes/libqgtk3.so"
+
 _qt_args=()
-# Core Qt libs PySide6 needs — Gui triggers the platform-plugin block.
-# XcbQpa (X11) and WaylandClient are the platform abstraction libs that
-# libqxcb.so / libqwayland.so link against; quick-sharun would trace them
-# transitively, but listing them explicitly removes any doubt. OpenGL is
-# pulled in by Qt Widgets' GL paths.
+# Core Qt libs PySide6 needs — Gui triggers the plugin-deployment block,
+# Network triggers tls/. XcbQpa (X11) and WaylandClient are the platform
+# abstraction libs the platform plugins link; quick-sharun traces them
+# transitively but listing them removes any doubt. OpenGL: Qt Widgets GL.
 for _l in libQt6Core libQt6Gui libQt6Widgets libQt6DBus libQt6Network \
           libQt6XcbQpa libQt6WaylandClient libQt6OpenGL; do
     for _so in /usr/lib/"$_l".so*; do
         [ -e "$_so" ] && _qt_args+=("$_so")
-    done
-done
-# Platform + platform-integration plugins (xcb for X11, wayland for
-# Wayland) + the theme/style/image plugins the GUI loads at runtime.
-# Passing the platform .so files directly makes quick-sharun emit qt.conf.
-#
-# libqgtk3.so (GTK theme integration) is EXCLUDED: it links libgtk-3, which
-# we deliberately don't bundle, so quick-sharun aborts with "missing
-# libraries" when it tries to trace it. We keep libqxdgdesktopportal.so
-# (the portal-based theme, no GTK dep).
-for _sub in platforms platformthemes platforminputcontexts wayland-shell-integration \
-            wayland-decoration-client wayland-graphics-integration-client \
-            xcbglintegrations imageformats iconengines styles tls; do
-    for _so in "$QT_PLUGIN_DIR/$_sub"/*.so; do
-        [ -e "$_so" ] || continue
-        case "${_so##*/}" in
-            libqgtk3.so) continue ;;
-        esac
-        _qt_args+=("$_so")
     done
 done
 
