@@ -5494,8 +5494,14 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             print(f"[gui_qt] plugin sync failed: {exc}", flush=True)
             return
-        if wrote:
-            self._reload_plugins()
+        # NOTE: the plugin panel is reloaded from _on_conflicts_ready (after the
+        # filemap rebuild that save()→on_saved() kicked off finishes), NOT here.
+        # Reloading now would read a STALE filemap — the rebuild is still in
+        # flight — so a just-enabled patcher mod's light copies wouldn't be the
+        # resolved winners yet (ESL flags missing), and a just-disabled mod's
+        # plugins couldn't be recovered from the fresh filemap. Tk parity:
+        # gui.py _on_filemap_rebuilt refreshes the plugins tab after the rebuild.
+        _ = wrote
 
     def _build_modlist_area(self) -> QWidget:
         """Modlist column: the list + its tool footer (buttons + search) stacked
@@ -7230,6 +7236,12 @@ class MainWindow(QMainWindow):
         # A mod was toggled / added / removed → the footer counts + size are
         # stale (token-guarded, so overlapping walks coalesce).
         self._refresh_modlist_stats()
+        # The filemap is now fresh → reload the Plugins tab so ESL/master flags
+        # resolve against the winning (e.g. patcher-provided light) copies and
+        # plugins still deployed by another enabled mod are recovered. Tk parity:
+        # gui.py _on_filemap_rebuilt calls _refresh_plugins_tab() here, AFTER the
+        # rebuild — reloading earlier (on the toggle) races the stale filemap.
+        self._reload_plugins()
 
     # ----------------------------------------------------------------- right
     def _build_plugins(self) -> QWidget:

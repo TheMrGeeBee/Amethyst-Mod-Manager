@@ -168,6 +168,42 @@ def resolve_plugin_paths_for_game(game, data_dir: Path | None = None
         return {}
 
 
+def _filemap_deployed_plugins(game, plugin_exts: tuple[str, ...]) -> dict[str, str]:
+    """Top-level plugin names that the CURRENT filemap.txt deploys — i.e. still
+    provided by some enabled mod (or overwrite). Returns {lower: original_name}.
+
+    A patcher mod (e.g. ESLifier Output) ships duplicate copies of plugins that
+    other enabled mods also provide. Disabling it strips those names from
+    plugins.txt (Tk parity: _sync_plugins_for_toggle removes a mod's own
+    plugins unconditionally), but the other mods still deploy identically-named
+    copies. Without this recovery those plugins vanish from the panel until a
+    full re-sync. Tk recovers them in _refresh_plugins_tab via its Data/ orphan
+    scan; we recover them from the freshly-rebuilt filemap instead.
+    """
+    staging = (game.get_effective_mod_staging_path()
+               if hasattr(game, "get_effective_mod_staging_path") else None)
+    if staging is None:
+        return {}
+    fm = staging.parent / "filemap.txt"
+    if not fm.is_file():
+        return {}
+    exts = tuple(e.lower() for e in plugin_exts)
+    found: dict[str, str] = {}
+    try:
+        for line in fm.read_text(encoding="utf-8").splitlines():
+            if "\t" not in line:
+                continue
+            rel_path = line.split("\t", 1)[0].replace("\\", "/")
+            if "/" in rel_path:
+                continue   # top-level plugins only (matches deploy layout)
+            low = rel_path.lower()
+            if low.endswith(exts):
+                found.setdefault(low, rel_path)
+    except OSError:
+        pass
+    return found
+
+
 def load_plugins(game, profile: str) -> list[PluginRow]:
     """Return the ordered plugin rows for *game*/*profile*, or [] if none."""
     p = plugins_path(game, profile)
@@ -184,6 +220,21 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
         vanilla = _vanilla_plugins_for_game(game)
     except Exception:
         vanilla = {n.lower(): n for n in getattr(game, "vanilla_plugins", [])}
+
+    # Recover plugins still deployed by an enabled mod (per the fresh filemap)
+    # but missing from plugins.txt — see _filemap_deployed_plugins. The guard is
+    # plugins.txt entries only (NOT loadorder.txt): a disabled patcher mod's
+    # sync strips its plugins from plugins.txt but leaves them in loadorder.txt,
+    # so keying on loadorder would skip the very plugins we need to recover.
+    exts = tuple(e.lower() for e in (getattr(game, "plugin_extensions", []) or [])) \
+        or (".esp", ".esm", ".esl")
+    listed_lower = {e.name.lower() for e in entries}
+    for low, orig in _filemap_deployed_plugins(game, exts).items():
+        if low in listed_lower or low in vanilla:
+            continue
+        entries.append(PluginEntry(name=orig, enabled=True))
+        listed_lower.add(low)
+
     mod_map = {e.name.lower(): e for e in entries}
 
     ordered: list[PluginEntry] = []
