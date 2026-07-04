@@ -1723,6 +1723,14 @@ When ESLifier finishes, it writes its output as the
         <translation>Save</translation>
     </message>
     <message>
+        <source>true</source>
+        <translation>true</translation>
+    </message>
+    <message>
+        <source>false</source>
+        <translation>false</translation>
+    </message>
+    <message>
         <source>Form reset to built-in defaults (not yet saved).</source>
         <translation>Form reset to built-in defaults (not yet saved).</translation>
     </message>
@@ -5111,6 +5119,14 @@ Choose Keep if this is an optional/alternative variant rather than a replacement
     <message>
         <source>Save</source>
         <translation>Save</translation>
+    </message>
+    <message>
+        <source>true</source>
+        <translation>true</translation>
+    </message>
+    <message>
+        <source>false</source>
+        <translation>false</translation>
     </message>
     <message>
         <source>Form reset to built-in defaults (not yet saved).</source>

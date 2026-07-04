@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel,
+    QButtonGroup, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -23,6 +23,14 @@ import Utils.sdt_config as cfg
 
 if TYPE_CHECKING:
     from Games.base_game import BaseGame
+
+
+class _NoScrollComboBox(QComboBox):
+    """Combo box that ignores the mouse wheel so scrolling the page over a
+    dropdown doesn't accidentally change its value."""
+
+    def wheelEvent(self, event):  # noqa: N802 (Qt override)
+        event.ignore()
 
 
 class SDTView(WizardViewBase):
@@ -37,7 +45,6 @@ class SDTView(WizardViewBase):
         self._stack.addWidget(self._build_form())
 
     def _build_form(self) -> QWidget:
-        p = active_palette()
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(16, 12, 16, 12)
@@ -58,43 +65,28 @@ class SDTView(WizardViewBase):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         inner = QWidget()
-        grid = QGridLayout(inner)
-        grid.setColumnStretch(2, 1)
-        grid.setContentsMargins(4, 4, 4, 4)
-        grid.setVerticalSpacing(2)
+        col = QVBoxLayout(inner)
+        col.setContentsMargins(4, 4, 4, 4)
+        col.setSpacing(12)
 
-        row = 0
+        card_lay = None
         last_section = None
         for s in cfg.SCHEMA:
-            if s.section != last_section:
-                sec = QLabel(self.tr("[{0}]").format(s.section))
-                sec.setStyleSheet("color:#2d8fd0; font-weight:700;")
-                grid.addWidget(sec, row, 0, 1, 3)
-                row += 1
+            first_in_card = s.section != last_section
+            if first_in_card:
+                card, card_lay = self._section_card(s.section)
+                col.addWidget(card)
                 last_section = s.section
 
             value, enabled = values.get(s.id, (s.default, s.enabled_by_default))
-
-            chk = QCheckBox()
-            chk.setChecked(enabled)
-            grid.addWidget(chk, row, 0)
-
-            key_lbl = QLabel(s.key)
-            key_lbl.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')};")
-            grid.addWidget(key_lbl, row, 1)
-
             widget, getter, setter = self._value_control(s)
             setter(value)
-            grid.addWidget(widget, row, 2)
+            chk = self._setting_row(card_lay, s, widget,
+                                    divider=not first_in_card)
+            chk.setChecked(bool(enabled))
             self._rows[s.id] = (chk, getter, setter)
-            row += 1
 
-            desc = QLabel(s.desc)
-            desc.setWordWrap(True)
-            desc.setStyleSheet(self._dim)
-            grid.addWidget(desc, row, 1, 1, 2)
-            row += 1
-
+        col.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
 
@@ -115,26 +107,84 @@ class SDTView(WizardViewBase):
         outer.addWidget(bar)
         return page
 
+    def _section_card(self, section: str):
+        """Return (card_frame, body_layout) for a named settings section."""
+        p = active_palette()
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame{{background:{_c(p,'BG_PANEL')};"
+            f" border:1px solid {_c(p,'BORDER')}; border-radius:6px;}}")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 10, 14, 12)
+        lay.setSpacing(6)
+
+        title = QLabel(self.tr("[{0}]").format(section))
+        title.setStyleSheet("color:#2d8fd0; font-weight:700; border:none;")
+        lay.addWidget(title)
+        return card, lay
+
+    def _setting_row(self, card_lay: QVBoxLayout, s, control: QWidget,
+                     *, divider: bool = False) -> QCheckBox:
+        """Add one setting (enable check + name + control on the right, dim
+        description below) to a section card; return its enable checkbox.
+
+        When *divider* is set, a thin separator line precedes the row so it is
+        visually distinct from the setting above it."""
+        p = active_palette()
+        if divider:
+            line = QFrame()
+            line.setFrameShape(QFrame.HLine)
+            line.setFixedHeight(1)
+            line.setStyleSheet(
+                f"background:{_c(p,'BORDER')}; border:none;")
+            card_lay.addWidget(line)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(8)
+
+        chk = QCheckBox()
+        chk.setStyleSheet("border:none;")
+        top.addWidget(chk, 0, Qt.AlignVCenter)
+
+        name = QLabel(s.key)
+        name.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; border:none;")
+        top.addWidget(name, 0, Qt.AlignVCenter)
+
+        top.addStretch(1)
+        top.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
+        card_lay.addLayout(top)
+
+        desc = QLabel(s.desc)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"{self._dim} border:none;")
+        desc.setContentsMargins(24, 0, 0, 2)
+        card_lay.addWidget(desc)
+        return chk
+
     def _value_control(self, s):
         """Return (widget, getter()->str, setter(str)) for a schema setting."""
         if s.kind == "bool":
             w = QWidget()
-            h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0)
+            w.setStyleSheet("border:none;")
+            h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(12)
             grp = QButtonGroup(w)
-            rb_t = QRadioButton("true"); rb_f = QRadioButton("false")
+            rb_t = QRadioButton(self.tr("true"))
+            rb_f = QRadioButton(self.tr("false"))
             grp.addButton(rb_t); grp.addButton(rb_f)
-            h.addWidget(rb_t); h.addWidget(rb_f); h.addStretch(1)
+            h.addWidget(rb_t); h.addWidget(rb_f)
             return (w,
                     lambda: "true" if rb_t.isChecked() else "false",
                     lambda v: (rb_t if str(v).lower() == "true"
                                else rb_f).setChecked(True))
         if s.kind == "enum":
-            cb = QComboBox()
+            cb = _NoScrollComboBox()
+            cb.setFocusPolicy(Qt.StrongFocus)
             cb.addItems(s.choices or [])
+            cb.setMinimumWidth(200)
             return (cb, lambda: cb.currentText(),
                     lambda v: cb.setCurrentText(str(v)))
         le = QLineEdit()
-        le.setMaximumWidth(180)
+        le.setFixedWidth(200)
         return (le, lambda: le.text(), lambda v: le.setText(str(v)))
 
     def _collect_values(self):

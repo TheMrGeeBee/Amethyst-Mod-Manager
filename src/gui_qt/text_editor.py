@@ -53,6 +53,17 @@ class _CodeEditor(QPlainTextEdit):
 
     def _update_gutter_width(self):
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        cr = self.contentsRect()
+        self._gutter.setGeometry(QRect(cr.left(), cr.top(),
+                                       self.line_number_area_width(), cr.height()))
+
+    def setFont(self, font):
+        # The gutter width depends on the font metrics, so recompute it (and the
+        # viewport margin) whenever the font changes. Without this, the margin is
+        # stale from construction time and text gets clipped on the left until a
+        # scroll/resize event forces a recompute.
+        super().setFont(font)
+        self._update_gutter_width()
 
     def _update_gutter(self, rect, dy):
         if dy:
