@@ -124,6 +124,8 @@ class MainWindow(QMainWindow):
     _updates_ready = Signal(object)
     # Endorse/abstain worker → UI thread ({"ok": n, "endorse": bool}).
     _endorse_done = Signal(object)
+    # "Endorse AMM" worker → UI thread ({"state": str, "message": str}).
+    _amm_endorse_done = Signal(object)
     # Copy/Move-to-profile worker → UI thread (result dict).
     _copy_done = Signal(object)
     # Install-a-Nexus-mod-by-id flow (used by Missing Requirements) → UI thread.
@@ -314,6 +316,7 @@ class MainWindow(QMainWindow):
         self._qu_resolved.connect(self._on_qu_resolved)
         self._qu_downloaded.connect(self._on_qu_downloaded)
         self._endorse_done.connect(self._on_endorse_done)
+        self._amm_endorse_done.connect(self._on_amm_endorse_done)
         self._copy_done.connect(self._on_copy_done)
         # Install-a-Nexus-mod-by-id (Missing Requirements) flow.
         self._req_installing = False
@@ -1017,8 +1020,13 @@ class MainWindow(QMainWindow):
             self.tr("Filters"), _c(self._pal, "BTN_INFO"), compact=True)
         self._tf_filters_btn.setFixedHeight(self._FOOT_BTN_H)
         self._tf_filters_btn.clicked.connect(self._toggle_text_files_filters)
+        self._tf_expand_btn = self._text_button(
+            self.tr("⊞ Expand all"), compact=True)
+        self._tf_expand_btn.setFixedHeight(self._FOOT_BTN_H)
+        self._tf_expand_btn.clicked.connect(self._on_tf_expand_clicked)
         btns.addWidget(self._tf_content_btn)
         btns.addWidget(self._tf_filters_btn)
+        btns.addWidget(self._tf_expand_btn)
         # A dim status label showing the active content-search keyword.
         self._tf_content_status = QLabel("")
         self._tf_content_status.setStyleSheet(
@@ -1049,6 +1057,11 @@ class MainWindow(QMainWindow):
         if showing:
             self._tf_content_input.setFocus()
             self._tf_content_input.selectAll()
+
+    def _on_tf_expand_clicked(self):
+        expanded = self._text_files_view._toggle_expand_all()
+        self._tf_expand_btn.setText(self.tr("⊟ Collapse all") if expanded
+                                    else self.tr("⊞ Expand all"))
 
     def _run_tf_content_search(self):
         kw = self._tf_content_input.text().strip()
@@ -7725,6 +7738,22 @@ class MainWindow(QMainWindow):
         self._changelog_btn.clicked.connect(self._open_changelog_tab)
         h.addWidget(self._changelog_btn)
 
+        # GitHub / Ko-Fi / Endorse — colored buttons mirroring the Tk status
+        # bar. GitHub + Ko-Fi open external links; Endorse endorses the AMM
+        # Nexus page (site mod 1714) via the shared Nexus API.
+        self._github_btn = self._text_button(self.tr("Github"), compact=True)
+        self._github_btn.clicked.connect(self._open_github)
+        h.addWidget(self._github_btn)
+
+        self._kofi_btn = self._color_button(self.tr("Ko-Fi"), "#7b2d8b", compact=True)
+        self._kofi_btn.clicked.connect(self._open_kofi)
+        h.addWidget(self._kofi_btn)
+
+        self._endorse_amm_btn = self._color_button(
+            self.tr("♥ Endorse AMM"), "#7a2a2a", compact=True)
+        self._endorse_amm_btn.clicked.connect(self._endorse_amm)
+        h.addWidget(self._endorse_amm_btn)
+
         # Nexus username at the far right; hover shows API rate-limit usage.
         from gui_qt.nexus_footer import NexusFooterLabel
         self._nexus_footer = NexusFooterLabel(lambda: getattr(self, "_nexus_api", None))
@@ -7852,6 +7881,83 @@ class MainWindow(QMainWindow):
         view.moveCursor(QTextCursor.Start)
         self._tabs.open_tab(view, self.tr("Changelog"), key="changelog")
 
+    # ------------------------------------------------------ social buttons
+    def _open_github(self):
+        from Utils.xdg import open_url
+        open_url("https://github.com/ChrisDKN/Amethyst-Mod-Manager")
+
+    def _open_kofi(self):
+        from Utils.xdg import open_url
+        open_url("https://ko-fi.com/chrisdkn")
+
+    def _endorse_amm(self):
+        """Endorse the Amethyst Mod Manager Nexus page (site mod 1714).
+
+        If the user isn't logged in we just open the mod page. Otherwise we
+        endorse on a worker thread and report the result. Nexus rejects an
+        endorsement from anyone who has never downloaded the mod
+        (``NOT_DOWNLOADED_MOD``) — something the Tk version didn't surface — so
+        we detect that and tell them to download it from Nexus first."""
+        _AMM_URL = "https://www.nexusmods.com/site/mods/1714"
+        api = self._ensure_nexus_api()
+        if api is None:
+            from Utils.xdg import open_url
+            self._notify(self.tr("Log in first (Nexus ▸ Login) — opening the "
+                                 "AMM page so you can endorse it there."), "info")
+            open_url(_AMM_URL)
+            return
+
+        import threading
+
+        def _worker():
+            import requests
+            payload = {}
+            try:
+                result = api.endorse_mod("site", 1714)
+            except requests.HTTPError as exc:
+                try:
+                    result = exc.response.json()
+                except Exception:
+                    payload = {"state": "error",
+                               "message": self.tr("Endorse AMM failed — {0}").format(exc)}
+                    self._amm_endorse_done.emit(payload)
+                    return
+            except Exception as exc:
+                payload = {"state": "error",
+                           "message": self.tr("Endorse AMM failed — {0}").format(exc)}
+                self._amm_endorse_done.emit(payload)
+                return
+
+            status = (result.get("status") or "")
+            message = (result.get("message") or "")
+            if status == "Endorsed" or message == "IS_OWN_MOD":
+                payload = {"state": "success",
+                           "message": self.tr("Thank you for endorsing!")}
+            elif message == "ALREADY_ENDORSED":
+                payload = {"state": "info",
+                           "message": self.tr("You've already endorsed — thank you!")}
+            elif message == "NOT_DOWNLOADED_MOD":
+                payload = {"state": "warning", "open_url": True,
+                           "message": self.tr(
+                               "Nexus only lets you endorse the app after you've "
+                               "downloaded it at least once. Opening the AMM page "
+                               "— please download it there first, then endorse.")}
+            else:
+                payload = {"state": "warning",
+                           "message": self.tr("Endorse AMM: {0}").format(message or status)}
+            self._amm_endorse_done.emit(payload)
+
+        self._notify(self.tr("Endorsing Amethyst Mod Manager…"), "info")
+        threading.Thread(target=_worker, daemon=True, name="endorse-amm").start()
+
+    def _on_amm_endorse_done(self, payload):
+        """UI thread: report the AMM endorse result. When Nexus reports the app
+        was never downloaded, open the mod page so the user can grab it."""
+        self._notify(payload.get("message", ""), payload.get("state", "info"))
+        if payload.get("open_url"):
+            from Utils.xdg import open_url
+            open_url("https://www.nexusmods.com/site/mods/1714")
+
 
 def _apply_app_identity(app) -> None:
     """Set the application/window icon and Wayland desktop-file association.
@@ -7867,14 +7973,17 @@ def _apply_app_identity(app) -> None:
        icon from the window itself; it looks up an INSTALLED .desktop file
        (by app_id) and uses that entry's Icon=. AppImage and Flatpak install
        such a file, so we point Qt at it. The basename differs per target.
-    3. setApplicationName()/DisplayName — helps the X11 WM_CLASS / labels.
+    3. setApplicationName() — helps the X11 WM_CLASS / labels. (We avoid
+       setApplicationDisplayName, which Qt would append to every window title.)
     """
     import os
     from pathlib import Path
     from PySide6.QtGui import QIcon
 
     app.setApplicationName("Amethyst Mod Manager")
-    app.setApplicationDisplayName("Amethyst Mod Manager")
+    # NB: intentionally NOT calling setApplicationDisplayName — Qt auto-appends
+    # " — {DisplayName}" to every setWindowTitle(), which duplicated the app
+    # name in the title bar ("… - v2.0.0 — Amethyst Mod Manager").
 
     # Window icon: bundled Logo.png sits next to the other icons (src/icons/).
     # gui_qt/ is a sibling of icons/, so parent.parent/icons/Logo.png.

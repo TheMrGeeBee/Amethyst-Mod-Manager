@@ -150,13 +150,12 @@ class TextFilesView(QWidget):
             entries = [e for e in entries
                        if q in e[0].casefold() or q in e[1].casefold()]
         self._model.set_root(self._build_tree(entries))
-        # When filtering (search/content), expand so matches are visible.
+        # When filtering (search/content), expand so matches are visible;
+        # otherwise start fully collapsed (including the top-level source nodes).
         if self._search or self._content_matches is not None:
             self._tree.expandAll()
         else:
-            # Keep the top-level source nodes open; folders within stay collapsed.
-            for r in range(self._model.rowCount()):
-                self._tree.expand(self._model.index(r, 0))
+            self._tree.collapseAll()
 
     def _build_tree(self, entries) -> _TextNode:
         """Build a source → folder → file tree. Each source is a top-level node;
@@ -251,9 +250,19 @@ class TextFilesView(QWidget):
         self.content_status_changed.emit(None)
         self._apply()
 
-    # -- expand (no folders, but kept for footer parity) --------------------
+    # -- expand / collapse all ----------------------------------------------
     def _toggle_expand_all(self) -> bool:
-        return True
+        """Toggle between fully-expanded and fully-collapsed. Returns the new
+        expanded state (True = everything expanded)."""
+        # Consider ourselves "expanded" if any top-level source node is open.
+        expanded = any(self._tree.isExpanded(self._model.index(r, 0))
+                       for r in range(self._model.rowCount()))
+        if expanded:
+            self._tree.collapseAll()
+        else:
+            self._tree.expandAll()
+        self._tree.viewport().update()
+        return not expanded
 
     # -- click → expand folder / open file ----------------------------------
     def _on_clicked(self, index):
