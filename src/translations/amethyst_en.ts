@@ -3401,6 +3401,10 @@ Deploy anyway?</translation>
         <translation>Clear Log</translation>
     </message>
     <message>
+        <source>Open Log Folder</source>
+        <translation>Open Log Folder</translation>
+    </message>
+    <message>
         <source>Changelog</source>
         <translation>Changelog</translation>
     </message>

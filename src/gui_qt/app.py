@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
         self._op_progress.connect(self._on_op_progress)
         self._op_log.connect(self._append_log)
         self._op_done.connect(self._on_op_done)
+        self._init_log_file()   # one on-disk log file per session
         self._bsa_op_running = False
         self._bsa_op_done.connect(self._on_bsa_op_done)
         self._install_running = False
@@ -8060,6 +8061,9 @@ class MainWindow(QMainWindow):
         self._clear_log_btn = self._text_button(self.tr("Clear Log"), compact=True)
         self._clear_log_btn.clicked.connect(self._clear_log)
         h.addWidget(self._clear_log_btn)
+        self._open_logs_btn = self._text_button(self.tr("Open Log Folder"), compact=True)
+        self._open_logs_btn.clicked.connect(self._open_logs_folder)
+        h.addWidget(self._open_logs_btn)
 
         h.addStretch(1)
 
@@ -8091,7 +8095,8 @@ class MainWindow(QMainWindow):
         h.addWidget(self._nexus_footer)
 
         self._log_open_widgets = [self._errors_lbl, self._warnings_lbl,
-                                  self._open_log_tab_btn, self._clear_log_btn]
+                                  self._open_log_tab_btn, self._clear_log_btn,
+                                  self._open_logs_btn]
         for w in self._log_open_widgets:
             w.setVisible(False)
         return bar
@@ -8129,17 +8134,24 @@ class MainWindow(QMainWindow):
             return "warning"
         return ""
 
-    def _log_line_html(self, line: str, severity: str) -> str:
-        """Escaped, colour-tinted HTML for a single log line."""
+    def _log_line_html(self, line: str, severity: str, timestamp: str = "") -> str:
+        """Escaped, colour-tinted HTML for a single log line.
+
+        *timestamp* (already formatted, e.g. ``2026-07-04 18:00:34``) is rendered
+        as a dimmed prefix so each on-screen line shows when it was logged."""
         from html import escape
         text = escape(line) or "&nbsp;"
+        prefix = ""
+        if timestamp:
+            dim = _c(self._pal, "TEXT_DIM")
+            prefix = f'<span style="color:{dim};">[{escape(timestamp)}]</span>  '
         if severity == "error":
             color = _c(self._pal, "TEXT_ERR")
         elif severity == "warning":
             color = _c(self._pal, "TEXT_WARN")
         else:
-            return f"<div>{text}</div>"
-        return f'<div style="color:{color};">{text}</div>'
+            return f"<div>{prefix}{text}</div>"
+        return f'<div>{prefix}<span style="color:{color};">{text}</span></div>'
 
     def _line_visible(self, severity: str) -> bool:
         """Whether a line of this severity passes the current Error/Warning
@@ -8150,6 +8162,34 @@ class MainWindow(QMainWindow):
         if severity == "warning":
             return self._show_warnings
         return True   # plain lines always show
+
+    def _init_log_file(self):
+        """Create one on-disk log file per session (Tk status_bar parity).
+
+        Lives at ``~/.config/AmethystModManager/logs/amethyst-<ts>.log`` and is
+        appended to on every ``_append_log`` call so the file stays in sync with
+        the on-screen log."""
+        self._log_file = None
+        try:
+            from datetime import datetime
+            from Utils.config_paths import get_logs_dir
+            ts = datetime.now().strftime("%m-%d-%y-%H%M%S")
+            self._log_file = get_logs_dir() / f"amethyst-{ts}.log"
+        except Exception:
+            self._log_file = None
+
+    def _write_log_file(self, line: str, timestamp: str):
+        """Append one already-stripped line to the session log file (best-effort).
+
+        *timestamp* is the same value shown on-screen so file and panel agree."""
+        log_file = getattr(self, "_log_file", None)
+        if log_file is None:
+            return
+        try:
+            with open(log_file, "a", encoding="utf-8", errors="replace") as f:
+                f.write(f"[{timestamp}]  {line}\n")
+        except OSError:
+            pass
 
     def _append_log(self, message: str):
         """Backend log_fn target — append a line to the log text area.
@@ -8171,12 +8211,17 @@ class MainWindow(QMainWindow):
             pass
         line = str(message).rstrip("\n")
         severity = self._classify_log_line(line)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not hasattr(self, "_log_lines"):
             self._log_lines = []
-        self._log_lines.append((line, severity))
+        self._log_lines.append((line, severity, timestamp))
+        # Persist to the session log file (before the display filter, so the file
+        # captures everything — Tk status_bar parity).
+        self._write_log_file(line, timestamp)
         if not self._line_visible(severity):
             return   # filtered out — retained but not shown
-        html = self._log_line_html(line, severity)
+        html = self._log_line_html(line, severity, timestamp)
         for view in (self._log_view, getattr(self, "_log_tab_view", None)):
             if view is None:
                 continue
@@ -8190,8 +8235,8 @@ class MainWindow(QMainWindow):
         Error/Warning filter toggles."""
         lines = getattr(self, "_log_lines", [])
         html = "".join(
-            self._log_line_html(text, sev)
-            for text, sev in lines if self._line_visible(sev)
+            self._log_line_html(text, sev, ts)
+            for text, sev, ts in lines if self._line_visible(sev)
         )
         for view in (self._log_view, getattr(self, "_log_tab_view", None)):
             if view is None:
@@ -8237,6 +8282,17 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _open_logs_folder(self):
+        """Open the session logs directory in the system file manager (Tk parity)."""
+        try:
+            from Utils.config_paths import get_logs_dir
+            from Utils.xdg import xdg_open
+            logs_dir = get_logs_dir()
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            xdg_open(logs_dir, log_fn=self._append_log)
+        except Exception as exc:
+            self._append_log(f"[log] could not open logs folder: {exc}")
+
     def _open_log_tab(self):
         """Open the log as a full-screen (detachable) tab. It mirrors the docked
         log view: new lines land in both, and Clear Log wipes both."""
@@ -8248,9 +8304,9 @@ class MainWindow(QMainWindow):
         view.setObjectName("LogView")
         self._log_tab_view = view
         # Seed with the existing (filtered, colour-tinted) log contents.
-        for text, sev in getattr(self, "_log_lines", []):
+        for text, sev, ts in getattr(self, "_log_lines", []):
             if self._line_visible(sev):
-                view.appendHtml(self._log_line_html(text, sev))
+                view.appendHtml(self._log_line_html(text, sev, ts))
         view.moveCursor(QTextCursor.End)
         view.destroyed.connect(
             lambda *_: setattr(self, "_log_tab_view", None))
