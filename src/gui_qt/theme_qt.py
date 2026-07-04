@@ -164,6 +164,13 @@ def build_qss(pal: dict | None = None) -> str:
         background: {c('ACCENT')};
         image: url({_icon_url('check_white.png')});
     }}
+    /* Submenu indicator — our own right-pointing arrow (matches the collapsed
+       row indicator) in place of Qt's default triangle. */
+    QMenu::right-arrow {{
+        width: 12px; height: 12px;
+        margin-right: 6px;
+        image: url({_icon_url('right.png')});
+    }}
     QMenu::separator {{ height: 1px; background: {c('BORDER')}; margin: 5px 8px; }}
 
     /* List / tree */

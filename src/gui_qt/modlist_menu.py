@@ -225,8 +225,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         act(_mtf("Enable selected ({0})", n),
             lambda: _set_enabled(view, model, sel_mods, True))
         if _separator_choices(model):
-            act(_mtf("Move to separator ({0})", n),
-                lambda: _pick_separator(view, model, sel_mods))
+            submenu(_mtf("Move to separator ({0})", n),
+                    _separator_submenu_items(view, model, sel_mods))
         if len(sel_mods) >= 2:
             act(_mtf("Sort Alphabetically ({0})", n),
                 lambda: _sort_selected_alphabetically(view, model, sel_mods))
@@ -294,7 +294,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         submenu(_mt("Move to profile"),
                 _profile_submenu_items(view, [name], [row], _others, True))
     if not locked and _separator_choices(model):
-        act(_mt("Move to separator"), lambda: _pick_separator(view, model, [row]))
+        submenu(_mt("Move to separator"),
+                _separator_submenu_items(view, model, [row]))
     if not locked:
         act(_mt("Set priority…"), lambda: _set_priority(view, model, row))
     divider()
@@ -508,16 +509,15 @@ def _separator_choices(model):
     return out
 
 
-def _pick_separator(view, model, mod_rows):
-    choices = _separator_choices(model)
-    if not choices:
-        return
-    from gui_qt.list_picker_overlay import ListPickerOverlay
-    ListPickerOverlay.show_over(
-        view, "Move to separator", choices,
-        lambda sep_name: _move_to_separator(view, model, mod_rows, sep_name)
-        if sep_name else None,
-        select_label="Move")
+def _separator_submenu_items(view, model, mod_rows):
+    """(display, slot) pairs for the Move-to-separator submenu — one entry per
+    non-boundary separator (Tk lists them inline rather than in a picker window).
+    Separator display names are DATA, not translated."""
+    return [
+        (display,
+         lambda sep=internal: _move_to_separator(view, model, mod_rows, sep))
+        for display, internal in _separator_choices(model)
+    ]
 
 
 def _move_to_separator(view, model, mod_rows, sep_name):
