@@ -7548,6 +7548,7 @@ class MainWindow(QMainWindow):
         self._mod_files_view.changed.connect(self._on_mod_files_changed)
         self._mod_files_view.on_open_image = self._open_image_preview_tab
         self._mod_files_view.on_open_archive = self._open_bsa_preview_tab
+        self._mod_files_view.on_open_text = self._open_text_editor_tab
         self._plugin_stack.addWidget(self._mod_files_view)
         # Page 2: the real Text Files view.
         from gui_qt.text_files_view import TextFilesView

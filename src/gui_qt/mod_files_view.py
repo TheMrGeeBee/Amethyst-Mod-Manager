@@ -415,14 +415,22 @@ class ModFilesView(QWidget):
                 cb(target, node.rel_str)
             return
         from gui_qt.image_preview import PREVIEW_EXTS
-        if ext not in PREVIEW_EXTS:
+        if ext in PREVIEW_EXTS:
+            target = self._disk_path_for(node)
+            if target is None or not target.is_file():
+                return
+            cb = getattr(self, "on_open_image", None)
+            if cb is not None:
+                cb(target, node.rel_str)
             return
-        target = self._disk_path_for(node)
-        if target is None or not target.is_file():
-            return
-        cb = getattr(self, "on_open_image", None)
-        if cb is not None:
-            cb(target, node.rel_str)
+        from Utils.text_files import TEXT_EXTENSIONS
+        if ext in TEXT_EXTENSIONS:
+            target = self._disk_path_for(node)
+            if target is None or not target.is_file():
+                return
+            cb = getattr(self, "on_open_text", None)
+            if cb is not None:
+                cb(target, node.rel_str)
 
     def _disk_path_for(self, node: _Node) -> Path | None:
         """Resolve a file node to its real on-disk path under the mod folder."""
