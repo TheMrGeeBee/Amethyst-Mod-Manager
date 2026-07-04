@@ -860,17 +860,30 @@ class ModListModel(QAbstractTableModel):
         dragging_sep = len(src) == 1 and self._entries[src[0]].is_separator
         if dragging_sep and self.is_sep_locked(self._entries[src[0]].display_name):
             src = [src[0]] + list(self.sep_block_rows(src[0]))
-        dest = self._resolve_drop_dest(dest, separator_drag=dragging_sep)
+        dest = self._resolve_drop_dest(dest, separator_drag=dragging_sep,
+                                       src_start=min(src))
         return self.move_block(src, dest)
 
-    def _resolve_drop_dest(self, dest: int, separator_drag: bool) -> int:
-        """Tk drop rule: a separator (lone or carrying its block) lands just
-        BEFORE the next separator/boundary below the drop point — i.e. at the
-        END of whatever block it was dropped into — so it becomes a peer group
-        and never splits another separator's mods. A plain mod drops as-is."""
+    def _resolve_drop_dest(self, dest: int, separator_drag: bool,
+                           src_start: int | None = None) -> int:
+        """Tk drop rule: a separator (lone or carrying its block) lands at a
+        block BOUNDARY so it stays self-contained and never splits another
+        separator's mods. A plain mod drops as-is.
+
+        Direction matters. Dragging DOWN, the separator lands at the END of the
+        block it was dropped into (just before the next separator) so it doesn't
+        split that block from the top. Dragging UP it lands EXACTLY at the drop
+        point: the gap above the mod under the cursor is already a valid group
+        start, so the separator sits there and absorbs that mod (and the rest of
+        the block below it) — nothing above the drop point moves. Forward-snapping
+        an upward drop is wrong: it would either run back into the source
+        separator (a no-op) or swallow the whole preceding block."""
         n = len(self._entries)
         dest = max(0, min(dest, n))
         if not separator_drag:
+            return dest
+        # Upward drag: drop right where released; the gap is its own boundary.
+        if src_start is not None and dest <= src_start:
             return dest
         i = dest
         while i < n and not self._entries[i].is_separator:

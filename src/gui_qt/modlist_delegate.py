@@ -448,6 +448,26 @@ class ModRowDelegate(QStyledItemDelegate):
             x += sz + gap
         return 0
 
+    def _hit_conflict_icon(self, pos, r, index):
+        """True if *pos* lands on a conflict icon in the Conflicts cell rect *r*.
+        Recomputes the same centred geometry as _paint_conflicts/_paint_icons so
+        the hit area matches the painted icons."""
+        loose = index.data(ConflictRole) or 0
+        bsa = index.data(BsaConflictRole) or 0
+        names = [n for n in (_CONFLICT_ICONS.get(loose),
+                             _BSA_CONFLICT_ICONS.get(bsa)) if n]
+        if not names:
+            return False
+        sz, gap = ICON_SZ, 3
+        total = len(names) * sz + (len(names) - 1) * gap
+        x = r.left() + max(6, (r.width() - total) // 2)
+        y = r.top() + (r.height() - sz) // 2
+        for _name in names:
+            if QRect(x, y, sz, sz).contains(pos):
+                return True
+            x += sz + gap
+        return False
+
     def _flag_tip(self, hit, index):
         """Tooltip for the hovered flag *hit*. The Note flag shows the actual
         note text (Tk parity); everything else uses the static _FLAG_TIPS."""
@@ -508,7 +528,7 @@ class ModRowDelegate(QStyledItemDelegate):
     def editorEvent(self, event, model, opt, index):
         if event.type() != QEvent.MouseButtonRelease:
             return False
-        if index.column() not in (COL_NAME, COL_FLAGS):
+        if index.column() not in (COL_NAME, COL_FLAGS, COL_CONFLICTS):
             return False
         pos = event.position().toPoint()
         e = model.entry(index.row())
@@ -525,6 +545,19 @@ class ModRowDelegate(QStyledItemDelegate):
                 cb = getattr(view, "on_flag_clicked", None)
                 if cb is not None:
                     cb(index.row(), hit)
+                    return True
+            return False
+
+        # Conflicts cell: a click on a conflict icon opens the Show Conflicts
+        # tab for the mod (same tab as the right-click menu item).
+        if index.column() == COL_CONFLICTS:
+            if e.is_separator:
+                return False
+            if self._hit_conflict_icon(pos, opt.rect, index):
+                view = self.parent()
+                cb = getattr(view, "on_show_conflicts", None)
+                if cb is not None:
+                    cb(e.name)
                     return True
             return False
 

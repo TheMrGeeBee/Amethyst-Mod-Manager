@@ -6,10 +6,11 @@ TkStyleHeader owns column resizing; column state persists via column_state.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, QRect, QCoreApplication
+from PySide6.QtCore import Qt, QTimer, QRect, QPoint, QCoreApplication
 from PySide6.QtGui import QPainter, QColor, QPen, QAction
 from PySide6.QtWidgets import (
     QTreeView, QAbstractItemView, QHeaderView, QToolButton, QMenu,
+    QStyleOptionViewItem,
 )
 
 from gui_qt.modlist_model import (
@@ -17,7 +18,7 @@ from gui_qt.modlist_model import (
     COL_CONFLICTS, COL_INSTALLED, COL_VERSION, COL_SIZE, HighlightRole,
 )
 from PySide6.QtWidgets import QWidget
-from gui_qt.modlist_delegate import ModRowDelegate
+from gui_qt.modlist_delegate import ModRowDelegate, SEP_H
 from gui_qt import column_state
 from gui_qt.modlist_header import TkStyleHeader
 
@@ -133,6 +134,15 @@ class ModListView(QTreeView):
         # only moves + sort-indicator need a direct save hook here.
         h.sectionMoved.connect(self._on_section_moved)
         h.sortIndicatorChanged.connect(lambda *a: self._schedule_save())
+
+        # Sticky separator header: the separator governing the topmost visible
+        # rows stays pinned to the viewport top while its group scrolls under
+        # it. Pixel-scrolling blits the viewport, which would smear the pinned
+        # band — repaint the top strip on every scroll step.
+        self._sticky_press: int | None = None
+        sb = self.verticalScrollBar()
+        self._last_vscroll = sb.value()
+        sb.valueChanged.connect(self._on_vscroll)
 
         # Marker strip: a coloured-tick gutter beside the scrollbar showing
         # highlighted/conflicting rows (Tk parity). Shared with the plugins panel.
@@ -471,6 +481,86 @@ class ModListView(QTreeView):
         except Exception as exc:
             print(f"[gui_qt] separator state save failed: {exc}", flush=True)
 
+    # ---- sticky separator header -------------------------------------------
+    def _sticky_sep_info(self) -> tuple[int, QRect] | None:
+        """(row, band_rect) for the separator band pinned to the viewport top,
+        or None when no band should show. The band mirrors the separator that
+        governs the topmost visible rows, so the group the top mods belong to
+        is always identifiable. The next separator scrolling into the top
+        SEP_H px pushes the band up and out (standard sticky-header handoff).
+        """
+        m = self.model()
+        n = m.rowCount()
+        if n == 0:
+            return None
+        top_idx = self.indexAt(QPoint(2, 0))
+        if not top_idx.isValid():
+            return None
+        top = top_idx.row()
+        from gui_qt.modlist_model import _PINNED_NAMES
+
+        def _real_sep(r: int) -> bool:
+            e = m.entry(r)
+            return e.is_separator and e.name not in _PINNED_NAMES
+
+        sep = next((r for r in range(top, -1, -1) if _real_sep(r)), None)
+        if sep is None:
+            return None
+        # visualRect() of an off-screen row can be empty, so don't measure the
+        # separator directly: it needs a pinned stand-in iff it sits ABOVE the
+        # top visible row, or IS the top row but partially scrolled off.
+        if sep == top and self.visualRect(m.index(top, 0)).top() >= 0:
+            return None
+        y = 0
+        root = self.rootIndex()
+        for r in range(top, n):
+            if r == sep or self.isRowHidden(r, root):
+                continue
+            rect = self.visualRect(m.index(r, 0))
+            if rect.top() >= SEP_H:
+                break
+            if _real_sep(r):
+                y = min(0, rect.top() - SEP_H)
+                break
+        return sep, QRect(0, y, self.viewport().width(), SEP_H)
+
+    def _paint_sticky_separator(self):
+        info = self._sticky_sep_info()
+        if info is None:
+            return
+        row, band = info
+        # Reuse the delegate's separator painting (band colour, custom colour,
+        # highlight tint, arrow, label + count, lock box) on the pinned rect.
+        opt = QStyleOptionViewItem()
+        opt.rect = band
+        p = QPainter(self.viewport())
+        self.itemDelegate().paint(p, opt, self.model().index(row, COL_NAME))
+        # Bottom edge so the band reads as floating over the scrolling rows.
+        p.setPen(QPen(self.itemDelegate().c_border, 1))
+        p.drawLine(band.left(), band.bottom(), band.right(), band.bottom())
+        p.end()
+
+    def _on_vscroll(self, value: int):
+        # Repaint the band area plus however far the blit shifted the old
+        # pixels, so the previous band never smears down the viewport.
+        delta = abs(value - self._last_vscroll)
+        self._last_vscroll = value
+        self.viewport().update(0, 0, self.viewport().width(),
+                               SEP_H + delta + 1)
+
+    def _sticky_click(self, row: int, band: QRect, pos: QPoint):
+        """A click on the pinned band acts like a click on the real separator
+        row: the lock box toggles the lock, anywhere else toggles collapse
+        (then scrolls the separator into view so the result is visible)."""
+        delegate = self.itemDelegate()
+        lock = getattr(delegate, "_lock_rect", None)
+        if lock is not None and lock(band).contains(pos):
+            self._toggle_lock_row(row)
+            return
+        self._toggle_collapse_row(row)
+        self.scrollTo(self.model().index(row, 0),
+                      QAbstractItemView.PositionAtTop)
+
     # ---- fill width: Name absorbs leftover on window resize ---------------
     def showEvent(self, event):
         super().showEvent(event)
@@ -618,11 +708,11 @@ class ModListView(QTreeView):
             return None
         if not e.is_separator and e.locked:
             return None
-        # A collapsed or locked separator carries its whole block (its mods are
-        # hidden / pinned to it), so the group moves together. An expanded
-        # separator moves alone — it just re-marks where a group begins.
-        if e.is_separator and (m.is_sep_locked(e.display_name)
-                               or m.is_collapsed(e.display_name)):
+        # Only a LOCKED separator carries its whole block (Tk parity: collapse
+        # affects visibility, never the drag payload). An unlocked separator —
+        # collapsed or not — moves alone: it just re-marks where a group
+        # begins, and membership recomputes from the drop position.
+        if e.is_separator and m.is_sep_locked(e.display_name):
             return [row] + list(m.sep_block_rows(row))
         # Multi-select: carry every selected, draggable row if this row is part
         # of the selection; otherwise just this row.
@@ -635,6 +725,15 @@ class ModListView(QTreeView):
         return [row]
 
     def mousePressEvent(self, event):
+        # A press on the sticky separator band must not reach the row painted
+        # underneath it — consume it and remember the band's row for release.
+        if not self._drag_active:
+            info = self._sticky_sep_info()
+            if info is not None and info[1].contains(event.position().toPoint()):
+                if event.button() == Qt.LeftButton:
+                    self._sticky_press = info[0]
+                event.accept()
+                return
         if event.button() == Qt.MiddleButton:
             idx = self.indexAt(event.position().toPoint())
             if idx.isValid():
@@ -662,6 +761,16 @@ class ModListView(QTreeView):
                     event.accept()
                     return
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # Swallow double-clicks on the sticky band (the single-click toggle
+        # already ran); the base handler would act on the covered row.
+        if not self._drag_active:
+            info = self._sticky_sep_info()
+            if info is not None and info[1].contains(event.position().toPoint()):
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event):
         if not (event.buttons() & Qt.LeftButton) or self._press_row < 0:
@@ -712,6 +821,17 @@ class ModListView(QTreeView):
             self.unsetCursor()
             self.viewport().update()
             self._press_row = -1
+            return
+        # Release of a press that started on the sticky separator band.
+        if self._sticky_press is not None:
+            row, self._sticky_press = self._sticky_press, None
+            info = self._sticky_sep_info()
+            pos = event.position().toPoint()
+            if (info is not None and info[0] == row
+                    and info[1].contains(pos)):
+                self._sticky_click(row, info[1], pos)
+            self._press_row = -1
+            event.accept()
             return
         # A click (no drag) on a real separator toggles its collapse (arrow or
         # anywhere on the band) or its lock (lock box). Its press was consumed
@@ -811,12 +931,11 @@ class ModListView(QTreeView):
         dest = self._drop_slot
         src = self._drag_rows
         m = self.model()
-        # A LONE separator drops exactly where released (like a mod) — it just
-        # marks where a new group begins. Only a separator carrying a whole
-        # block (locked sep) snaps to a block boundary so it stays self-contained.
-        carrying_block = (len(src) > 1 and m.entry(src[0]).is_separator)
-        if carrying_block:
-            dest = m._resolve_drop_dest(dest, separator_drag=True)
+        # Tk parity: every drag — a mod, a lone separator, or a locked
+        # separator carrying its block — drops exactly at the released slot,
+        # even mid-group (the host group splits there and its remaining mods
+        # fall under the dragged block). Only the Overwrite/Root boundaries
+        # clamp (movable_span in _update_drop_slot / move_block).
         if m.reverse_mode_active:
             # Reverse-priority drag: resolve the drop in display space with the
             # Tk inverted-mode semantics, then the model uninverts + saves.
@@ -859,6 +978,10 @@ class ModListView(QTreeView):
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        # Sticky separator band (hidden during a drag — it would cover the
+        # drop zone while autoscrolling toward the top).
+        if not self._drag_active:
+            self._paint_sticky_separator()
         if not self._drag_active or self._drop_slot < 0:
             return
         m = self.model()
@@ -893,7 +1016,12 @@ class ModListView(QTreeView):
     # ---- context menu -----------------------------------------------------
     def _on_context_menu(self, pos):
         from gui_qt.modlist_menu import show_context_menu
-        index = self.indexAt(pos)
+        # Over the sticky band, target the pinned separator, not the row under it.
+        info = self._sticky_sep_info() if not self._drag_active else None
+        if info is not None and info[1].contains(pos):
+            index = self.model().index(info[0], 0)
+        else:
+            index = self.indexAt(pos)
         if index.isValid():
             show_context_menu(self, self.viewport().mapToGlobal(pos), index)
 
