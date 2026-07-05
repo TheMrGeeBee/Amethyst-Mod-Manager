@@ -408,7 +408,7 @@ class CollectionDetailView(QWidget):
             self._size_lbl.setText(self.tr("Could not load collection."))
             self._opt_empty.setText(self.tr("Could not load."))
             return
-        name, total_size, mod_count, mods, dl_path, revisions = result
+        name, total_size, mod_count, mods, dl_path, revisions, card = result
         self._dl_path = dl_path or ""   # collection-archive download link (manifest)
         # The bare NexusCollection built for NXM / "Open Current" only knows the
         # slug, so the header + tab initially show the id-like slug. Now that the
@@ -417,6 +417,22 @@ class CollectionDetailView(QWidget):
             self._title_lbl.setText(name)
             self._collection.name = name
             self.title_resolved.emit(name)
+        # Enrich the (possibly bare NXM/"Open Current") collection with the
+        # display fields we just fetched, so an append records a full card
+        # (image + stats) into installed_collections/<slug>.json.
+        try:
+            if mod_count:
+                self._collection.mod_count = int(mod_count)
+            if isinstance(card, dict):
+                if card.get("tile_image_url") and not getattr(
+                        self._collection, "tile_image_url", ""):
+                    self._collection.tile_image_url = card["tile_image_url"]
+                if card.get("total_downloads"):
+                    self._collection.total_downloads = int(card["total_downloads"])
+                if card.get("endorsements"):
+                    self._collection.endorsements = int(card["endorsements"])
+        except Exception:
+            pass
         # `revisions` is populated only on the latest fetch (empty on a specific
         # revision fetch) — don't clobber the stored list.
         if revisions:
@@ -777,7 +793,7 @@ class CollectionDetailView(QWidget):
 
     # -- actions ------------------------------------------------------------
     def _collection_url(self) -> str:
-        return (f"https://www.nexusmods.com/{self._domain}/collections/"
+        return (f"https://www.nexusmods.com/games/{self._domain}/collections/"
                 f"{getattr(self._collection, 'slug', '')}")
 
     def _open_on_nexus(self):

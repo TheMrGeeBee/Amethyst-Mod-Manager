@@ -435,7 +435,7 @@ class CollectionsBrowserView(QWidget):
     # -- card actions -------------------------------------------------------
     def _collection_url(self, entry) -> str:
         dom = getattr(entry, "game_domain", "") or self._domain
-        return f"https://www.nexusmods.com/{dom}/collections/{entry.slug}"
+        return f"https://www.nexusmods.com/games/{dom}/collections/{entry.slug}"
 
     def _on_view(self, entry):
         from Utils.xdg import open_url

@@ -2152,7 +2152,8 @@ class NexusAPI:
     _COLLECTION_DETAIL_QUERY = """
     query CollectionDetail($slug: String!, $domain: String!) {
         collection(slug: $slug, domainName: $domain) {
-            name slug totalDownloads
+            name slug totalDownloads endorsements
+            tileImage { url }
             revisions {
                 revisionNumber
                 revisionStatus
@@ -2194,7 +2195,7 @@ class NexusAPI:
 
     def get_collection_detail(
         self, slug: str, game_domain: str, revision_number: "int | None" = None
-    ) -> "tuple[str, int, int, list[NexusCollectionMod], str, list[dict]]":
+    ) -> "tuple[str, int, int, list[NexusCollectionMod], str, list[dict], dict]":
         """
         Fetch the full mod list for a collection revision.
 
@@ -2208,9 +2209,13 @@ class NexusAPI:
 
         Returns
         -------
-        (collection_name, total_size_bytes, mod_count, mods, download_link_path, revisions)
-        where ``revisions`` is a list of dicts with ``revisionNumber`` and ``revisionStatus``
-        (only populated on the initial/latest fetch, not on specific-revision fetches).
+        (collection_name, total_size_bytes, mod_count, mods, download_link_path,
+         revisions, card)
+        where ``revisions`` is a list of dicts with ``revisionNumber`` and
+        ``revisionStatus`` (only populated on the initial/latest fetch, not on
+        specific-revision fetches), and ``card`` carries collection-level display
+        fields (``tile_image_url``, ``total_downloads``, ``endorsements``) for
+        re-hydrating a NexusCollection.
         """
         headers = dict(self._session.headers)
         try:
@@ -2226,13 +2231,18 @@ class NexusAPI:
             self._log_response("POST", "GraphQL get_collection_detail", resp)
             if not resp.ok:
                 app_log(f"GraphQL get_collection_detail failed: {resp.status_code}")
-                return ("", 0, 0, [], "", [])
+                return ("", 0, 0, [], "", [], {})
             data = resp.json()
             if "errors" in data:
                 app_log(f"GraphQL get_collection_detail errors: {data['errors']}")
-                return ("", 0, 0, [], "", [])
+                return ("", 0, 0, [], "", [], {})
             col = data.get("data", {}).get("collection") or {}
             col_name = col.get("name", "") or ""
+            card = {
+                "tile_image_url": (col.get("tileImage") or {}).get("url", "") or "",
+                "total_downloads": int(col.get("totalDownloads") or 0),
+                "endorsements": int(col.get("endorsements") or 0),
+            }
             revisions: list[dict] = col.get("revisions") or []
             latest_rev = col.get("latestPublishedRevision") or {}
             latest_rev_num = int(latest_rev.get("revisionNumber") or 0)
@@ -2250,11 +2260,11 @@ class NexusAPI:
                 self._log_response("POST", "GraphQL get_collection_detail (specific revision)", rev_resp)
                 if not rev_resp.ok:
                     app_log(f"GraphQL get_collection_detail (revision) failed: {rev_resp.status_code}")
-                    return ("", 0, 0, [], "", [])
+                    return ("", 0, 0, [], "", [], {})
                 rev_data = rev_resp.json()
                 if "errors" in rev_data:
                     app_log(f"GraphQL get_collection_detail (revision) errors: {rev_data['errors']}")
-                    return ("", 0, 0, [], "", [])
+                    return ("", 0, 0, [], "", [], {})
                 rev = rev_data.get("data", {}).get("collectionRevision") or {}
             else:
                 rev = latest_rev
@@ -2288,10 +2298,11 @@ class NexusAPI:
                     size_bytes=int(f.get("sizeInBytes") or 0),
                     optional=bool(entry.get("optional", False)),
                 ))
-            return (col_name, total_size, mod_count, mods, download_link_path, revisions)
+            return (col_name, total_size, mod_count, mods, download_link_path,
+                    revisions, card)
         except Exception as exc:
             app_log(f"GraphQL get_collection_detail error: {exc}")
-            return ("", 0, 0, [], "", [])
+            return ("", 0, 0, [], "", [], {})
 
     def get_collection_archive_json(
         self, download_link_path: str,

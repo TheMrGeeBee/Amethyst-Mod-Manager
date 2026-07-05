@@ -2410,7 +2410,7 @@ class MainWindow(QMainWindow):
             find_profile_with_collection_url, _profiles_for_game)
         game = info["game"]; slug = info["slug"]; domain = info["domain"]
         rev = info["revision"]
-        url = f"https://www.nexusmods.com/{domain}/collections/{slug}"
+        url = f"https://www.nexusmods.com/games/{domain}/collections/{slug}"
         if rev is not None:
             url += f"/revisions/{rev}"
         try:
@@ -2784,7 +2784,7 @@ class MainWindow(QMainWindow):
         from Utils.profile_state import (
             write_collection_revision, write_collection_optional_skipped)
         try:
-            url = f"https://www.nexusmods.com/{domain}/collections/{slug}"
+            url = f"https://www.nexusmods.com/games/{domain}/collections/{slug}"
             if revision_number is not None:
                 url += f"/revisions/{revision_number}"
             save_collection_url_to_profile(profile_dir, url)
@@ -3242,7 +3242,7 @@ class MainWindow(QMainWindow):
                     api = self._ensure_nexus_api()
                     if api is not None:
                         (_n, _s, _c, _mods, dl_path,
-                         revs) = api.get_collection_detail(slug, domain)
+                         revs, _card) = api.get_collection_detail(slug, domain)
                         rev = None
                         try:
                             pub = [int(r.get("revisionNumber") or 0)
