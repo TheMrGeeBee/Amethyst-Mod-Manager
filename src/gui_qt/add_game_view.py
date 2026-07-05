@@ -200,6 +200,8 @@ class AddGameView(QWidget):
         # Reflow when the scroll area itself resizes (covers detach into a
         # narrower/wider window, not just the outer view's resizeEvent).
         self._scroll.installEventFilter(self)
+        from gui_qt.loading_overlay import LoadingOverlay
+        self._loading_overlay = LoadingOverlay(self._scroll)
         outer.addWidget(self._scroll, 1)
 
     def eventFilter(self, obj, event):
@@ -219,7 +221,9 @@ class AddGameView(QWidget):
             self._cards.append((search, card))
         self._relayout()
         # Detect installed games up front so we can split into sections. Runs on
-        # a worker thread; results marshaled back via _installed_scanned.
+        # a worker thread; results marshaled back via _installed_scanned. Show a
+        # spinner over the grid while the (potentially slow) Steam/Heroic scan runs.
+        self._loading_overlay.show_over()
         import threading
         threading.Thread(target=self._scan_installed_games, daemon=True).start()
 
@@ -293,6 +297,7 @@ class AddGameView(QWidget):
 
     def _on_installed_scanned(self, installed: set):
         self._installed_game_names = installed
+        self._loading_overlay.hide_overlay()
         self._relayout()
 
     def _cols_for_width(self) -> int:

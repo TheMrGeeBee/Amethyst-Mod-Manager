@@ -49,8 +49,10 @@ TIME_RANGES = [
     ("Year", 365),
 ]
 SECTIONS = ["Browse", "Tracked", "Endorsed", "Trending"]
+# Default "shown per page"; overridden by the footer dropdown (persisted).
 PAGE_SIZE_BROWSE = 30
-PAGE_SIZE_TRENDING = 20
+# User-selectable "shown per page" counts (footer dropdown).
+PAGE_SIZE_CHOICES = [20, 30, 40, 50]
 
 
 class NexusBrowserView(QWidget):
@@ -87,6 +89,7 @@ class NexusBrowserView(QWidget):
         self._query = ""
         self._selected_categories: list[str] = []
         self._show_adult = self._load_show_adult()
+        self._page_size_choice = self._load_page_size()
         self._entries = []
         self._cards: list[NexusModCard] = []
         self._cols = 0
@@ -134,6 +137,14 @@ class NexusBrowserView(QWidget):
             return bool(load_nexus_show_adult())
         except Exception:
             return False
+
+    @staticmethod
+    def _load_page_size() -> int:
+        try:
+            from Utils.ui_config import load_nexus_page_size
+            return int(load_nexus_page_size(PAGE_SIZE_BROWSE))
+        except Exception:
+            return PAGE_SIZE_BROWSE
 
     def _build(self):
         outer = QVBoxLayout(self)
@@ -253,6 +264,8 @@ class NexusBrowserView(QWidget):
         self._grid.setAlignment(Qt.AlignTop)
         self._scroll.setWidget(self._grid_host)
         self._scroll.installEventFilter(self)
+        from gui_qt.loading_overlay import LoadingOverlay
+        self._loading_overlay = LoadingOverlay(self._scroll)
         self._body_split.addWidget(self._scroll)
 
         self._body_split.setStretchFactor(0, 0)
@@ -285,6 +298,13 @@ class NexusBrowserView(QWidget):
         ft.addWidget(sbtn)
 
         ft.addStretch(1)
+
+        self._perpage_sel = SelectorButton(
+            items=[str(n) for n in PAGE_SIZE_CHOICES],
+            current=str(self._page_size_choice),
+            prefix="Show: ", min_width=110,
+            on_select=self._on_page_size_changed)
+        ft.addWidget(self._perpage_sel)
 
         self._prev_btn = QToolButton()
         self._prev_btn.setText(self.tr("◂ Prev"))
@@ -336,7 +356,8 @@ class NexusBrowserView(QWidget):
         paged = self._section in ("Browse", "Trending")
         self._sort_sel.setVisible(browse)
         self._time_sel.setVisible(browse)
-        for w in (self._prev_btn, self._next_btn, self._page_edit):
+        for w in (self._prev_btn, self._next_btn, self._page_edit,
+                  self._perpage_sel):
             w.setVisible(paged)
 
     def _toggle_categories(self, on: bool):
@@ -466,7 +487,23 @@ class NexusBrowserView(QWidget):
 
     # -- pagination ---------------------------------------------------------
     def _page_size(self) -> int:
-        return PAGE_SIZE_TRENDING if self._section == "Trending" else PAGE_SIZE_BROWSE
+        return int(self._page_size_choice)
+
+    def _on_page_size_changed(self, label: str):
+        try:
+            size = int(label)
+        except (TypeError, ValueError):
+            return
+        if size == self._page_size_choice:
+            return
+        self._page_size_choice = size
+        self._page = 0
+        try:
+            from Utils.ui_config import save_nexus_page_size
+            save_nexus_page_size(size)
+        except Exception:
+            pass
+        self._reload()
 
     def _prev_page(self):
         if self._page > 0:
@@ -604,10 +641,13 @@ class NexusBrowserView(QWidget):
 
     def _set_loading(self, on: bool):
         for w in (self._prev_btn, self._next_btn, self._sort_sel, self._time_sel,
-                  self._page_edit):
+                  self._page_edit, self._perpage_sel):
             w.setEnabled(not on)
         if on:
             self._status.setText(self.tr("Loading…"))
+            self._loading_overlay.show_over()
+        else:
+            self._loading_overlay.hide_overlay()
 
     def _update_page_buttons(self):
         paged = self._section in ("Browse", "Trending")

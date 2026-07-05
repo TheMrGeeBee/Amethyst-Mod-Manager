@@ -150,6 +150,8 @@ class CollectionsBrowserView(QWidget):
         sb.addStretch(1)
         self._scroll.setWidget(scroll_body)
         self._scroll.installEventFilter(self)
+        from gui_qt.loading_overlay import LoadingOverlay
+        self._loading_overlay = LoadingOverlay(self._scroll)
         outer.addWidget(self._scroll, 1)
 
         # --- footer ---------------------------------------------------------
@@ -312,6 +314,9 @@ class CollectionsBrowserView(QWidget):
             w.setEnabled(not on)
         if on:
             self._status.setText(self.tr("Loading…"))
+            self._loading_overlay.show_over()
+        else:
+            self._loading_overlay.hide_overlay()
 
     def _update_page_buttons(self):
         self._prev_btn.setEnabled(self._page > 0)
