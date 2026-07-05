@@ -83,6 +83,89 @@ def _check_modio_updates(game, staging, log_fn, only_names=None):
 _RESTART_REQUESTED = False
 
 
+class _FooterBar(QWidget):
+    """A footer container whose reported height follows its FlowLayout's
+    *wrapped* height at the current width. Qt evaluates a widget's sizeHint
+    height at its MINIMUM width (every button on its own row), so a footer whose
+    buttons only wrap when narrow otherwise reserves that fully-wrapped tall
+    height — a blank gap above the search box. We report heightForWidth for the
+    sizeHint/minimumSizeHint heights so the parent layout fits us exactly."""
+
+    def _hfw(self) -> int:
+        lay = self.layout()
+        if lay is not None and lay.hasHeightForWidth():
+            w = self.width() or self.sizeHint().width()
+            return lay.heightForWidth(w)
+        return -1
+
+    def sizeHint(self) -> QSize:            # noqa: N802
+        s = super().sizeHint()
+        h = self._hfw()
+        return QSize(s.width(), h) if h >= 0 else s
+
+    def minimumSizeHint(self) -> QSize:     # noqa: N802
+        s = super().minimumSizeHint()
+        h = self._hfw()
+        return QSize(s.width(), h) if h >= 0 else s
+
+    def resizeEvent(self, e):               # noqa: N802
+        super().resizeEvent(e)
+        # Width changed → our wrapped height may have changed; re-fit.
+        self.updateGeometry()
+
+
+class _CurrentPageStack(QStackedWidget):
+    """A QStackedWidget that sizes to its *currently visible* page instead of
+    the tallest one.
+
+    QStackedLayout keeps every page laid out and reserves height for the tallest
+    one, so a taller hidden page (e.g. the Downloads footer wrapping its buttons
+    onto a second row at narrow widths) leaves a blank row above shorter visible
+    pages. Reporting the current page's size hints isn't enough — the layout's
+    own minimum still wins — so we also clamp our maximum height to the current
+    page's wrapped (heightForWidth) height, refreshed on resize and page swap."""
+
+    def _current_height(self) -> int:
+        w = self.currentWidget()
+        if w is None:
+            return -1
+        if w.hasHeightForWidth():
+            return w.heightForWidth(self.width() or w.sizeHint().width())
+        return w.sizeHint().height()
+
+    def clamp_to_current(self) -> None:
+        """Clamp our max height to the current page so hidden (taller) pages
+        don't reserve extra rows. Safe to call after a page swap or resize."""
+        h = self._current_height()
+        if h >= 0:
+            # A max (not fixed) height is enough to drop the extra rows the
+            # hidden pages reserve, without fighting the parent layout.
+            self.setMaximumHeight(h)
+            self.updateGeometry()
+
+    def sizeHint(self) -> QSize:            # noqa: N802
+        w = self.currentWidget()
+        return w.sizeHint() if w is not None else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:     # noqa: N802
+        w = self.currentWidget()
+        return w.minimumSizeHint() if w is not None else super().minimumSizeHint()
+
+    def hasHeightForWidth(self) -> bool:    # noqa: N802
+        w = self.currentWidget()
+        return w.hasHeightForWidth() if w is not None else False
+
+    def heightForWidth(self, width: int) -> int:   # noqa: N802
+        w = self.currentWidget()
+        if w is not None and w.hasHeightForWidth():
+            return w.heightForWidth(width)
+        return super().heightForWidth(width)
+
+    def resizeEvent(self, e):               # noqa: N802
+        super().resizeEvent(e)
+        self.clamp_to_current()
+
+
 class MainWindow(QMainWindow):
     # Carries (generation, ConflictData) from a worker thread to the UI thread
     # (queued connection — thread-safe). See _rebuild_conflicts_async.
@@ -280,6 +363,11 @@ class MainWindow(QMainWindow):
         # Game, Nexus browser, …) open as further tabs that can be detached.
         self._tabs = DetachableTabWidget()
         self._tabs.add_permanent(main_content, self.tr("Mods"))
+        # Let the tab bar's right-click "Pin to…" menu move any tab between the
+        # modlist panel, the plugins panel, or full screen. The stacks were built
+        # in _build_body_row above.
+        self._tabs.register_scope_targets(
+            self._modlist_panel_stack, self._plugins_panel_stack)
 
         self._log_view = QPlainTextEdit()
         self._log_view.setReadOnly(True)
@@ -450,6 +538,7 @@ class MainWindow(QMainWindow):
         profs = gs.profiles()
         if profs:
             self._profile_selector.set_items(profs, current=gs.profile)
+        self._refresh_profile_actions()
 
     # ---------------------------------------------------------- header row
     def _build_header_row(self) -> QWidget:
@@ -477,12 +566,22 @@ class MainWindow(QMainWindow):
         plugins_body = self._build_plugins()
         # The plugins column footer is a stack: it swaps to the active sub-tab's
         # tools (Plugins tools ↔ Mod Files Pack/Unpack + search).
-        self._plugin_footer_stack = QStackedWidget()
-        self._plugin_footer_stack.addWidget(self._plugins_footer())       # page 0
-        self._plugin_footer_stack.addWidget(self._mod_files_footer())     # page 1
-        self._plugin_footer_stack.addWidget(self._data_footer())          # page 2
-        self._plugin_footer_stack.addWidget(self._downloads_footer())     # page 3
-        self._plugin_footer_stack.addWidget(self._text_files_footer())    # page 4
+        # _CurrentPageStack (not a plain QStackedWidget): sizes to the visible
+        # footer only, so the Downloads footer wrapping its buttons to a second
+        # row at min width doesn't add a blank row to the Plugins/etc. footers.
+        self._plugin_footer_stack = _CurrentPageStack()
+        for _page in (self._plugins_footer(), self._mod_files_footer(),
+                      self._data_footer(), self._downloads_footer(),
+                      self._text_files_footer()):
+            self._enable_height_for_width(_page)
+            self._plugin_footer_stack.addWidget(_page)
+        # The stack must also report height via heightForWidth so its parent
+        # (plugins_panel's QVBoxLayout) fits it to the visible page's wrapped
+        # height at the actual width, not the inflated min-width sizeHint.
+        self._enable_height_for_width(self._plugin_footer_stack)
+        # Re-fit the stack (and thus the panel) whenever the visible page swaps.
+        self._plugin_footer_stack.currentChanged.connect(
+            lambda _i: self._plugin_footer_stack.clamp_to_current())
         # The whole plugins panel (sub-tab strip + content + footer, but NOT the
         # Play bar) lives in a stack so a panel-scoped tab (Change Version) can
         # take it over entirely. Page 0 = the plugins panel + its footer.
@@ -765,6 +864,18 @@ class MainWindow(QMainWindow):
             self._xpanel_busy = False
 
     # ---------------------------------------------------------- panel footers
+    @staticmethod
+    def _enable_height_for_width(w: QWidget) -> None:
+        """Make a footer widget report its height via heightForWidth (the wrapped
+        FlowLayout height at the *actual* width) rather than its inflated
+        sizeHint (which Qt evaluates at the widget's MINIMUM width, i.e. every
+        button on its own row). Without this, a footer whose buttons only wrap
+        at narrow widths still reserves the fully-wrapped tall height, leaving a
+        blank gap above the search box."""
+        pol = w.sizePolicy()
+        pol.setHeightForWidth(True)
+        w.setSizePolicy(pol)
+
     def _modlist_footer(self) -> QWidget:
         """Buttons row + search box — lives at the bottom of the modlist panel."""
         bar = QWidget()
@@ -772,13 +883,6 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(bar)
         v.setContentsMargins(8, 6, 8, 6)
         v.setSpacing(6)
-
-        # Stats row (pills) above the buttons: enabled / disabled. Spacing matches
-        # the button row (4px) so, once the first pill is sized to the first
-        # button's width, the second pill lines up under the second button.
-        from gui_qt.stats_bar import StatsBar
-        self._modlist_stats = StatsBar(placeholder="…", spacing=4)
-        v.addWidget(self._modlist_stats)
 
         # FlowLayout so longer translated labels wrap to a second row instead of
         # overflowing the panel (see gui_qt/flow_layout.py).
@@ -818,38 +922,38 @@ class MainWindow(QMainWindow):
             self._modlist_footer_btns.append(b)
         v.addLayout(btns)
 
-        # Search box spans the footer width. (It used to be pinned to the summed
-        # button-row width so its edge lined up with the last button; that
-        # assumed a single, non-wrapping row — with the FlowLayout the buttons
-        # can wrap, so a fixed cap would over/under-shoot. Full width is simpler
-        # and robust across languages.)
+        # Search row: an enabled/total count label (blue outline) to the left of
+        # a full-width search box. The count label replaces the old Enabled /
+        # Disabled stat pill row.
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(6)
+
+        count = QLabel("…")
+        count.setObjectName("ModlistCountLabel")
+        count.setAlignment(Qt.AlignCenter)
+        count.setStyleSheet(
+            "QLabel#ModlistCountLabel {"
+            f" color: {_c(self._pal, 'TEXT_MAIN')};"
+            f" border: 1px solid {_c(self._pal, 'ACCENT')};"
+            " border-radius: 4px; padding: 2px 8px; }")
+        self._modlist_count = count
+        search_row.addWidget(count)
+
+        # Search box spans the remaining footer width. (It used to be pinned to
+        # the summed button-row width so its edge lined up with the last button;
+        # that assumed a single, non-wrapping row — with the FlowLayout the
+        # buttons can wrap, so a fixed cap would over/under-shoot. Full width is
+        # simpler and robust across languages.)
         search = QLineEdit()
         search.setPlaceholderText(self.tr("Search mods…"))
         search.setClearButtonEnabled(True)
         search.textChanged.connect(self._on_modlist_search)
         self._modlist_search = search
-        v.addWidget(search)
-        # Align the stat pills under the (first-row) buttons once layout settles.
-        QTimer.singleShot(0, self._sync_modlist_search_width)
+        search_row.addWidget(search, 1)
+        v.addLayout(search_row)
+        self._enable_height_for_width(bar)
         return bar
-
-    def _sync_modlist_search_width(self):
-        """Align the stat pills so each lines up under its button
-        (Enabled↔Expand all, Disabled↔Enable all). The search box is no longer
-        width-matched — see _modlist_footer."""
-        btns = getattr(self, "_modlist_footer_btns", None)
-        if not btns:
-            return
-        # Align the pills: fix all-but-the-last pill to the matching button's
-        # width so the next pill (and the button below it) share the same left
-        # edge; matching row spacing + equal text inset lines up the letters.
-        stats = getattr(self, "_modlist_stats", None)
-        if stats is not None and stats._pills:
-            n = len(stats._pills)
-            widths = [btns[i].sizeHint().width() if i < len(btns) else 0
-                      for i in range(n)]
-            widths[-1] = 0            # last pill keeps its natural width
-            stats.align_pills_to_widths(widths)
 
     def _plugins_footer(self) -> QWidget:
         """Colored tool buttons + search, under the plugins."""
@@ -858,12 +962,6 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(bar)
         v.setContentsMargins(8, 6, 8, 6)
         v.setSpacing(6)
-
-        # Stats row (pills) above the buttons: total / ESL / non-ESL plugins.
-        # Spacing matches the button row so the pills can line up under buttons.
-        from gui_qt.stats_bar import StatsBar
-        self._plugin_stats = StatsBar(placeholder="…", spacing=4)
-        v.addWidget(self._plugin_stats)
 
         btns = FlowLayout(spacing=4)
         _made = {}
@@ -889,28 +987,31 @@ class MainWindow(QMainWindow):
         self._plugin_rules_btn.clicked.connect(self._open_plugin_rules_tab)
         self._plugin_filters_btn.clicked.connect(self._toggle_plugin_filters)
 
+        # Search row: a total / non-ESL count label (blue outline) to the left
+        # of a full-width search box, mirroring the modlist footer.
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(6)
+
+        count = QLabel("…")
+        count.setObjectName("PluginCountLabel")
+        count.setAlignment(Qt.AlignCenter)
+        count.setStyleSheet(
+            "QLabel#PluginCountLabel {"
+            f" color: {_c(self._pal, 'TEXT_MAIN')};"
+            f" border: 1px solid {_c(self._pal, 'ACCENT')};"
+            " border-radius: 4px; padding: 2px 8px; }")
+        self._plugin_count = count
+        search_row.addWidget(count)
+
         search = QLineEdit()
         search.setPlaceholderText(self.tr("Search plugins…"))
         search.setClearButtonEnabled(True)
         search.textChanged.connect(self._on_plugin_search)
-        v.addWidget(search)
         self._plugins_search = search
-        # Align the stat pills under their buttons once layout has settled.
-        QTimer.singleShot(0, self._sync_plugin_stats_align)
+        search_row.addWidget(search, 1)
+        v.addLayout(search_row)
         return bar
-
-    def _sync_plugin_stats_align(self):
-        """Size the plugin stat pills so each lines up under its button
-        (Plugins↔Sort Plugins, ESL↔Groups, Non-ESL↔Plugin Rules)."""
-        btns = getattr(self, "_plugin_footer_btns", None)
-        stats = getattr(self, "_plugin_stats", None)
-        if not btns or stats is None or not stats._pills:
-            return
-        n = len(stats._pills)
-        widths = [btns[i].sizeHint().width() if i < len(btns) else 0
-                  for i in range(n)]
-        widths[-1] = 0
-        stats.align_pills_to_widths(widths)
 
     def _mod_files_footer(self) -> QWidget:
         """Pack/Unpack BSA + Filters buttons + search, shown under the plugins
@@ -1290,12 +1391,7 @@ class MainWindow(QMainWindow):
             current="default",
             prefix=self.tr("Profile: "),
             min_width=150,
-            actions=[
-                (self.tr("Add new profile…"), lambda: self._on_profile_action("add")),
-                (self.tr("Profile settings…"), lambda: self._on_profile_action("settings")),
-                (self.tr("Export profile…"), lambda: self._on_profile_action("export")),
-                (self.tr("Import profile…"), lambda: self._on_profile_action("import")),
-            ],
+            actions=self._profile_actions(),
             on_select=self._on_profile_changed,
         )
         self._profile_selector.setFixedHeight(self._BTN_H)
@@ -1443,6 +1539,8 @@ class MainWindow(QMainWindow):
         profs = self._gs.profiles()
         if profs:
             self._profile_selector.set_items(profs, current=self._gs.profile)
+        # The Open submenu depends on the new game's profile-specific settings.
+        self._refresh_profile_actions()
         self._game_selector.set_current(name)
         self._refresh_play_selector()
         self._clear_search_boxes()
@@ -1496,6 +1594,9 @@ class MainWindow(QMainWindow):
             return
         self._gs.set_profile(name)
         self._profile_selector.set_current(name)
+        # profile_ini_files / profile_saves are per-profile overrides — set_profile
+        # reloaded them, so refresh the Open submenu for the new profile.
+        self._refresh_profile_actions()
         # Userlist tabs/bars are profile-scoped (userlist.yaml lives there).
         self._close_userlist_ui()
         # Exe selection + exe args are per-profile.
@@ -4744,6 +4845,10 @@ class MainWindow(QMainWindow):
                 if saved and game.name in names:
                     self._on_game_changed(game.name)
                     self._game_selector.set_current(game.name)
+                    # profile_ini_files / profile_saves may have just been
+                    # toggled — refresh the Open submenu (a same-game save is a
+                    # no-op for _on_game_changed).
+                    self._refresh_profile_actions()
                 elif removed:
                     self._append_log(f"[game] removed instance: {game.name}")
                     # Don't leave the manager pointed at the now-removed game —
@@ -5539,6 +5644,180 @@ class MainWindow(QMainWindow):
             xdg_open(str(path))
         except Exception as e:
             self._append_log(f"Open {descr} error: {e}")
+
+    def _profile_actions(self):
+        """Build the pinned action entries for the profile selector. An "Open"
+        submenu is prepended only when the current game exposes profile-specific
+        INI files and/or Saves *and* the matching option is toggled on."""
+        open_items = []
+        game = getattr(getattr(self, "_gs", None), "game", None)
+        if game is not None and getattr(game, "is_configured", lambda: False)():
+            if getattr(game, "profile_ini_files", False) \
+                    and hasattr(game, "_profile_ini_dir"):
+                open_items.append(
+                    (self.tr("Profile INI files folder"),
+                     lambda: self._open_profile_dir("ini")))
+            if getattr(game, "profile_saves", False) \
+                    and hasattr(game, "_profile_saves_dir"):
+                open_items.append(
+                    (self.tr("Profile saves folder"),
+                     lambda: self._open_profile_dir("saves")))
+        actions = []
+        if open_items:
+            actions.append((self.tr("Open"), open_items))
+        quick = self._quick_configure_submenu(game)
+        if quick:
+            actions.append((self.tr("Quick configure"), quick))
+        actions.extend([
+            (self.tr("Add new profile…"), lambda: self._on_profile_action("add")),
+            (self.tr("Profile settings…"), lambda: self._on_profile_action("settings")),
+            (self.tr("Export profile…"), lambda: self._on_profile_action("export")),
+            (self.tr("Import profile…"), lambda: self._on_profile_action("import")),
+        ])
+        return actions
+
+    def _quick_configure_submenu(self, game):
+        """Build the profile dropdown's 'Quick configure' submenu: the active
+        profile's Configure-view options as inline checkable/radio entries that
+        flip live when clicked (like saving that one field would). Returns a list
+        of SelectorButton action entries, or [] when the game has no options."""
+        from Utils.quick_configure import build_quick_configure_options
+        try:
+            options = build_quick_configure_options(game)
+        except Exception as e:
+            self._append_log(f"[quick-configure] build failed: {e}")
+            return []
+        entries = []
+        for opt in options:
+            if opt["kind"] == "toggle":
+                entries.append((
+                    self.tr(opt["label"]),
+                    lambda checked, act, o=opt: self._apply_quick_configure(
+                        o, checked, act),
+                    {"checkable": True, "checked": opt["value"], "keep_open": True}))
+            else:  # choice → a nested submenu of radio entries
+                gid = f"qc_{opt['key']}"
+                sub = []
+                for val, clabel in opt["choices"]:
+                    sub.append((
+                        self.tr(clabel),
+                        lambda checked, act, o=opt, v=val: (
+                            self._apply_quick_configure(o, v, act)
+                            if checked else None),
+                        {"checkable": True, "checked": val == opt["value"],
+                         "group": gid, "keep_open": True, "value": val}))
+                entries.append((self.tr(opt["label"]), sub))
+        return entries
+
+    def _apply_quick_configure(self, opt, value, action=None):
+        """Apply one quick-configure option live to the active profile, then run
+        the same post-save refresh the Configure view triggers. The menu stays
+        open, so on failure we revert *action*'s check state in place rather than
+        rebuilding the (still-shown) menu."""
+        game = getattr(self._gs, "game", None)
+        if game is None:
+            return
+        # Deploy method can't change while mods are deployed (would strand them).
+        if opt["key"] == "deploy_mode":
+            from Utils.quick_configure import deploy_mode_change_blocked
+            if deploy_mode_change_blocked(game, value):
+                self._notify(
+                    self.tr("Cannot change the deploy method while mods are "
+                            "deployed. Restore first."), "warning")
+                self._revert_quick_configure(opt, action)
+                return
+        try:
+            opt["apply"](value)
+        except Exception as e:
+            self._append_log(f"[quick-configure] apply {opt['key']} failed: {e}")
+            self._notify(self.tr("Could not change {0}.").format(
+                self.tr(opt["label"])), "warning")
+            self._revert_quick_configure(opt, action)
+            return
+        self._append_log(f"[quick-configure] {opt['key']} = {value}")
+        # Track the new value so a later revert (in this still-open menu) knows
+        # what the checkbox/radio should snap back to.
+        opt["value"] = value
+        if opt.get("needs_reload"):
+            # profile INI/saves/patch changes affect paths — reload the game's
+            # paths, then refresh the lists that depend on them (mirrors a
+            # same-game Configure save, which _on_game_changed no-ops).
+            try:
+                game.load_paths()
+            except Exception:
+                pass
+            self._reload_modlist()
+            self._reload_plugins()
+        # Keep the Configure tab (if open) in sync. The profile menu itself is
+        # NOT rebuilt here — it's still open; its action state already reflects
+        # the click, and the next open rebuilds fresh from _profile_actions().
+        v = getattr(self, "_configure_game_view", None)
+        if v is not None and self._tabs.has_key("configure_game"):
+            try:
+                v.refresh_for_profile()
+            except Exception:
+                pass
+        self._notify(self.tr("Setting saved."), "info")
+
+    def _revert_quick_configure(self, opt, action):
+        """Snap a quick-configure action back to the option's real (unchanged)
+        value after a blocked/failed change, without closing or rebuilding the
+        open menu."""
+        if action is None:
+            return
+        try:
+            if opt["kind"] == "toggle":
+                action.setChecked(bool(opt["value"]))
+                return
+            # Radio: re-check the sibling whose stashed value matches the real
+            # (pre-change) value; the shared QActionGroup unchecks the rest.
+            group = action.actionGroup()
+            peers = group.actions() if group is not None else [action]
+            for peer in peers:
+                if peer.data() == opt["value"]:
+                    peer.setChecked(True)
+                    return
+            action.setChecked(False)
+        except Exception:
+            pass
+
+    def _refresh_profile_actions(self):
+        """Rebuild the profile selector's pinned actions so the Open submenu
+        appears/disappears with the current game's profile-specific settings."""
+        sel = getattr(self, "_profile_selector", None)
+        if sel is not None:
+            sel.set_actions(self._profile_actions())
+
+    def _open_profile_dir(self, which: str):
+        """Open the active profile's INI files or Saves folder."""
+        from pathlib import Path
+        game = self._gs.game
+        if game is None or not game.is_configured():
+            self._notify(self.tr("No configured game selected."), "warning")
+            return
+        # Keep the game's active profile dir in sync with the dropdown so the
+        # folder resolves against the profile actually shown (a background worker
+        # may have moved it).
+        self._gs.reassert_active_profile()
+        profile = self._gs.profile
+        if which == "ini":
+            getter = getattr(game, "_profile_ini_dir", None)
+            descr = "profile INI files folder"
+        elif which == "saves":
+            getter = getattr(game, "_profile_saves_dir", None)
+            descr = "profile saves folder"
+        else:
+            return
+        path = getter(profile) if callable(getter) else None
+        # The folder is created on demand when the setting is toggled on, but a
+        # profile added afterwards may not have it yet — create it so the open
+        # never fails on a valid, enabled setting.
+        if path is not None:
+            try:
+                Path(path).mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+        self._open_folder_path(path, descr)
 
     def _open_game_dir(self, which: str):
         """Open one of the game's on-disk folders (game selector ▸ Open ▸ …).
@@ -7619,16 +7898,17 @@ class MainWindow(QMainWindow):
         self._modlist_model.set_sizes(sizes, size_bytes)
 
     def _refresh_modlist_stats(self):
-        """Update the modlist footer stat pills: enabled / disabled mod counts.
+        """Update the modlist footer count label: enabled / total mod counts.
         Both come straight from the model, so this is instant."""
-        bar = getattr(self, "_modlist_stats", None)
-        if bar is None:
+        lbl = getattr(self, "_modlist_count", None)
+        if lbl is None:
             return
         entries = [self._modlist_model.entry(r)
                    for r in range(self._modlist_model.rowCount())]
-        enabled = sum(1 for e in entries if not e.is_separator and e.enabled)
-        disabled = sum(1 for e in entries if not e.is_separator and not e.enabled)
-        bar.set_stats([(self.tr("Enabled"), enabled), (self.tr("Disabled"), disabled)])
+        mods = [e for e in entries if not e.is_separator]
+        enabled = sum(1 for e in mods if e.enabled)
+        lbl.setText(f"{enabled} / {len(mods)}")
+        lbl.setToolTip(self.tr("{0} enabled of {1} mods").format(enabled, len(mods)))
 
     def _installed_mod_ids(self) -> set[int]:
         """The set of Nexus mod ids currently installed in the active profile's
@@ -7723,15 +8003,16 @@ class MainWindow(QMainWindow):
             return {}
 
     def _refresh_plugin_stats(self):
-        """Update the plugins footer stat pills: total / ESL / non-ESL. All the
-        data is in-memory on the plugin model, so this is instant."""
-        bar = getattr(self, "_plugin_stats", None)
-        if bar is None:
+        """Update the plugins footer count label: total plugins / non-ESL. All
+        the data is in-memory on the plugin model, so this is instant."""
+        lbl = getattr(self, "_plugin_count", None)
+        if lbl is None:
             return
         from gui_qt.modlist_data import compute_plugin_stats
         s = compute_plugin_stats(self._plugin_model._rows)
-        bar.set_stats([(self.tr("Plugins"), s["total"]),
-                       (self.tr("ESL"), s["esl"]), (self.tr("Non-ESL"), s["non_esl"])])
+        lbl.setText(f"P:{s['total']} / Non-ESL:{s['non_esl']}")
+        lbl.setToolTip(self.tr("{0} plugins ({1} ESL, {2} non-ESL)").format(
+            s["total"], s["esl"], s["non_esl"]))
 
     def _reload_plugins(self):
         """Load the active game/profile's plugins into the Plugins tab.

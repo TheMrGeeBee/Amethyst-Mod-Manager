@@ -619,6 +619,50 @@ def get_language() -> str:
     return _language
 
 
+# ---------------------------------------------------------------------------
+# Tab pins — per-view preferred presentation mode (full / modlist / plugins).
+# A view is identified by its tab `key` (e.g. "change_version", "nexus_browser").
+# When a user re-pins a tab we remember the choice here so the same view reopens
+# in that mode next time. Section is [tab_pins]; value is one of the mode names.
+# ---------------------------------------------------------------------------
+_TAB_PINS_SECTION = "tab_pins"
+_VALID_TAB_MODES = ("full", "modlist", "plugins")
+
+
+def get_tab_pin(key: str) -> "str | None":
+    """Return the saved presentation mode for the view *key*, or None if unset
+    (view opens in whatever mode its call site requests)."""
+    if not key:
+        return None
+    path = get_ui_config_path()
+    if not path.is_file():
+        return None
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        val = parser.get(_TAB_PINS_SECTION, key, fallback="").strip()
+        return val if val in _VALID_TAB_MODES else None
+    except Exception:
+        return None
+
+
+def save_tab_pin(key: str, mode: str) -> None:
+    """Persist the preferred presentation *mode* for the view *key* to
+    amethyst.ini [tab_pins]. No-op for an empty key or unknown mode."""
+    if not key or mode not in _VALID_TAB_MODES:
+        return
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _TAB_PINS_SECTION not in parser:
+        parser[_TAB_PINS_SECTION] = {}
+    parser[_TAB_PINS_SECTION][key] = mode
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 def _clamp(value: float) -> float:
     return max(_MIN_SCALE, min(_MAX_SCALE, value))
 
@@ -1276,6 +1320,34 @@ def save_nexus_show_adult(value: bool) -> None:
     if _NEXUS_SECTION not in parser:
         parser[_NEXUS_SECTION] = {}
     parser[_NEXUS_SECTION]["show_adult"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_nexus_page_size(default: int = 30) -> int:
+    """Return the persisted Nexus browser 'shown per page' setting."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return default
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        val = parser.getint(_NEXUS_SECTION, "page_size", fallback=default)
+        return val if val in (20, 30, 40, 50) else default
+    except Exception:
+        return default
+
+
+def save_nexus_page_size(value: int) -> None:
+    """Persist the Nexus browser 'shown per page' setting to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _NEXUS_SECTION not in parser:
+        parser[_NEXUS_SECTION] = {}
+    parser[_NEXUS_SECTION]["page_size"] = str(int(value))
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
