@@ -52,7 +52,10 @@ def flatpak_blocked_path_hint(path) -> str | None:
             if parts[:2] != (".var", "app"):
                 return None  # plain home path — granted, so genuinely missing
             app = parts[2] if len(parts) > 2 else ""
-            if app in _GRANTED_VAR_APPS:
+            # The app's own ~/.var/app/<FLATPAK_ID> tree is always visible to
+            # itself; a missing path there is genuinely missing, not blocked.
+            own_id = os.environ.get("FLATPAK_ID", "io.github.Amethyst.ModManager")
+            if app in _GRANTED_VAR_APPS or app == own_id:
                 return None
         else:
             for root in _GRANTED_ROOTS:
