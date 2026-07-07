@@ -8156,8 +8156,15 @@ class MainWindow(QMainWindow):
             self._text_files_view.configure(
                 self._gs.game, self._gs.profile_dir(), fm3, staging)
         self._refresh_footer_toggle_labels()
-        # Re-apply an active search against the fresh row indices.
+        # Re-apply an active search + filters against the fresh row indices.
+        # set_entries fired modelReset, which dropped the view's applied-hidden
+        # cache but left the OLD filter-hidden row indices in place — without
+        # this reapply they'd hide the wrong (or all) rows after an install,
+        # blanking the list until a manual Refresh. compute_hidden_rows re-indexes
+        # off the current entry list; the async conflict/filter-data rebuild below
+        # then reapplies once more with the freshly-scanned per-mod data.
         self._apply_modlist_search()
+        self._apply_modlist_filters()
         self._refresh_modlist_stats()
         print(f"[gui_qt] modlist: {ml_path} ({len(entries)} entries)")
 
@@ -8202,6 +8209,16 @@ class MainWindow(QMainWindow):
                 view.prune_installed(self._installed_mod_ids())
             except Exception:
                 pass
+        # The meta-derived filter inputs (updates / categories / fomod / bain /
+        # missing-reqs) were just refreshed on this thread. _reload_modlist
+        # cleared them to empty sets before the worker ran, so any active filter
+        # that keys off them (e.g. "mods with updates") was reapplied against the
+        # stale FilterData and blanked the list until Refresh. Rebuild the filter
+        # data now so _on_filter_data_ready merges the fresh sets and reapplies —
+        # only when a filter is actually active (avoids needless disk scans).
+        panel = getattr(self, "_modlist_filter_panel", None)
+        if panel is not None and panel.any_active():
+            self._rebuild_filter_data()
 
     def _apply_modlist_sizes(self):
         """Scan mod folder sizes and push them to the model. Called on reload
