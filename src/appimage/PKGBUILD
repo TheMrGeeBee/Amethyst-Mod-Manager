@@ -127,6 +127,13 @@ package() {
 APP_SHARE=/usr/share/$pkgname
 export MOD_MANAGER_PROFILES_DIR="\${XDG_CONFIG_HOME:-\$HOME/.config}/AmethystModManager/Profiles"
 mkdir -p "\$MOD_MANAGER_PROFILES_DIR"
+# Force XWayland (xcb): under native Wayland Qt has no global coordinate system
+# (window pos reports (0,0), mapToGlobal is wrong) so QToolTip mis-anchors,
+# badly once QT_SCALE_FACTOR != 1. XWayland exposes real global coords so
+# tooltips place correctly and scaling stays exact. Matches the flatpak build.
+# \`:=\` respects a user override.
+: "\${QT_QPA_PLATFORM:=xcb}"
+export QT_QPA_PLATFORM
 case "\$1" in
     deploy|restore|list-games|list-profiles|clear-credentials)
         exec python3 "\$APP_SHARE/cli.py" "\$@" ;;

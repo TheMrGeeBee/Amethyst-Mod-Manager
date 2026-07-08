@@ -22,6 +22,16 @@ PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/tmp/\.mount_' | paste -sd:)
     XDG_DATA_DIRS=$(echo "$XDG_DATA_DIRS" | tr ':' '\n' | grep -v '^/tmp/\.mount_' | paste -sd:)
 export PATH XDG_DATA_DIRS
 
+# Force XWayland (xcb) rather than native Wayland. Under native Wayland, Qt
+# clients have no global coordinate system — window position reports as (0,0)
+# and mapToGlobal is wrong — so QToolTip (which needs global coords to place the
+# tip) mis-anchors, badly once QT_SCALE_FACTOR != 1 compounds the logical/
+# physical size mismatch. XWayland exposes real global coords so tooltips place
+# correctly and scaling stays exact; it also fixes the Wayland splitter/colour-
+# picker lag. The flatpak build already does this. `:=` respects a user override.
+: "${QT_QPA_PLATFORM:=xcb}"
+export QT_QPA_PLATFORM
+
 # The Qt app uses the PROJECT-ROOT .venv (../.venv), which has PySide6 —
 # separate from src/.venv (the Tk app's venv, no PySide6) that run.sh uses.
 VENV="../.venv"
