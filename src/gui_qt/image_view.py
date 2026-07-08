@@ -1,59 +1,29 @@
-"""ImageView — a simple full-size image viewer that opens as a tab (lightbox).
+"""ImageView — a full-size image viewer that opens as a tab (lightbox).
 
-Used by the FOMOD wizard when an option image is clicked. Shows the image scaled
-to fit the tab, in a scroll area; clicking toggles between fit-to-window and 100%.
+Used by the FOMOD wizard when an option image is clicked. Scrollwheel zooms
+(anchored under the cursor), left-drag pans, double-click resets to fit. Reuses
+the Mod Files preview canvas so behaviour stays consistent across the app.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame
+from PySide6.QtWidgets import QWidget, QVBoxLayout
+
+from gui_qt.image_preview import _ImageCanvas, _load_qimage
 
 
 class ImageView(QWidget):
     def __init__(self, image_path: Path, parent=None):
         super().__init__(parent)
-        self._pm = QPixmap(str(image_path))
-        self._actual = False
-
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setAlignment(Qt.AlignCenter)
-        self._label = QLabel()
-        self._label.setAlignment(Qt.AlignCenter)
-        self._label.setCursor(Qt.PointingHandCursor)
-        self._label.setToolTip(self.tr("Click to toggle 100% / fit"))
-        self._label.mousePressEvent = lambda _e: self._toggle()
-        self._scroll.setWidget(self._label)
-        v.addWidget(self._scroll)
-        self._render()
+        self._canvas = _ImageCanvas()
+        self._canvas.setToolTip(
+            self.tr("Scroll to zoom · drag to pan · double-click to fit"))
+        v.addWidget(self._canvas)
 
-    def _render(self):
-        if self._pm.isNull():
-            self._label.setText(self.tr("Image could not be loaded"))
-            return
-        if self._actual:
-            self._scroll.setWidgetResizable(False)
-            self._label.setPixmap(self._pm)
-            self._label.resize(self._pm.size())
-        else:
-            self._scroll.setWidgetResizable(True)
-            area = self._scroll.viewport().size()
-            self._label.setPixmap(self._pm.scaled(
-                area.width(), area.height(),
-                Qt.KeepAspectRatio, Qt.SmoothTransformation))
-
-    def _toggle(self):
-        self._actual = not self._actual
-        self._render()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if not self._actual:
-            self._render()
+        qi = _load_qimage(Path(image_path))
+        self._canvas.set_image(QPixmap.fromImage(qi) if qi is not None else None)
