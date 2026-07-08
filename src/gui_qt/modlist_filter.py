@@ -110,19 +110,111 @@ def _sep_block_has(entries, sep_idx: int, mod_pred) -> bool:
     return False
 
 
-def search_hidden_rows(entries, query: str) -> set[int]:
-    """Rows to HIDE for the modlist search box (Tk parity): a mod is shown when
-    its name contains *query* (case-insensitive); a separator is shown when any
-    mod in its block matches. Empty query hides nothing."""
-    q = (query or "").strip().lower()
-    if not q:
+# Search-bar `!token` keywords → how to test a single mod ModEntry. Each value
+# is a builder(data) -> (ModEntry -> bool); the builder captures the relevant
+# FilterData set/dict once so the per-row predicate is cheap. `data` is never
+# None here (callers pass an empty FilterData when it isn't built yet, so the
+# sets are simply empty → match-nothing, which is the desired behaviour).
+def _tok_conflict(codes: set[int]):
+    def build(data):
+        cmap, bmap = data.conflict_codes, data.bsa_conflict_codes
+        def pred(e):
+            return (cmap.get(e.name, CONFLICT_NONE) in codes
+                    or bmap.get(e.name, CONFLICT_NONE) in codes)
+        return pred
+    return build
+
+
+def _tok_set(attr: str):
+    def build(data):
+        mods = getattr(data, attr)
+        return lambda e: e.name in mods
+    return build
+
+
+def _tok_missing_reqs(data):
+    mods = data.missing_reqs - data.ignored_missing_reqs
+    return lambda e: e.name in mods
+
+
+SEARCH_TOKENS = {
+    "update":   _tok_set("mods_with_updates"),
+    "updates":  _tok_set("mods_with_updates"),
+    "winning":  _tok_conflict({CONFLICT_WINS}),
+    "losing":   _tok_conflict({CONFLICT_LOSES}),
+    "partial":  _tok_conflict({CONFLICT_PARTIAL}),
+    "full":     _tok_conflict({CONFLICT_FULL}),
+    "fomod":    _tok_set("fomod_mods"),
+    "bain":     _tok_set("bain_mods"),
+    "missing":  _tok_missing_reqs,
+    "notes":    _tok_set("notes_mods"),
+    "plugins":  _tok_set("mods_with_plugins"),
+    "bsa":      _tok_set("mods_with_bsa"),
+    "pbr":      _tok_set("mods_with_pbr"),
+    "enabled":  lambda _data: (lambda e: e.enabled),
+    "disabled": lambda _data: (lambda e: not e.enabled),
+}
+
+
+def _token_predicate(token: str, data: "FilterData"):
+    """Resolve a single `!token` (leading `!` already stripped) to a mod
+    predicate. Order: known keyword → filetype (leading dot) → category name →
+    match-nothing. Case-insensitive for keywords/categories."""
+    t = token.strip()
+    if not t:
+        return lambda e: True
+    low = t.lower()
+    builder = SEARCH_TOKENS.get(low)
+    if builder is not None:
+        return builder(data)
+    # Filetype: `.dds` (or a bare ext we normalise to a leading dot).
+    if low.startswith("."):
+        ext = low
+        return lambda e: ext in data.mod_filetypes.get(e.name, ())
+    # Category name (case-insensitive equality).
+    cats = data.category_names
+    return lambda e: (cats.get(e.name, "") or "").lower() == low
+
+
+def search_hidden_rows(entries, query: str, data: "FilterData | None" = None) -> set[int]:
+    """Rows to HIDE for the modlist search box.
+
+    Plain text matches the mod name (case-insensitive substring, Tk parity).
+    A whitespace-separated term starting with `!` is a filter token resolved
+    against *data* (a live FilterData); `!.dds` = filetype, `!patches` = a
+    category, `!update`/`!winning`/… = status keywords. All tokens AND with each
+    other and with the text needle. Unknown or unresolvable tokens (or any
+    data-backed token when *data* is unbuilt) match nothing. A separator is
+    shown when any mod in its block satisfies every predicate. Empty query
+    hides nothing."""
+    raw = query or ""
+    tokens: list[str] = []
+    words: list[str] = []
+    for term in raw.split():
+        if term.startswith("!") and len(term) > 1:
+            tokens.append(term[1:])
+        else:
+            words.append(term)
+    needle = " ".join(words).strip().lower()
+    if not tokens and not needle:
         return set()
+
+    if data is None:
+        data = FilterData()
+
+    preds = [_token_predicate(tok, data) for tok in tokens]
+    if needle:
+        preds.append(lambda e, _n=needle: _n in e.display_name.lower())
+
+    def _match(e) -> bool:
+        return all(p(e) for p in preds)
+
     hide: set[int] = set()
     for i, e in enumerate(entries):
         if e.is_separator:
-            if not _sep_block_has(entries, i, lambda m: q in m.display_name.lower()):
+            if not _sep_block_has(entries, i, _match):
                 hide.add(i)
-        elif q not in e.display_name.lower():
+        elif not _match(e):
             hide.add(i)
     return hide
 

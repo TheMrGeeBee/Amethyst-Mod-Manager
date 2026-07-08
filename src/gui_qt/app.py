@@ -974,8 +974,14 @@ class MainWindow(QMainWindow):
         # that assumed a single, non-wrapping row — with the FlowLayout the
         # buttons can wrap, so a fixed cap would over/under-shoot. Full width is
         # simpler and robust across languages.)
+        search_icon = QLabel()
+        search_icon.setPixmap(icon("search.png", 18).pixmap(18, 18))
+        search_icon.setToolTip(self._modlist_search_tooltip())
+        search_icon.setAlignment(Qt.AlignCenter)
+        search_row.addWidget(search_icon)
+
         search = QLineEdit()
-        search.setPlaceholderText(self.tr("Search mods…"))
+        search.setPlaceholderText(self.tr("Search mods… (try !update, !fomod, !.dds)"))
         search.setClearButtonEnabled(True)
         search.textChanged.connect(self._on_modlist_search)
         self._modlist_search = search
@@ -7796,13 +7802,47 @@ class MainWindow(QMainWindow):
             self._modlist_search_timer = t
         t.start()
 
+    def _modlist_search_tooltip(self) -> str:
+        """Rich-text tooltip for the search icon: the available `!` filter tags
+        plus the filetype/category forms. Grouped for readability."""
+        rows = [
+            (self.tr("Updates"),        "!update"),
+            (self.tr("Winning conflicts"),         "!winning"),
+            (self.tr("Losing conflicts"),          "!losing"),
+            (self.tr("Winning & losing"),          "!partial"),
+            (self.tr("Fully conflicted"),          "!full"),
+            (self.tr("FOMOD installs"),            "!fomod"),
+            (self.tr("BAIN installs"),             "!bain"),
+            (self.tr("Missing requirements"),      "!missing"),
+            (self.tr("Has notes"),                 "!notes"),
+            (self.tr("Has plugins"),               "!plugins"),
+            (self.tr("Has BSA/BA2 archives"),      "!bsa"),
+            (self.tr("PGPatcher textures"),        "!pbr"),
+            (self.tr("Enabled / disabled"),        "!enabled · !disabled"),
+            (self.tr("By file type"),              "!.dds"),
+            (self.tr("By category"),               "!patches"),
+        ]
+        items = "".join(
+            f"<tr><td style='padding-right:10px'><code>{tag}</code></td>"
+            f"<td>{label}</td></tr>"
+            for label, tag in rows)
+        head = self.tr("Filter the modlist with search tags "
+                       "(combine them, and with text):")
+        return f"<b>{head}</b><table>{items}</table>"
+
+    def _modlist_token_search_active(self) -> bool:
+        """True when the search box holds a `!token` filter — those key off the
+        live FilterData, so callers must rebuild/reapply it like a panel filter."""
+        return "!" in (getattr(self, "_modlist_search_text", "") or "")
+
     def _apply_modlist_search(self):
         from gui_qt.modlist_filter import search_hidden_rows
         text = getattr(self, "_modlist_search_text", "")
         entries = self._modlist_model._entries
         active = bool((text or "").strip())
+        data = getattr(self, "_modlist_filter_data", None)
         self._modlist_view.set_search_hidden(
-            search_hidden_rows(entries, text), active=active)
+            search_hidden_rows(entries, text, data), active=active)
 
     def _on_plugin_search(self, text: str):
         """Plugins search: hide plugins whose name (or owning mod name) doesn't
@@ -7937,6 +7977,10 @@ class MainWindow(QMainWindow):
         # Relabel / re-enable game-specific filters, then reapply.
         self._refresh_filter_game_specific()
         self._apply_modlist_filters()
+        # Token searches (e.g. "!update") depend on the FilterData we just
+        # (re)built — re-run so results reflect fresh conflict/update data.
+        if self._modlist_token_search_active():
+            self._apply_modlist_search()
 
     def _build_modified_mf_mods(self) -> set:
         """Mods with Mod Files tab modifications — any excluded file OR a strip
@@ -8259,8 +8303,12 @@ class MainWindow(QMainWindow):
         # stale FilterData and blanked the list until Refresh. Rebuild the filter
         # data now so _on_filter_data_ready merges the fresh sets and reapplies —
         # only when a filter is actually active (avoids needless disk scans).
+        # A token search (e.g. "!updates") keys off the SAME meta-derived sets,
+        # so it must rebuild too — otherwise updating a mod that a token matched
+        # reapplies "!updates" against the just-cleared sets and blanks the list.
         panel = getattr(self, "_modlist_filter_panel", None)
-        if panel is not None and panel.any_active():
+        panel_active = panel is not None and panel.any_active()
+        if panel_active or self._modlist_token_search_active():
             self._rebuild_filter_data()
 
     def _apply_modlist_sizes(self):
@@ -8390,6 +8438,20 @@ class MainWindow(QMainWindow):
                 view.prune_installed(self._installed_mod_ids())
             except Exception:
                 pass
+        # This light path just mutated the meta-derived sets (updates / fomod /
+        # bain / missing-reqs) in place. An active token search or panel filter
+        # keys off the FilterData COPY of those sets, so refresh it and reapply —
+        # otherwise a mod that just lost its !update flag lingers (or the list
+        # goes stale) until a full Refresh.
+        data = getattr(self, "_modlist_filter_data", None)
+        if data is not None:
+            data.mods_with_updates = set(self._mod_updates)
+            data.fomod_mods = set(self._mod_fomod)
+            data.bain_mods = set(self._mod_bain)
+            data.missing_reqs = set(self._mod_missing_reqs)
+            self._apply_modlist_filters()
+        if self._modlist_token_search_active():
+            self._apply_modlist_search()
 
     def _read_mod_notes(self) -> dict:
         """Per-mod note text for the active profile (Note flag tooltip). {} if
