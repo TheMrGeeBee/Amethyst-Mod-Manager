@@ -56,7 +56,6 @@ class QtWizardContext:
 
 # Deliberately dropped from the Qt app (not even shown greyed out).
 EXCLUDED: frozenset[str] = frozenset({
-    "wizards.dtkit_patch.DtkitPatchWizard",
     "wizards.bepinex.BepInExWizard",
 })
 
@@ -189,6 +188,8 @@ REGISTRY: dict[str, QtWizardSpec] = {
         QtWizardSpec(_param("wizards_qt.texture_tool_view", "TextureToolView", tool="parallaxr")),
     "wizards.ttw.TTWInstallerWizard":
         QtWizardSpec(_simple("wizards_qt.ttw_view", "TTWView")),
+    "wizards.dtkit_patch.DtkitPatchWizard":
+        QtWizardSpec(_simple("wizards_qt.dtkit_patch_view", "DtkitPatchView")),
     "Games.Morrowind.mgexe_wizard.MGEXEWizard":
         QtWizardSpec(_simple("Games.Morrowind.mgexe_wizard_qt", "MGEXEView")),
     "Games.Morrowind.mcp_wizard.MCPWizard":

@@ -1017,7 +1017,11 @@ def launch_synthesis(game: "BaseGame", proton_script: Path, profile: str,
 
     # Run via `proton run` so the Steam Linux Runtime sniper container provides
     # libicuuc/libicuin (Wine's icu.dll stub forwards into them).
-    env = os.environ.copy()
+    # Scrub AppImage loader/bundle pollution so the host Proton's Vulkan probe
+    # can load libvulkan (see Utils.protontricks.strip_appimage_env).
+    from Utils.protontricks import strip_appimage_env
+    from Utils.steam_finder import proton_run_command
+    env = strip_appimage_env(os.environ.copy())
     env["STEAM_COMPAT_DATA_PATH"] = str(synthesis_prefix_parent(game))
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(
         Path.home() / ".local" / "share" / "Steam")
@@ -1031,7 +1035,7 @@ def launch_synthesis(game: "BaseGame", proton_script: Path, profile: str,
         log_path = sdir / "synthesis.log"
         with log_path.open("w", encoding="utf-8", errors="replace") as log_f:
             proc = subprocess.Popen(
-                ["python3", str(proton_script), "run", str(exe)],
+                proton_run_command(proton_script, "run", str(exe), env=env),
                 env=env, cwd=str(sdir), stdout=log_f, stderr=subprocess.STDOUT)
             proc.wait()
         log(f"Synthesis closed. Output log: {log_path}")

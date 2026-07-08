@@ -67,12 +67,59 @@ def _in_flatpak_sandbox() -> bool:
     return os.path.exists("/.flatpak-info")
 
 
+def _host_python() -> str:
+    """Return a *host* python3 to run the Proton script with.
+
+    Inside our AppImage, ``python3`` on PATH resolves to the bundle's
+    quick-sharun interpreter (``$APPDIR/usr/bin/python3``). Running the host's
+    Proton script with THAT interpreter re-injects anylinux.so's LD_PRELOAD
+    sentinel, so Proton's startup Vulkan probe fails with
+    ``OSError: /anylinux_blocked_lib_that_does_not_exist.so`` when it tries to
+    ``CDLL('libvulkan.so.1')``. Scrubbing the env dict we pass to Popen isn't
+    enough — the bundled interpreter re-pollutes itself on startup — so the
+    interpreter itself must be a real host one.
+
+    Prefer ``/usr/bin/python3`` (present on every target host); otherwise take
+    the first ``python3`` on PATH that is NOT under ``$APPDIR`` or a
+    ``/tmp/.mount_*`` FUSE mount. Falls back to plain ``"python3"`` when no
+    host interpreter can be located (native/flatpak installs, where ``python3``
+    is already the host one).
+    """
+    appdir = os.environ.get("APPDIR")
+    appimage = os.environ.get("APPIMAGE")
+    if not appdir and not appimage:
+        return "python3"           # not an AppImage — PATH python3 is the host's
+
+    def _is_bundled(path: str) -> bool:
+        rp = os.path.realpath(path)
+        if rp.startswith("/tmp/.mount_"):
+            return True
+        if appdir and rp.startswith(os.path.realpath(appdir)):
+            return True
+        return False
+
+    if os.path.exists("/usr/bin/python3") and not _is_bundled("/usr/bin/python3"):
+        return "/usr/bin/python3"
+
+    # Scan PATH for the first non-bundled python3 (skip $APPDIR//tmp/.mount_*).
+    for d in (os.environ.get("PATH") or "").split(os.pathsep):
+        if not d or d.startswith("/tmp/.mount_"):
+            continue
+        cand = os.path.join(d, "python3")
+        if os.path.isfile(cand) and os.access(cand, os.X_OK) and not _is_bundled(cand):
+            return cand
+    return "python3"
+
+
 def proton_run_command(
     proton_script: "Path", *args: str, env: "dict | None" = None,
 ) -> list[str]:
     """Build the command to invoke ``proton <args>`` for *proton_script*.
 
-    Normally this is ``["python3", <proton_script>, *args]`` run on the host.
+    Normally this is ``[<host python3>, <proton_script>, *args]`` run on the
+    host. Inside the AppImage the interpreter is resolved to a *host* python3
+    (see ``_host_python``) so Proton doesn't inherit the bundle's blocked
+    library loader.
 
     When the Proton script belongs to the Flatpak Steam install and we are NOT
     already inside that sandbox, wrap the invocation in
@@ -88,10 +135,12 @@ def proton_run_command(
     every var the caller added on top of ``os.environ`` (STEAM_COMPAT_*,
     WINEDLLOVERRIDES, …) is re-exported with ``--env=`` flags.
     """
-    base = ["python3", str(proton_script), *map(str, args)]
+    base = [_host_python(), str(proton_script), *map(str, args)]
     if not (_proton_script_in_steam_flatpak(proton_script)
             and not _own_process_in_steam_flatpak()):
         return base
+    # Steam-flatpak Proton runs INSIDE the sandbox, so --command=python3 uses
+    # the sandbox's own interpreter (not our host resolver) — that's correct.
     # --filesystem=host so the sandbox can reach the staging/game/tool paths
     # that live outside Steam's own data dir.
     cmd = [

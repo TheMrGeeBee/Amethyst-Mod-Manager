@@ -45,13 +45,38 @@ def strip_appimage_env(env: dict) -> dict:
     AppImage's FUSE mount; passing them to a Proton subprocess makes it load
     the bundle's libraries and its blocked LD_LIBRARY_PATH sentinel instead of
     the host's, breaking Proton's Vulkan GPU probe on startup.
+
+    Whole vars in ``_APPIMAGE_ENV_PREFIXES`` are dropped outright; list-style
+    vars (PATH, XDG_DATA_DIRS) keep their host entries but have any
+    ``/tmp/.mount_*`` / ``$APPDIR`` fragments removed — otherwise the host
+    Proton we launch would still find the bundle's own ``python3`` / tools on
+    PATH and re-pollute itself.
     """
     if not os.environ.get("APPDIR") and not os.environ.get("APPIMAGE"):
         return env
-    return {
+    appdir = os.path.realpath(os.environ.get("APPDIR", "")) if os.environ.get("APPDIR") else ""
+    out = {
         k: v for k, v in env.items()
         if not any(k.startswith(p) for p in _APPIMAGE_ENV_PREFIXES)
     }
+
+    def _bundled_entry(entry: str) -> bool:
+        if not entry:
+            return True
+        if entry.startswith("/tmp/.mount_"):
+            return True
+        return bool(appdir) and os.path.realpath(entry).startswith(appdir)
+
+    for k in ("PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"):
+        if k not in out:
+            continue
+        cleaned = os.pathsep.join(
+            p for p in out[k].split(os.pathsep) if not _bundled_entry(p))
+        if cleaned:
+            out[k] = cleaned
+        else:
+            out.pop(k, None)
+    return out
 
 
 _WINETRICKS_URL = "https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks"
