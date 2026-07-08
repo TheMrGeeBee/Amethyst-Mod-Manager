@@ -182,6 +182,50 @@ def sync_modlist_with_mods_folder(modlist_path: Path, mods_dir: Path) -> None:
             modlist_path.touch()
         return
 
+    # Normalise mod folder names that Windows/Wine path resolution would mangle
+    # (leading/trailing whitespace, trailing dots, reserved characters). Such a
+    # folder desyncs from the modlist: read_modlist strips whitespace from the
+    # line, and the folder name is unaddressable to Wine tools, but the
+    # index/filemap read the raw folder name — so build_filemap's
+    # index.get(name) misses and the mod drops out of filemap.txt entirely (no
+    # conflicts, no Data-tab rows, no plugins). Rename each such folder to the
+    # SAME sanitized name the installer uses (sanitize_mod_folder_name), at the
+    # source, so the folder, the index, and every downstream reader agree. Skip
+    # when a folder with the sanitized name already exists (a distinct mod) to
+    # avoid clobbering it, and skip the "Mod"/DOS-name fallbacks (never rename a
+    # folder to a generic placeholder).
+    try:
+        from Utils.mod_name_utils import sanitize_mod_folder_name
+    except Exception:
+        sanitize_mod_folder_name = None
+    if sanitize_mod_folder_name is not None:
+        try:
+            for d in list(mods_dir.iterdir()):
+                if not d.is_dir() or d.name.endswith("_separator"):
+                    continue
+                clean = sanitize_mod_folder_name(d.name)
+                # No change, or the sanitizer bailed to its placeholder fallback
+                # (empty/reserved → "Mod"): leave the folder alone.
+                if clean == d.name or clean == "Mod":
+                    continue
+                target = mods_dir / clean
+                if target.exists():
+                    app_log(f"Modlist sync: mod folder {d.name!r} needs "
+                            f"normalising but {clean!r} already exists — NOT "
+                            f"renamed (rename one manually; the malformed copy "
+                            f"will not deploy).")
+                    continue
+                try:
+                    d.rename(target)
+                    app_log(f"Modlist sync: renamed mod folder {d.name!r} → "
+                            f"{clean!r} (the original name would desync the "
+                            f"modlist/index and is unreachable to Wine tools).")
+                except OSError as exc:
+                    app_log(f"Modlist sync: could not rename {d.name!r} → "
+                            f"{clean!r}: {exc}")
+        except OSError:
+            pass
+
     on_disk: set[str] = {
         d.name for d in mods_dir.iterdir()
         if d.is_dir()
@@ -228,10 +272,12 @@ def sync_modlist_with_mods_folder(modlist_path: Path, mods_dir: Path) -> None:
     new_lines = [f"-{name}" for name in new_mods]
 
     if new_mods or dropped:
+        _added_names = (f" +[{', '.join(new_mods[:5])}"
+                        + ("…]" if len(new_mods) > 5 else "]")) if new_mods else ""
+        _dropped_names = (f" -[{', '.join(dropped[:5])}"
+                          + ("…]" if len(dropped) > 5 else "]")) if dropped else ""
         app_log(f"Modlist sync: +{len(new_mods)} added (disabled), "
-                f"-{len(dropped)} removed"
-                + (f" ({', '.join(dropped[:5])}…)" if len(dropped) > 5
-                   else (f" ({', '.join(dropped)})" if dropped else "")))
+                f"-{len(dropped)} removed{_added_names}{_dropped_names}")
 
     all_lines = new_lines + existing_lines
     write_atomic_text(modlist_path,

@@ -12,6 +12,7 @@ checks) is deferred — the Flags column is structured to receive them later.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,18 @@ from Utils.app_log import app_log
 from Utils.plugins import (
     read_plugins, read_loadorder, write_plugins, write_loadorder, PluginEntry,
 )
+
+# Verbose plugin-panel diagnostics. Set AMM_PLUGIN_DIAG=1 to log every stage of
+# load_plugins (plugins.txt / filemap recovery / resolver / prune) — used to
+# chase "an enabled mod's plugins don't appear in the panel" reports where the
+# filemap is correct but the panel comes up empty. The always-on WARN lines
+# below fire regardless, to catch the silent-drop cases in normal use.
+_PLUGIN_DIAG = os.environ.get("AMM_PLUGIN_DIAG") == "1"
+
+
+def _diag(msg: str) -> None:
+    if _PLUGIN_DIAG:
+        app_log(f"[plugin-diag] {msg}")
 
 # Most plugins the phantom-prune may remove from plugins.txt/loadorder.txt in
 # one pass. Pruning exists to clean up after a REMOVED mod (a handful of
@@ -217,14 +230,18 @@ def _filemap_deployed_plugins(game, plugin_exts: tuple[str, ...]) -> dict[str, s
     staging = (game.get_effective_mod_staging_path()
                if hasattr(game, "get_effective_mod_staging_path") else None)
     if staging is None:
+        _diag("_filemap_deployed_plugins: no staging path")
         return {}
     fm = staging.parent / "filemap.txt"
     if not fm.is_file():
+        _diag(f"_filemap_deployed_plugins: filemap.txt MISSING at {fm}")
         return {}
     exts = tuple(e.lower() for e in plugin_exts)
     found: dict[str, str] = {}
+    total_lines = 0
     try:
         for line in fm.read_text(encoding="utf-8").splitlines():
+            total_lines += 1
             if "\t" not in line:
                 continue
             rel_path = line.split("\t", 1)[0].replace("\\", "/")
@@ -233,8 +250,11 @@ def _filemap_deployed_plugins(game, plugin_exts: tuple[str, ...]) -> dict[str, s
             low = rel_path.lower()
             if low.endswith(exts):
                 found.setdefault(low, rel_path)
-    except OSError:
-        pass
+    except OSError as exc:
+        _diag(f"_filemap_deployed_plugins: read error on {fm}: {exc}")
+        return {}
+    _diag(f"_filemap_deployed_plugins: {fm} has {total_lines} line(s), "
+          f"{len(found)} top-level plugin(s) with exts {exts}")
     return found
 
 
@@ -242,10 +262,14 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
     """Return the ordered plugin rows for *game*/*profile*, or [] if none."""
     p = plugins_path(game, profile)
     if p is None or not p.is_file():
+        _diag(f"load_plugins: no plugins.txt (path={p}) → 0 rows")
         return []
     star = getattr(game, "plugins_use_star_prefix", True)
     entries = read_plugins(p, star_prefix=star)
     saved_order = read_loadorder(p.parent / "loadorder.txt")
+    _diag(f"load_plugins: profile={profile!r} plugins.txt={len(entries)} "
+          f"loadorder.txt={len(saved_order)} "
+          f"active_dir={getattr(game, '_active_profile_dir', None)}")
 
     # Full vanilla set: base + DLC + Creation Club (.ccc), filtered to files
     # present in Data — same resolver the Tk app uses.
@@ -263,11 +287,33 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
     exts = tuple(e.lower() for e in (getattr(game, "plugin_extensions", []) or [])) \
         or (".esp", ".esm", ".esl")
     listed_lower = {e.name.lower() for e in entries}
-    for low, orig in _filemap_deployed_plugins(game, exts).items():
+    deployed = _filemap_deployed_plugins(game, exts)
+    recovered: list[str] = []
+    for low, orig in deployed.items():
         if low in listed_lower or low in vanilla:
             continue
         entries.append(PluginEntry(name=orig, enabled=True))
         listed_lower.add(low)
+        recovered.append(orig)
+    _diag(f"load_plugins: filemap deploys {len(deployed)} top-level plugin(s); "
+          f"recovered {len(recovered)} not in plugins.txt: {recovered[:10]}")
+    # Always-on catch: the filemap deploys plugins but NONE are listed or
+    # recoverable → the panel will render empty despite enabled mods. This is
+    # the "copied mod's plugins don't show up" signature. filemap present but
+    # deploys nothing is logged too (an enabled mod contributed no plugins).
+    if not entries and not vanilla:
+        fm_exists = False
+        try:
+            staging = (game.get_effective_mod_staging_path()
+                       if hasattr(game, "get_effective_mod_staging_path") else None)
+            fm_exists = (staging is not None
+                         and (staging.parent / "filemap.txt").is_file())
+        except Exception:
+            pass
+        app_log(f"WARN plugins: 0 plugins for profile {profile!r} — "
+                f"plugins.txt empty, filemap deploys {len(deployed)} plugin(s), "
+                f"filemap.txt exists={fm_exists}. If mods are enabled this points "
+                f"to a stale/mislocated filemap or wrong staging path.")
 
     mod_map = {e.name.lower(): e for e in entries}
 
@@ -302,6 +348,8 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
     # Resolve each plugin's REAL path (staging mod / overwrite / Data) so header
     # flags (ESL, master, missing-master) work for mod plugins, not just vanilla.
     resolved = resolve_plugin_paths_for_game(game, data_dir)
+    _diag(f"load_plugins: ordered={len(ordered)} resolver mapped "
+          f"{len(resolved)} plugin(s) to on-disk paths")
 
     # Prune phantom entries: a plugin listed in plugins.txt but not vanilla and
     # with NO on-disk file anywhere (staging mod / overwrite / Data, per the
@@ -328,7 +376,17 @@ def load_plugins(game, profile: str) -> list[PluginRow]:
     # incident: a stale active dir made this prune wipe all 461 collection
     # plugins from plugins.txt + loadorder.txt.)
     active = getattr(game, "_active_profile_dir", None)
-    if active is None or Path(active).resolve() != p.parent.resolve():
+    _active_matches = (active is not None
+                       and Path(active).resolve() == p.parent.resolve())
+    if not _active_matches:
+        # Stale/mismatched active dir → the resolver above read the WRONG
+        # staging/filemap, so every path resolution is meaningless. This also
+        # silently disables the prune (safe), but if it fires during a normal
+        # reload it means load_plugins ran against a different profile than the
+        # one on screen — a prime suspect for "plugins missing after a toggle".
+        _diag(f"load_plugins: SAFETY-2 active-dir MISMATCH — "
+              f"active={active} vs plugins.txt dir={p.parent} "
+              f"(resolver ran against the wrong profile; prune skipped)")
         filemap_ok = False
     if filemap_ok:
         kept: list[PluginEntry] = []

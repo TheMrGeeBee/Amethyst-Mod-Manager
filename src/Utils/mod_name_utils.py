@@ -4,6 +4,7 @@ Used by install_mod, dialogs (NameModDialog), and modlist_panel. No dependency o
 """
 
 import re
+import unicodedata
 
 
 # Characters Windows/Wine forbid in a path component.  Mods are deployed and
@@ -13,21 +14,47 @@ import re
 # which makes the folder vanish from the tool's point of view.
 _WINDOWS_RESERVED_CHARS = r'<>:"/\\|?*'
 
+# Zero-width / invisible format characters that are never a legitimate part of a
+# mod name but silently break exact-match lookups (the folder name carries an
+# invisible byte the modlist entry does not). File managers and copy-paste can
+# introduce these. Stripped so a name that LOOKS clean also IS clean. NB: the
+# regular no-break space (U+00A0) is handled by str.strip()/rstrip below (Python
+# treats it as whitespace), so it is not listed here.
+_INVISIBLE_CHARS = (
+    "​"  # ZERO WIDTH SPACE
+    "‌"  # ZERO WIDTH NON-JOINER
+    "‍"  # ZERO WIDTH JOINER
+    "⁠"  # WORD JOINER
+    "﻿"  # ZERO WIDTH NO-BREAK SPACE / BOM
+)
+_INVISIBLE_RE = re.compile(f"[{_INVISIBLE_CHARS}]")
+
 
 def sanitize_mod_folder_name(name: str) -> str:
     """Return *name* made safe for use as a Wine/Windows-addressable folder.
 
+    - Normalises to Unicode NFC so a decomposed name (e.g. "e" + combining
+      acute) and its composed form ("é") produce the SAME bytes. File managers
+      differ on which form they write; without this the folder name and the
+      modlist entry can be byte-different for the same visible name, and the
+      mod silently drops out of filemap.txt (no conflicts / plugins / Data-tab).
+    - Removes zero-width / invisible format characters (see _INVISIBLE_CHARS).
     - Strips characters Windows/Wine forbid in a path component.
     - Removes control characters.
-    - Trims trailing dots and spaces (Windows path normalisation drops these,
-      so a folder named "Foo." or "Foo " becomes unreachable to Wine tools).
+    - Trims trailing dots and spaces (incl. the no-break space, which
+      str.strip() treats as whitespace) — Windows path normalisation drops
+      these, so "Foo." / "Foo " / "Foo " become unreachable to Wine tools.
     - Falls back to "Mod" if nothing usable remains.
 
-    Leading/trailing whitespace is also trimmed.  This only affects the
-    on-disk folder name; the user's chosen display name is unaffected
-    elsewhere.
+    Visible non-ASCII characters (accented letters, Cyrillic, CJK, …) are
+    preserved — only ambiguous/invisible bytes are normalised away. This only
+    affects the on-disk folder name; the user's chosen display name is
+    unaffected elsewhere.
     """
-    s = name.strip()
+    # NFC first so combining sequences fold before any per-char handling.
+    s = unicodedata.normalize("NFC", name)
+    s = _INVISIBLE_RE.sub("", s)
+    s = s.strip()
     # Drop reserved characters and ASCII control chars.
     s = re.sub(rf"[{re.escape(_WINDOWS_RESERVED_CHARS)}]", "", s)
     s = "".join(ch for ch in s if ord(ch) >= 32)

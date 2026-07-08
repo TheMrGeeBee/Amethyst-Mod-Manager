@@ -47,13 +47,30 @@ def sync_plugins_for_mods(game, profile_dir: Path | None,
     if not plugin_exts:
         return False
     plugins_path = profile_dir / "plugins.txt"
-    if not plugins_path.is_file():
-        return False
+    # NB: do NOT bail when plugins.txt is missing. A game that has no plugins.txt
+    # concept was already filtered out above (empty plugin_exts), so a missing
+    # file here just means a fresh profile that has never had a plugin enabled.
+    # Tk's _sync_plugins_for_toggle creates it via write_plugins in that case;
+    # read_plugins returns [] and write_plugins creates the file (+ parents), so
+    # the code below handles a missing file correctly. An earlier port bailed
+    # here, which silently dropped a freshly-enabled mod's plugins on a new
+    # profile (they never reached plugins.txt) — a Qt-vs-Tk regression.
 
     add: list[str] = []
     remove_lower: set[str] = set()
     for mod_name, now_enabled in changes:
-        for name in _mod_plugins(staging_root, mod_name, plugin_exts):
+        found = _mod_plugins(staging_root, mod_name, plugin_exts)
+        if now_enabled and not found:
+            # Enabling a mod whose staging folder has NO top-level plugin files
+            # for this game's extensions. Expected for content-only mods; but if
+            # this is the "copied mod has no plugins" report, it means the scan
+            # of staging/<mod> came back empty (missing/symlinked/wrong-cased
+            # folder, or the plugin sits in a subfolder Tk's flat scan misses).
+            mdir = staging_root / mod_name
+            log(f"WARN plugin sync: enabled mod \"{mod_name}\" has NO top-level "
+                f"plugin files in {mdir} (is_dir={mdir.is_dir()}, "
+                f"exts={sorted(plugin_exts)}) — nothing added to plugins.txt")
+        for name in found:
             if now_enabled:
                 add.append(name)
             else:

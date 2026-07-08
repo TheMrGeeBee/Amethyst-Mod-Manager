@@ -834,6 +834,14 @@ def _try_incremental(
                     )
                 continue
             if not entry or not entry[0]:
+                # Newly-enabled mod with no index entry / zero files → it will
+                # deploy nothing (same silent-drop as the full-merge path). The
+                # [Overwrite] boundary is legitimately empty when unused; warn
+                # only for a real mod so a symlinked/unscanned mod is visible.
+                if log_fn is not None and m != OVERWRITE_NAME:
+                    log_fn(f"WARN: enabled mod \"{m}\" has no index entry / zero "
+                           f"files (incremental) — it will deploy no files; "
+                           f"check for a symlinked/unreadable folder or Refresh")
                 continue
             is_root = m in root_set
             prov_ns = st.providers_root if is_root else st.providers
@@ -1804,13 +1812,25 @@ def rebuild_mod_index(
 
     # Collect all mod folders that exist on disk
     scan_targets: list[tuple[str, str]] = []
+    skipped_nondir: list[str] = []
     try:
         with os.scandir(staging_str) as it:
             for entry in it:
                 if entry.is_dir(follow_symlinks=False):
                     scan_targets.append((entry.name, entry.path))
+                elif entry.is_dir(follow_symlinks=True):
+                    # A SYMLINK pointing at a directory: the modlist sync adopts
+                    # it (pathlib is_dir follows links), but this index scan skips
+                    # it (follow_symlinks=False) — so the mod appears in the list
+                    # yet deploys nothing. This is the top-suspect cause of
+                    # "copied mod is invisible / has no plugins". Record + warn.
+                    skipped_nondir.append(entry.name)
     except OSError:
         pass
+    if skipped_nondir and log_fn is not None:
+        log_fn(f"WARN: {len(skipped_nondir)} staging entr(y/ies) are SYMLINKS to "
+               f"directories and were NOT indexed (they deploy nothing yet show "
+               f"in the modlist): {', '.join(skipped_nondir[:10])}")
     scan_targets.append((OVERWRITE_NAME, overwrite_str))
 
     def _strip_for_mod(name: str) -> frozenset[str]:
@@ -2325,9 +2345,45 @@ def build_filemap(
     for name in priority_order:
         entry = index.get(name)
         if not entry:
+            # An enabled mod in the modlist has NO index entry. Expected for the
+            # synthetic [Overwrite] boundary when the overwrite folder is empty;
+            # for a real mod it means the mod folder exists on disk (it's in the
+            # modlist) but rebuild_mod_index never indexed it (e.g. a symlinked
+            # folder skipped by follow_symlinks=False, an unreadable dir, or a
+            # non-UTF-8 filename that dropped the whole mod). Such a mod deploys
+            # nothing and contributes no plugins/conflicts — the exact "copied
+            # mod is invisible" signature — so surface it instead of skipping
+            # silently. Only warn once we know the index isn't simply empty.
+            if (log_fn is not None and name != OVERWRITE_NAME
+                    and name not in _utf8_bad and index):
+                # Try to explain WHY the lookup missed. The most subtle cause is
+                # a NAME MISMATCH: the modlist entry and the on-disk folder /
+                # index key differ by case, trailing whitespace, or a Unicode
+                # normalization variant (common when the copy was made by a
+                # different file manager / OS than the one that wrote the
+                # modlist). Surface the near-match so it's obvious.
+                _nm = name.strip().casefold()
+                _near = [k for k in index
+                         if k != OVERWRITE_NAME and k.strip().casefold() == _nm]
+                if _near and _near != [name]:
+                    log_fn(f"WARN: enabled mod \"{name}\" has NO index entry, but "
+                           f"the index has a NEAR-MATCH key {_near!r} — the "
+                           f"modlist name and the on-disk folder differ by case / "
+                           f"whitespace / Unicode form. This mod deploys nothing "
+                           f"until the names match (rename the folder or the "
+                           f"modlist entry).")
+                else:
+                    log_fn(f"WARN: enabled mod \"{name}\" has NO index entry — it "
+                           f"will deploy no files (not scanned into modindex.bin; "
+                           f"check for a symlinked/unreadable folder or run "
+                           f"Refresh). Index has {len(index)} mod(s).")
             continue
         normal, _ = entry
         if not normal:
+            if (log_fn is not None and name != OVERWRITE_NAME
+                    and name not in _utf8_bad):
+                log_fn(f"WARN: enabled mod \"{name}\" indexed with ZERO files — "
+                       f"it will deploy nothing")
             continue
         # Guard against surrogate-encoded filenames left in an old modindex.bin
         # (pre surrogate-skip-fix). v4 indexes are written after that fix, so

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
@@ -8452,7 +8453,17 @@ class MainWindow(QMainWindow):
     def _on_plugins_loaded(self, gen, rows, paths, state):
         """UI thread: apply a finished plugin reload (see _reload_plugins)."""
         if gen != self._plugins_gen:
+            msg = (f"plugins_loaded gen={gen} SUPERSEDED "
+                   f"(current={self._plugins_gen}) — {len(rows)} row(s) DROPPED")
+            print(f"[plugin-diag] {msg}", flush=True)
+            self._append_log(f"[rescan-diag] {msg}")
             return   # superseded — a newer reload is in flight
+        # Final link in the chain: how many plugin rows actually reached the
+        # panel. If this is 0 while the index/filemap looked fine above, the
+        # failure is in plugin discovery, not the filemap. GUI-visible so a
+        # user can see + send it without an env var.
+        self._append_log(f"[rescan-diag] plugins_loaded gen={gen} → applying "
+                         f"{len(rows)} row(s) to the panel")
         self._plugin_model.set_rows(rows, game=self._gs.game,
                                     profile=self._gs.profile,
                                     profile_dir=self._gs.profile_dir())
@@ -8919,6 +8930,19 @@ class MainWindow(QMainWindow):
         self._reassert_profile_paths()
         gen = getattr(self, "_conflict_gen", 0) + 1
         self._conflict_gen = gen
+        # A requested full rescan must SURVIVE supersession. Previously
+        # rescan_index lived only in this call's worker closure: if a Refresh's
+        # rescan build (rescan_index=True) was superseded — e.g. by the enable
+        # toggle the user does immediately after Refresh, which triggers a plain
+        # rescan_index=False rebuild — the Refresh worker returned early WITHOUT
+        # rescanning, and the superseding build reused the STALE index. The
+        # just-added mod then never entered modindex.bin, so it dropped out of
+        # filemap.txt (no conflicts / plugins / Data-tab) until some later full
+        # rescan happened to win the race (or a different tool — e.g. the Tk
+        # build, which always rescans — rewrote the index on disk). Latch the
+        # request on the window so whichever build actually runs consumes it.
+        if rescan_index:
+            self._pending_rescan_index = True
         # Serialize the actual build: rapid triggers (e.g. a Mod Files edit while
         # a previous rescan is still running) otherwise run two rebuild_mod_index
         # writes concurrently and collide on modindex.bin.tmp. The generation
@@ -8929,21 +8953,115 @@ class MainWindow(QMainWindow):
         from Utils.perftrace import span
 
         def worker():
-            # log to stderr (not the widget) — we're off the UI thread.
+            # Diagnostics below go to BOTH stderr and the GUI log panel
+            # (_append_log, thread-safe) so a normal user can see + send them
+            # without relaunching with an env var. They fire once per conflict
+            # build / supersession (not per-frame), so they're low-noise.
             with self._conflict_build_lock:
                 if gen != self._conflict_gen:
+                    msg = (f"conflict build gen={gen} SUPERSEDED "
+                           f"(current={self._conflict_gen}) — skipped before "
+                           f"build; requested rescan={rescan_index}, "
+                           f"latch pending={getattr(self, '_pending_rescan_index', False)}")
+                    print(f"[plugin-diag] {msg}", flush=True)
+                    self._append_log(f"[rescan-diag] {msg}")
                     return   # a newer build was queued while we waited — skip
-                with span(f"build_conflicts(rescan={rescan_index})"):
+                # Honour a latched rescan request even if THIS build was queued
+                # as rescan_index=False (it superseded a pending Refresh). The
+                # flag is NOT cleared here — it's cleared in _on_conflicts_ready
+                # only when this build's result is actually ACCEPTED. That way,
+                # if this rescan is itself superseded mid-build (its result
+                # dropped by the gen check), the request stays latched for the
+                # next build instead of being lost.
+                _latched = getattr(self, "_pending_rescan_index", False)
+                do_rescan = rescan_index or _latched
+                # Record what this gen's build did, so _on_conflicts_ready can
+                # clear the latch only when a rescanning build is accepted.
+                self._conflict_gen_did_rescan = (gen, do_rescan)
+                msg = (f"build gen={gen}: requested rescan={rescan_index}, "
+                       f"latched={_latched} → doing rescan={do_rescan}")
+                print(f"[plugin-diag] {msg}", flush=True)
+                self._append_log(f"[rescan-diag] {msg}")
+                def _fm_log(m):
+                    # Console for our own tracing + the GUI log panel so a user
+                    # actually SEES filemap warnings (enabled-mod-not-indexed,
+                    # symlink skips, name mismatches). _append_log is thread-safe
+                    # (marshals to the UI thread) and classifies WARN severity.
+                    print(f"[filemap] {m}", flush=True)
+                    self._append_log(f"[filemap] {m}")
+                with span(f"build_conflicts(rescan={do_rescan})"):
                     data = self._gs.build_conflicts(
-                        log_fn=lambda m: print(f"[filemap] {m}", flush=True),
-                        rescan_index=rescan_index)
+                        log_fn=_fm_log,
+                        rescan_index=do_rescan)
+                # Decisive check: after the build, is every ENABLED modlist mod
+                # actually present in the index the filemap was built from? An
+                # enabled mod missing here is THE failure (no conflicts/plugins).
+                self._log_enabled_not_indexed(gen)
             self._conflicts_ready.emit(gen, data)
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _log_enabled_not_indexed(self, gen: int) -> None:
+        """Diagnostic (off-thread): report any ENABLED modlist mod that is
+        absent from modindex.bin after a build. An enabled mod missing from the
+        index is the exact failure behind "no conflicts / no plugins / not in
+        Data tab" — it isolates whether the cause is a stale index (rescan race:
+        mod on disk + in modlist but not indexed) vs. a name/scan issue
+        (near-match key) vs. all-good. Reads the index once per build."""
+        try:
+            from Utils.modlist import read_modlist
+            from Utils.filemap import read_mod_index, OVERWRITE_NAME, ROOT_FOLDER_NAME
+            staging = self._gs.staging_dir()
+            ml = self._gs.modlist_path()
+            if staging is None or ml is None or not ml.is_file():
+                return
+            index_path = staging.parent / "modindex.bin"
+            index = read_mod_index(index_path) or {}
+            enabled = [e.name for e in read_modlist(ml)
+                       if e.enabled and not e.is_separator
+                       and e.name not in (OVERWRITE_NAME, ROOT_FOLDER_NAME)]
+            missing = []
+            for name in enabled:
+                if name in index:
+                    continue
+                on_disk = (staging / name).is_dir()
+                near = [k for k in index if k.strip().casefold() == name.strip().casefold()]
+                missing.append((name, on_disk, near))
+            if not missing:
+                self._append_log(
+                    f"[rescan-diag] gen={gen}: OK — all {len(enabled)} enabled "
+                    f"mod(s) present in modindex.bin ({len(index)} indexed)")
+                return
+            self._append_log(
+                f"[rescan-diag] gen={gen}: {len(missing)} ENABLED mod(s) MISSING "
+                f"from modindex.bin (index has {len(index)} mod(s)):")
+            for name, on_disk, near in missing[:20]:
+                if near:
+                    reason = f"NAME MISMATCH — index has {near!r}"
+                elif on_disk:
+                    reason = ("folder EXISTS on disk but NOT indexed → STALE INDEX "
+                              "(rescan race / rescan skipped)")
+                else:
+                    reason = "folder not found on disk"
+                self._append_log(f"[rescan-diag]   {name!r}: {reason}")
+        except Exception as exc:
+            print(f"[plugin-diag] _log_enabled_not_indexed error: {exc}", flush=True)
+
     def _on_conflicts_ready(self, gen: int, data):
         if gen != self._conflict_gen:
+            msg = (f"conflicts_ready gen={gen} SUPERSEDED "
+                   f"(current={self._conflict_gen}) — result dropped, plugins "
+                   f"NOT reloaded from this build")
+            print(f"[plugin-diag] {msg}", flush=True)
+            self._append_log(f"[rescan-diag] {msg}")
             return
+        # This build's result is accepted. If it performed the latched full
+        # rescan, clear the latch now (a fresh, correct modindex.bin is on disk).
+        # A rescan that was superseded mid-build never reaches here, so its
+        # latch survives for the next build — the request can't be lost.
+        _did = getattr(self, "_conflict_gen_did_rescan", None)
+        if _did is not None and _did[0] == gen and _did[1]:
+            self._pending_rescan_index = False
         from Utils.perftrace import span
         with span("on_conflicts_ready"):
             self._conflict_data = data
