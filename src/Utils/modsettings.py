@@ -665,7 +665,6 @@ def _apply_manifest_pak_order(
     Returns BG3ModInfo entries in lowest-priority-first order (ready for
     modsettings.lsx, where later entries override earlier ones).
     """
-    _log = _safe_log(log_fn)
 
     # mod_infos is keyed by uuid. Build a casefold lookup once.
     uuid_to_info_cf: dict[str, BG3ModInfo] = {

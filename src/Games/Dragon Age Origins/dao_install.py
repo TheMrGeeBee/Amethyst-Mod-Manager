@@ -316,18 +316,13 @@ def _prompt_override_config(config_path: Path, log_fn,
     if not options:
         return []
 
-    ask = _get_question_hook(log_fn)
-    if ask is None:
+    from Utils import ui_hooks
+    from Utils.ui_hooks import BACK, USE_DEFAULTS
+    if not ui_hooks.has_choice_handler():
         log_fn(f"  [DAO] OverrideConfig.xml present but no UI hook — "
                f"keeping {len(options)} default(s).")
         return []
-
-    # Navigation sentinels from the GUI hook — absent on headless paths.
-    try:
-        from gui.install_question import BACK, USE_DEFAULTS  # type: ignore
-    except Exception:
-        BACK = object()         # never returned by a non-GUI hook
-        USE_DEFAULTS = object()
+    ask = ui_hooks.ask_choice
 
     total = len(options)
     title = f"{mod_name} — Mod Options" if mod_name else "Dragon Age — Mod Options"
@@ -388,23 +383,6 @@ def _prompt_override_config(config_path: Path, log_fn,
     return results
 
 
-def _get_question_hook(log_fn=None):
-    """Return a callable(title, prompt, options, default_index) -> chosen|None.
-
-    Resolved lazily from the GUI layer so this module stays import-light and
-    usable headless. Returns None when no GUI hook is available — logging the
-    reason so a missing wizard isn't silent.
-    """
-    try:
-        from gui.install_question import ask_choice  # type: ignore
-        return ask_choice
-    except Exception as exc:
-        if log_fn:
-            log_fn(f"  [DAO] OverrideConfig wizard unavailable "
-                   f"(gui.install_question import failed: {exc!r}).")
-        return None
-
-
 def _warn_duplicate_overrides(mod_name: str,
                               duplicates: "dict[Path, list[str]]",
                               log_fn, interactive: bool = True) -> None:
@@ -432,20 +410,6 @@ def _warn_duplicate_overrides(mod_name: str,
     if not interactive:
         return
 
-    # Themed CTk popup, on the main thread (CTkAlert is modal). Resolve the GUI
-    # lazily so this module stays import-light/headless-safe.
-    try:
-        import tkinter as tk
-        from gui.dialogs import show_warning
-    except Exception:
-        return
-    root = getattr(tk, "_default_root", None)
-    try:
-        if root is None or not root.winfo_exists():
-            return
-    except Exception:
-        return
-
     names = sorted({dst.name for dst in duplicates})
     # Cap the visible list so a mod with hundreds of duplicate files can't grow
     # the popup past its height cap and clip the OK button.
@@ -465,20 +429,10 @@ def _warn_duplicate_overrides(mod_name: str,
         f"any variants you don't want."
     )
 
-    def _show() -> None:
-        try:
-            # Raised design height: the body can be up to ~10 list lines plus
-            # two paragraphs, and CTkAlert caps auto-size at 2× this value —
-            # 280 keeps the OK button visible in the worst case.
-            show_warning("Dragon Age — Duplicate override files", message,
-                         parent=root, height=280)
-        except Exception as exc:
-            log_fn(f"  [DAO] duplicate warning popup failed: {exc!r}")
-
-    try:
-        root.after(0, _show)
-    except Exception as exc:
-        log_fn(f"  [DAO] could not schedule duplicate warning: {exc!r}")
+    # The GUI's registered handler owns main-thread dispatch + modal display.
+    # No-op when headless. height hint kept for the Tk/CTkAlert backend.
+    from Utils import ui_hooks
+    ui_hooks.warn("Dragon Age — Duplicate override files", message, height=280)
 
 
 def normalize_dao_mod(dest_root: Path, mod_name: str, log_fn=None,

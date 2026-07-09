@@ -20,6 +20,65 @@ from typing import Callable
 
 from Utils.app_log import safe_log as _safe_log
 
+# Env vars the AppImage runtime injects to isolate the bundle's own libraries.
+# They point into the (transient) FUSE mount, so a Proton subprocess that
+# inherits them loads the AppImage's bundled Python/libs and its blocked
+# LD_LIBRARY_PATH sentinel instead of the host's — which breaks Proton's
+# startup Vulkan probe (CDLL('libvulkan.so.1') fails to find the host lib).
+_APPIMAGE_ENV_PREFIXES = (
+    "APPDIR", "APPIMAGE", "OWD", "ARGV0",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+    "LD_LIBRARY_PATH", "LD_PRELOAD",
+    "PYTHONHOME", "PYTHONPATH",
+    "GDK_PIXBUF_MODULEDIR", "GDK_PIXBUF_MODULE_FILE",
+    "GIO_MODULE_DIR", "GSETTINGS_SCHEMA_DIR",
+    "GTK_PATH", "GTK_IM_MODULE_FILE",
+    "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
+    "GCONV_PATH", "PERLLIB", "PERL5LIB",
+)
+
+
+def strip_appimage_env(env: dict) -> dict:
+    """Return *env* with AppImage-injected loader/bundle vars removed.
+
+    No-op outside the AppImage. When bundled, these vars point into the
+    AppImage's FUSE mount; passing them to a Proton subprocess makes it load
+    the bundle's libraries and its blocked LD_LIBRARY_PATH sentinel instead of
+    the host's, breaking Proton's Vulkan GPU probe on startup.
+
+    Whole vars in ``_APPIMAGE_ENV_PREFIXES`` are dropped outright; list-style
+    vars (PATH, XDG_DATA_DIRS) keep their host entries but have any
+    ``/tmp/.mount_*`` / ``$APPDIR`` fragments removed — otherwise the host
+    Proton we launch would still find the bundle's own ``python3`` / tools on
+    PATH and re-pollute itself.
+    """
+    if not os.environ.get("APPDIR") and not os.environ.get("APPIMAGE"):
+        return env
+    appdir = os.path.realpath(os.environ.get("APPDIR", "")) if os.environ.get("APPDIR") else ""
+    out = {
+        k: v for k, v in env.items()
+        if not any(k.startswith(p) for p in _APPIMAGE_ENV_PREFIXES)
+    }
+
+    def _bundled_entry(entry: str) -> bool:
+        if not entry:
+            return True
+        if entry.startswith("/tmp/.mount_"):
+            return True
+        return bool(appdir) and os.path.realpath(entry).startswith(appdir)
+
+    for k in ("PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"):
+        if k not in out:
+            continue
+        cleaned = os.pathsep.join(
+            p for p in out[k].split(os.pathsep) if not _bundled_entry(p))
+        if cleaned:
+            out[k] = cleaned
+        else:
+            out.pop(k, None)
+    return out
+
+
 _WINETRICKS_URL = "https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks"
 _CABEXTRACT_URL = "https://archlinux.org/packages/extra/x86_64/cabextract/download/"
 
@@ -168,29 +227,79 @@ def install_winetricks(log_fn: Callable[[str], None] | None = None) -> bool:
 
 
 def _get_proton_bin() -> str | None:
-    """Return the bin/ path of the newest available Proton installation, or None."""
-    proton_root = Path.home() / ".local" / "share" / "Steam" / "steamapps" / "common"
-    if not proton_root.is_dir():
-        return None
-    candidates = sorted(
-        [p / "files" / "bin" for p in proton_root.iterdir()
-         if p.name.startswith("Proton") and (p / "files" / "bin" / "wine").is_file()],
-        key=lambda p: str(p),
-        reverse=True,
+    """Return the bin/ path of the newest available Proton installation, or None.
+
+    Uses steam_finder's discovery so non-standard layouts (~/.steam/steam,
+    Snap, extra libraries, compatibilitytools.d) all work. Flatpak-Steam
+    Protons are skipped: their wine binaries need the Steam sandbox's runtime
+    libraries and break when run bare (winetricks runs wine directly).
+    """
+    from Utils.steam_finder import (
+        list_installed_proton,
+        _proton_script_in_steam_flatpak,
     )
-    return str(candidates[0]) if candidates else None
+    for script in list_installed_proton():
+        if _proton_script_in_steam_flatpak(script):
+            continue
+        for sub in ("files/bin", "dist/bin"):
+            cand = script.parent / sub
+            if (cand / "wine").is_file():
+                return str(cand)
+    return None
+
+
+def _host_spawn_prefix() -> list[str] | None:
+    """Command prefix to run a program on the host system.
+
+    Returns ``[]`` outside a Flatpak sandbox (run directly), the
+    ``flatpak-spawn --host`` prefix inside one, or None when the host is
+    unreachable (sandboxed without flatpak-spawn / the Flatpak portal).
+    ``--directory=/`` avoids inheriting a sandbox-only cwd on the host.
+    """
+    if not os.path.exists("/.flatpak-info"):
+        return []
+    if shutil.which("flatpak-spawn"):
+        return ["flatpak-spawn", "--host", "--directory=/"]
+    return None
+
+
+def _resolve_protontricks() -> list[str] | None:
+    """Command prefix to invoke protontricks (native or flatpak), or None.
+
+    Inside our own Flatpak sandbox neither ``shutil.which("protontricks")``
+    nor the ``flatpak`` CLI can see the host, so both probes go through
+    ``flatpak-spawn --host`` (flatpak-spawn exits 127 when the host binary
+    is missing, which the ``!= 0`` checks treat as unavailable).
+    """
+    host = _host_spawn_prefix()
+    if host is None:
+        return None
+    if not host:
+        if shutil.which("protontricks") is not None:
+            return ["protontricks"]
+        if shutil.which("flatpak") is not None and subprocess.run(
+            ["flatpak", "info", "com.github.Matoking.protontricks"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode == 0:
+            return ["flatpak", "run", "com.github.Matoking.protontricks"]
+        return None
+    if subprocess.run(
+        [*host, "sh", "-c", "command -v protontricks"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0:
+        return [*host, "protontricks"]
+    if subprocess.run(
+        [*host, "flatpak", "info", "com.github.Matoking.protontricks"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0:
+        return [*host, "flatpak", "run", "com.github.Matoking.protontricks"]
+    return None
 
 
 def _get_protontricks_cmd(steam_id: str) -> list[str] | None:
     """Return the protontricks command prefix for *steam_id*, or None if not found."""
-    if shutil.which("protontricks") is not None:
-        return ["protontricks", steam_id]
-    if shutil.which("flatpak") is not None and subprocess.run(
-        ["flatpak", "info", "com.github.Matoking.protontricks"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    ).returncode == 0:
-        return ["flatpak", "run", "com.github.Matoking.protontricks", steam_id]
-    return None
+    base = _resolve_protontricks()
+    return [*base, steam_id] if base else None
 
 
 def _install_via_winetricks(
@@ -211,7 +320,7 @@ def _install_via_winetricks(
 
     winetricks = str(_bundled_winetricks())
 
-    env = os.environ.copy()
+    env = strip_appimage_env(os.environ.copy())
     env["WINEPREFIX"] = str(prefix_path)
 
     path_prefix = str(_get_tools_dir())
@@ -391,7 +500,8 @@ def build_proton_env_for_game(game) -> "tuple[Path, dict] | tuple[None, None]":
     steam_id = game_steam_id(game)
     proton_script = find_proton_for_game(steam_id) if steam_id else None
 
-    from gui.plugin_panel import _read_prefix_runner, _resolve_compat_data
+    from Utils.proton_prefix import read_prefix_runner as _read_prefix_runner, \
+        resolve_compat_data as _resolve_compat_data
     compat_data = _resolve_compat_data(prefix_path)
 
     if proton_script is None:
@@ -410,7 +520,7 @@ def build_proton_env_for_game(game) -> "tuple[Path, dict] | tuple[None, None]":
     if steam_root is None:
         return None, None
 
-    env = os.environ.copy()
+    env = strip_appimage_env(os.environ.copy())
     env["STEAM_COMPAT_DATA_PATH"] = str(compat_data)
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(steam_root)
     game_path = game.get_game_path() if hasattr(game, "get_game_path") else None
@@ -451,7 +561,8 @@ def install_vcredist(
         from Utils.steam_finder import proton_run_command
         proc = subprocess.run(
             proton_run_command(proton_script, "run",
-             str(cache_path), "/install", "/quiet", "/norestart"),
+             str(cache_path), "/install", "/quiet", "/norestart",
+             env=env),
             env=env, cwd=cache_path.parent,
         )
         # 0 = success, 1638 = already installed, 3010 = reboot required, 1641 = reboot initiated
@@ -469,11 +580,4 @@ def install_vcredist(
 
 def protontricks_available() -> bool:
     """Return True if protontricks (native or flatpak) is available on this system."""
-    if shutil.which("protontricks") is not None:
-        return True
-    if shutil.which("flatpak") is not None and subprocess.run(
-        ["flatpak", "info", "com.github.Matoking.protontricks"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    ).returncode == 0:
-        return True
-    return False
+    return _resolve_protontricks() is not None

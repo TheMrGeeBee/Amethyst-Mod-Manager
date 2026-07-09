@@ -46,6 +46,7 @@ from Games.base_game import BaseGame
 from Utils.deploy import LinkMode
 from Utils.modlist import read_modlist
 from Utils.config_paths import get_profiles_dir
+from Utils.profile_state import read_excluded_mod_files
 
 _PROFILES_DIR = get_profiles_dir()
 
@@ -252,6 +253,20 @@ class SevenDaysToDie(BaseGame):
             and (staging / e.name).is_dir()
         ]
 
+        # The deploy must place exactly the files the Data tab shows, so it
+        # reuses the SAME filter chain the filemap is built from:
+        #   * per-mod "Disable" exclusions (Mod Files tab), and
+        #   * conflict_ignore_filenames (drops readme/changelog/*.txt etc.).
+        # Keys are post-strip rel_keys relative to the staged mod root
+        # (lowercase, forward-slash).
+        from Utils.filemap import _build_path_filters
+        excluded_by_mod = {
+            m: {k.lower() for k in keys}
+            for m, keys in read_excluded_mod_files(profile_dir).items()
+        }
+        path_filters = _build_path_filters(
+            self.conflict_ignore_filenames, None, None, excluded_by_mod)
+
         # Walk each enabled staging folder and split its *contents* into:
         #   - mods_folders: inner dirs that contain ModInfo.xml (each becomes
         #     its own Mods/NNNN_<name>/ on disk)
@@ -305,8 +320,13 @@ class SevenDaysToDie(BaseGame):
                 # survives untouched.
                 dst_name = _safe_folder_name(inner.name)
             dst = mods_dir / dst_name
+            # Filter keys are relative to the staged mod root; `inner` may be a
+            # subfolder of it (legacy nested layout), so prepend that offset
+            # when testing each file against the shared filemap filter chain.
+            offset = _subtree_offset(staging / staged_name, inner)
+            keep = _make_keep(path_filters, staged_name, offset)
             try:
-                _deploy_mod_folder(inner, dst, mode)
+                _deploy_mod_folder(inner, dst, mode, keep)
                 _log(f"  {staged_name} / {inner.name} → {dst_name}")
             except OSError as err:
                 _log(f"  ERROR: failed to deploy {staged_name}/{inner.name}: {err}")
@@ -326,7 +346,9 @@ class SevenDaysToDie(BaseGame):
             files_placed = 0
             for _idx, staged_name, loose in data_items_low_to_high:
                 mod_root = staging / staged_name
-                placed = _deploy_loose_items(mod_root, loose, game_root, mode, _log)
+                keep = _make_keep(path_filters, staged_name, "")
+                placed = _deploy_loose_items(
+                    mod_root, loose, game_root, mode, _log, keep)
                 placed_paths.extend(placed)
                 files_placed += len(placed)
                 _log(f"  {staged_name}: {len(placed)} file(s)")
@@ -545,40 +567,76 @@ def _safe_folder_name(name: str) -> str:
     return name.replace("/", "_").replace("\\", "_")
 
 
-def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode) -> None:
-    """Place ``src`` (a whole mod staging folder) at ``dst``.
+def _subtree_offset(stage_root: Path, inner: Path) -> str:
+    """Return the lowercase forward-slash prefix (with trailing '/') of ``inner``
+    relative to ``stage_root``, or '' when they're the same folder.
 
-    SYMLINK — one symlink to the whole folder (cheapest, mirrors future edits).
-    HARDLINK — walk the tree and hardlink every file; empty dirs are mkdir'd.
-    COPY     — recursive copy preserving metadata.
-
-    ``dst`` must not exist on entry.  Any pre-existing directory with the same
-    name is removed first so re-deploys stay idempotent.
+    Filter keys are relative to the staged mod root; in the legacy nested layout
+    ``inner`` is a child of it, so this offset re-bases a file's inner-relative
+    path back onto the staged-root key space the filters expect.
     """
+    if inner == stage_root:
+        return ""
+    try:
+        return inner.relative_to(stage_root).as_posix().lower() + "/"
+    except ValueError:
+        return ""
+
+
+def _make_keep(path_filters, mod_name: str, offset: str):
+    """Build a ``keep(rel_key_lower) -> bool`` predicate that mirrors the
+    filemap filter chain for ``mod_name``.  ``rel_key_lower`` is relative to the
+    walked root; ``offset`` re-bases it onto the staged-root key space."""
+    return lambda rel_key: path_filters.accepts(mod_name, offset + rel_key)
+
+
+def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode,
+                       keep=None) -> None:
+    """Place ``src`` (a whole mod staging folder) at ``dst``, file-by-file.
+
+    Every file is linked individually (rather than symlinking the whole folder)
+    so the same per-file filtering the filemap uses can be honoured uniformly:
+
+    SYMLINK  — one symlink per file.
+    HARDLINK — one hardlink per file (default).
+    COPY     — copy each file preserving metadata.
+
+    ``keep`` is a predicate ``(rel_key_lower) -> bool`` (rel_key relative to
+    ``src``, forward-slash); files for which it returns False are skipped, and
+    directories left empty as a result are not created — so the deployed tree
+    matches the Data tab exactly.  ``dst`` must not exist on entry — any
+    pre-existing directory with the same name is removed first so re-deploys
+    stay idempotent.
+    """
+    keep = keep or (lambda _rel: True)
     if dst.exists() or dst.is_symlink():
         if dst.is_symlink() or dst.is_file():
             dst.unlink()
         else:
             shutil.rmtree(dst)
 
-    if mode is LinkMode.SYMLINK:
-        dst.symlink_to(src, target_is_directory=True)
-        return
-
-    if mode is LinkMode.COPY:
-        shutil.copytree(src, dst)
-        return
-
-    # HARDLINK (default) — walk the source tree and hardlink every file.
     dst.mkdir(parents=True, exist_ok=True)
     src_str = str(src)
     dst_str = str(dst)
     for root, _dirs, files in os.walk(src_str):
         rel = os.path.relpath(root, src_str)
         target_dir = dst_str if rel == "." else os.path.join(dst_str, rel)
-        os.makedirs(target_dir, exist_ok=True)
+        rel_prefix = "" if rel == "." else rel.replace(os.sep, "/").lower() + "/"
+        made_dir = rel == "."   # dst root always exists already
         for fname in files:
-            os.link(os.path.join(root, fname), os.path.join(target_dir, fname))
+            if not keep(rel_prefix + fname.lower()):
+                continue
+            if not made_dir:
+                os.makedirs(target_dir, exist_ok=True)
+                made_dir = True
+            s = os.path.join(root, fname)
+            d = os.path.join(target_dir, fname)
+            if mode is LinkMode.SYMLINK:
+                os.symlink(s, d)
+            elif mode is LinkMode.COPY:
+                shutil.copy2(s, d)
+            else:
+                os.link(s, d)
 
 
 def _route_loose_file(rel: str, fname: str) -> str | None:
@@ -636,6 +694,7 @@ def _deploy_loose_items(
     dst_root: Path,
     mode: LinkMode,
     log_fn,
+    keep=None,
 ) -> list[str]:
     """Route each path in ``items`` under ``dst_root``.
 
@@ -644,13 +703,21 @@ def _deploy_loose_items(
     for routing purposes).  Higher-priority callers invoke this later so
     existing destination files are replaced on conflict.
 
+    ``keep`` is a predicate ``(rel_key_lower) -> bool`` (rel_key relative to
+    ``stage_root``, forward-slash) mirroring the filemap filter chain; files
+    for which it returns False are skipped.
+
     Returns absolute destination paths written, for restore cleanup.
     """
+    keep = keep or (lambda _rel: True)
     placed: list[str] = []
     stage_str = str(stage_root)
     dst_str = str(dst_root)
 
     def _place(src_path: str, rel_dir: str, fname: str) -> None:
+        rel_key = (fname if rel_dir == "." else f"{rel_dir}/{fname}").lower()
+        if not keep(rel_key):
+            return
         routed = _route_loose_file(rel_dir, fname)
         if routed is None:
             return

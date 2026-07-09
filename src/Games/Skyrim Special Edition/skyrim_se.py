@@ -7,7 +7,6 @@ Mod structure:
   Staged mods live in Profiles/Skyrim Special Edition/mods/
 """
 
-import shutil
 from pathlib import Path
 
 from Games.Bethesda.Bethesda import Fallout_3
@@ -23,6 +22,9 @@ class SkyrimSE(Fallout_3):
     _archive_list_needs_mod_bsas = False
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
+    # Skyrim AE Creation Club plugins (Skyrim.ccc) must be written into
+    # plugins.txt for a correct, LOOT-/xEdit-consistent load order.
+    plugins_include_cc = True
     supports_esl_flag = True
     vanilla_plugins = [
         "Skyrim.esm", "Update.esm",
@@ -143,7 +145,14 @@ class SkyrimSE(Fallout_3):
     @property
     def reshade_arch(self) -> int:
         return 64
-    
+
+    @property
+    def filemap_casing_pins(self) -> dict[str, str]:
+        return {
+            "hudmoviebaseinstance":    "HUDMovieBaseInstance",
+            "compassshoutmeterholder": "CompassShoutMeterHolder",
+        }
+
     @property
     def custom_routing_rules(self) -> list:
         from Utils.deploy import CustomRule
@@ -179,10 +188,12 @@ class SkyrimSE(Fallout_3):
 
     @property
     def wizard_tools(self) -> list[WizardTool]:
-        from wizards.pandora import find_pandora_exe
-        from wizards.bodyslide import find_mod_exe
-        from wizards.sse_display_tweaks import is_installed as sdt_installed
-        from wizards.engine_fixes import is_installed as ef_installed
+        from Utils.pandora_tools import find_pandora_exe
+        from Utils.wizard_gates import (
+            engine_fixes_installed as ef_installed,
+            find_mod_exe,
+            sse_display_tweaks_installed as sdt_installed,
+        )
         pandora_tools = []
         if sdt_installed(self):
             pandora_tools.append(WizardTool(
@@ -268,6 +279,26 @@ class SkyrimSE(Fallout_3):
                 label="Run SSEEdit QAC",
                 description="Deploy mods and run SSEEditQuickAutoClean.exe.",
                 dialog_class_path="wizards.sseedit.SSEEditQACWizard",
+            ),
+            WizardTool(
+                id="run_xedit_discord_skyrimse",
+                label="Run xEdit (Discord version)",
+                description="Deploy mods and run xTESEdit.exe -SSE from the latest "
+                            "xEdit build, released through the xEdit Discord.",
+                dialog_class_path="wizards.sseedit.XEditDiscordWizard",
+                extra={"xedit_exe": "xTESEdit.exe", "display_name": "xEdit",
+                       "app_dir": "xEdit (Discord)", "discord": True,
+                       "discord_mode": "SSE"},
+            ),
+            WizardTool(
+                id="run_xedit_discord_qac_skyrimse",
+                label="Run xEdit QAC (Discord version)",
+                description="Deploy mods and run xTESEdit.exe -SSE -quickautoclean "
+                            "from the latest xEdit build, released through the xEdit Discord.",
+                dialog_class_path="wizards.sseedit.XEditDiscordQACWizard",
+                extra={"xedit_exe": "xTESEdit.exe", "display_name": "xEdit",
+                       "app_dir": "xEdit (Discord)", "discord": True,
+                       "discord_mode": "SSE"},
             ),
             WizardTool(
                 id="run_creationkit_skyrimse",
@@ -372,39 +403,10 @@ class SkyrimSE(Fallout_3):
     def _script_extender_exe(self) -> str:
         return "skse64_loader.exe"
 
-    def swap_launcher(self, log_fn) -> None:
-        """Replace SkyrimSELauncher.exe with skse64_loader.exe if present."""
-        _log = log_fn
-        if self._game_path is None:
-            return
-        if not self._script_extender_swap:
-            _log("  Script extender / launcher swap disabled — skipping.")
-            return
-        skse = self._game_path / "skse64_loader.exe"
-        if not skse.is_file():
-            _log("  SKSE loader not found — skipping launcher swap.")
-            return
-        launcher = self._game_path / "SkyrimSELauncher.exe"
-        backup   = self._game_path / "SkyrimSELauncher.bak"
-        if launcher.is_file():
-            launcher.rename(backup)
-            _log("  Renamed SkyrimSELauncher.exe → SkyrimSELauncher.bak.")
-        shutil.copy2(skse, launcher)
-        _log("  Copied skse64_loader.exe → SkyrimSELauncher.exe.")
-
-    def _restore_launcher(self, log_fn) -> None:
-        """Reverse the SKSE launcher swap if a backup exists."""
-        _log = log_fn
-        if self._game_path is None:
-            return
-        backup   = self._game_path / "SkyrimSELauncher.bak"
-        launcher = self._game_path / "SkyrimSELauncher.exe"
-        if not backup.is_file():
-            return
-        if launcher.is_file():
-            launcher.unlink()
-        backup.rename(launcher)
-        _log("  Restored SkyrimSELauncher.exe from .bak.")
+    # swap_launcher / _restore_launcher are inherited from Fallout_3: it
+    # derives the launcher name from exe_name (SkyrimSELauncher.exe — GOG uses
+    # the same name, unlike GOG Fallout 3) and the SE loader from
+    # _script_extender_exe above, so the base logic is already correct here.
 
     def deploy(self, log_fn=None, mode: LinkMode = LinkMode.HARDLINK,
                profile: str = "default", progress_fn=None) -> None:

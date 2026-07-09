@@ -1,19 +1,24 @@
 app-id: io.github.Amethyst.ModManager
-runtime: org.gnome.Platform
-runtime-version: "50"
-sdk: org.gnome.Sdk
+runtime: org.kde.Platform
+runtime-version: "6.9"
+sdk: org.kde.Sdk
+# PySide6 comes prebuilt from the PySide BaseApp (Flathub-standard for
+# PySide apps); Qt itself is shared from the KDE runtime.
+base: io.qt.PySide.BaseApp
+base-version: "6.9"
 
 # 32-bit support for running Proton's bundled `wine` binary (ELF i386) during
 # Synthesis prefix setup. Without these, exec'ing wine fails with ENOENT — the
 # kernel reports the missing 32-bit ld-linux.so.2 interpreter as the error.
+# NOTE: version 24.08 matches KDE 6.9's freedesktop base (was 25.08 on GNOME 50).
 add-extensions:
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
-    version: '25.08'
+    version: '24.08'
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
-    versions: 25.08;1.4
+    versions: 24.08;1.4
     subdirectories: true
     no-autodownload: false
     autodelete: false
@@ -21,12 +26,22 @@ add-extensions:
 
 command: amethyst-mod-manager
 
+build-options:
+  env:
+    # cleanup-BaseApp.sh knobs — the app only uses QtCore/QtGui/QtWidgets,
+    # so strip the QtWebEngine stack the BaseApp inherits.
+    BASEAPP_REMOVE_WEBENGINE: 'true'
+    BASEAPP_DISABLE_NUMPY: 'true'
+
 # Sandbox permissions
 # - network: Nexus API send/receive, version checks, downloads
-# - x11 (+ wayland socket): Tkinter uses X11 only; on Wayland it needs XWayland, so we use
-#   socket=x11 (not fallback-x11 — fallback withholds X11 when Wayland is the session).
+# - x11 + wayland sockets: Qt picks Wayland natively when the session offers
+#   it and falls back to X11 otherwise.
 # - dri: GPU rendering
-# - home: mod staging (user-configurable path, e.g. anywhere in ~/), game paths, Steam libraries, config (~/.config/AmethystModManager)
+# - home: mod staging (user-configurable path, e.g. anywhere in ~/), game paths, Steam libraries.
+#   NOTE: app config does NOT live in ~/.config here — flatpak redirects
+#   XDG_CONFIG_HOME, so it lands in ~/.var/app/<app-id>/config/AmethystModManager
+#   (separate from a native/AppImage install's ~/.config/AmethystModManager).
 # - run/media, media, mnt: Steam libraries on SD cards and removable drives (Steam Deck, etc.)
 # - ~/.var/app/com.valvesoftware.Steam: Steam Flatpak data (home excludes ~/.var/app)
 # - ~/.var/app/com.heroicgameslauncher.hgl: Heroic Flatpak
@@ -55,13 +70,13 @@ tags:
   - modding
 
 cleanup-commands:
+  # BaseApp housekeeping (WebEngine strip per build-options env above).
+  - /app/cleanup-BaseApp.sh
   # Mount points for the 32-bit compat extensions declared above.
   - mkdir -p /app/lib/i386-linux-gnu/GL
 
 modules:
-  # Tkinter
-  - python3-tkinter.yaml
-  # Python Dependencies
+  # Python Dependencies (PySide6 excluded — provided by the BaseApp)
   - pypi-dependencies.yaml
 
   - name: sevenzip
@@ -86,20 +101,44 @@ modules:
         url: https://www.rarlab.com/rar/unrarsrc-7.1.9.tar.gz
         sha256: cbb5c7b65b720e59ffa47b2d00b8d1022a961da7ae1db27b6986c43671719483
 
+  # cabextract is needed by winetricks (vcredist/d3dcompiler installs).
+  # Bundling it means Utils/protontricks.py finds it on PATH and never falls
+  # back to downloading a rolling Arch binary that may not match our glibc.
+  - name: cabextract
+    buildsystem: autotools
+    sources:
+      # cabextract.org.uk 403s CI runners; Debian ships the byte-identical
+      # upstream tarball (same sha256), so pull from their pool instead.
+      - type: archive
+        url: http://deb.debian.org/debian/pool/main/c/cabextract/cabextract_1.11.orig.tar.gz
+        mirror-urls:
+          - https://www.cabextract.org.uk/cabextract-1.11.tar.gz
+        sha256: b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6
+
   - name: amethyst-mod-manager
     buildsystem: simple
     build-commands:
       - install -d /app/share/amethyst-mod-manager
-      - cp -a src/gui.py src/cli.py src/version.py src/splash_gtk.py src/gui src/Utils src/Games src/LOOT src/Nexus src/icons src/wizards src/wrappers src/gpak /app/share/amethyst-mod-manager/
+      - cp -a src/run_qt.py src/cli.py src/app_bootstrap.py src/version.py src/gui_qt
+        src/wizards_qt src/Utils src/Games src/LOOT src/Nexus src/icons src/wrappers
+        src/gpak /app/share/amethyst-mod-manager/
       - cp Changelog.txt /app/share/amethyst-mod-manager/
+
+      # Fail the build if src/LOOT lacks a loot.cpython-3XX .so matching the
+      # runtime's Python ABI — otherwise LOOT sorting silently disables at
+      # runtime. Rebuild with src/LOOT/rebuild_libloot.sh using the runtime's
+      # Python version (3.12 on org.kde.Platform 6.9).
+      - cd /app/share/amethyst-mod-manager && python3 -c 'import LOOT.loot'
 
       - install -d /app/bin
       - |
         printf '%s\n' '#!/bin/sh' \
           'export MOD_MANAGER_GAMES="/app/share/amethyst-mod-manager/Games"' \
           'export XDG_DATA_DIRS=/app/share:/usr/share' \
+          ': "${QT_QPA_PLATFORM:=xcb}"' \
+          'export QT_QPA_PLATFORM' \
           'cd /app/share/amethyst-mod-manager' \
-          'exec python3 gui.py "$@"' > /app/bin/amethyst-mod-manager
+          'exec python3 run_qt.py "$@"' > /app/bin/amethyst-mod-manager
       - chmod +x /app/bin/amethyst-mod-manager
       - |
         printf '%s\n' '#!/bin/sh' \

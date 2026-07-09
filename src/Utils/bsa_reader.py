@@ -126,7 +126,6 @@ def _read_bsa_v104_v105(f) -> list[str]:
     if version == 105:
         # 24 bytes: hash(8) + count(4) + padding(4) + offset(8)
         folder_rec_size = 24
-        folder_rec_fmt = "<QII"  # hash, count, padding — then read offset separately
     else:
         # v104: 16 bytes: hash(8) + count(4) + offset(4)
         folder_rec_size = 16

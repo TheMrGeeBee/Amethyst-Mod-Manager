@@ -111,6 +111,11 @@ class ResidentEvilRequiem(BaseGame):
     def custom_routing_rules(self) -> list[CustomRule]:
         return [
             CustomRule(
+                dest="",
+                filenames=["dinput8.dll"],
+                flatten=True,
+            ),
+            CustomRule(
                 dest="pak_mods",
                 extensions=[".pak"],
                 flatten=True,
@@ -255,5 +260,28 @@ class ResidentEvilRequiem(BaseGame):
             self.get_effective_filemap_path(),
             self._game_path,
             log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher(),
         )
         _log("Restore complete.")
+
+class Pragmata(ResidentEvilRequiem):
+
+    @property
+    def name(self) -> str:
+        return "Pragmata"
+
+    @property
+    def game_id(self) -> str:
+        return "Pragmata"
+
+    @property
+    def exe_name(self) -> str:
+        return "PRAGMATA.exe"
+
+    @property
+    def steam_id(self) -> str:
+        return "3357650"
+
+    @property
+    def nexus_game_domain(self) -> str:
+        return "pragmata"

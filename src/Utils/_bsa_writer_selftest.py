@@ -290,7 +290,7 @@ def _extract_file_via_offsets(bsa_path: Path, target: str) -> bytes:
             if file_compressed:
                 # 4-byte original-size prefix, then version-specific stream:
                 # v104 uses zlib, v105 uses LZ4 frame.
-                _orig_size = struct.unpack("<I", payload[:4])[0]
+                # 4-byte original-size prefix precedes the compressed stream.
                 body = payload[4:]
                 if version == 105:
                     return lz4.frame.decompress(body)

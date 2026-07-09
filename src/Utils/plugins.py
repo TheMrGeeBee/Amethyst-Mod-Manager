@@ -121,16 +121,16 @@ def write_plugins(path: Path, entries: list[PluginEntry], star_prefix: bool = Tr
       Only enabled entries are written (the engine has no '*' syntax and
       treats any listed plugin as active). Disabled entries survive in
       loadorder.txt, which is the source of truth for the full plugin set.
+
+    Atomic (write-temp → rename) so a concurrent reader never observes a
+    truncated/partial plugins.txt.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from Utils.atomic_write import write_atomic_text
     if star_prefix:
         lines = [(f"*{e.name}" if e.enabled else e.name) for e in entries]
     else:
         lines = [e.name for e in entries if e.enabled]
-    path.write_text(
-        "\n".join(lines) + ("\n" if lines else ""),
-        encoding="utf-8",
-    )
+    write_atomic_text(path, "\n".join(lines) + ("\n" if lines else ""))
     # Refresh the parse cache from what we just wrote so a same-mtime-resolution
     # write (e.g. exFAT's coarse timestamps) can't serve stale data on the next
     # read. We cache under both star_prefix variants of the parsed content.
@@ -209,13 +209,11 @@ def read_loadorder(path: Path) -> list[str]:
 
 
 def write_loadorder(path: Path, entries: list[PluginEntry]) -> None:
-    """Write the full load order (bare filenames) to loadorder.txt."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Write the full load order (bare filenames) to loadorder.txt.
+    Atomic (write-temp → rename), like write_plugins."""
+    from Utils.atomic_write import write_atomic_text
     lines = [e.name for e in entries]
-    path.write_text(
-        "\n".join(lines) + ("\n" if lines else ""),
-        encoding="utf-8",
-    )
+    write_atomic_text(path, "\n".join(lines) + ("\n" if lines else ""))
     # Keep the read cache coherent even under coarse (exFAT) mtime resolution.
     try:
         _loadorder_parse_cache[str(path)] = (path.stat().st_mtime, tuple(lines))
@@ -548,7 +546,6 @@ def sync_plugins_from_filemap_combined(
     removed = len(existing) - len(kept)
 
     # --- 6. Add: filemap plugins the user hasn't seen yet (and not disabled).
-    kept_lower = {e.name.lower() for e in kept}
     new_entries: list[PluginEntry] = []
     for low, original in filemap_names.items():
         if low in known_lower:

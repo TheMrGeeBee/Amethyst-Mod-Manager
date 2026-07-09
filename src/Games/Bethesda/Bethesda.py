@@ -130,6 +130,12 @@ def _set_ini_key(ini_path: Path, section: str, key: str, value: "str | None") ->
 
 class Fallout_3(BaseGame):
 
+    # Opt in to the incremental redeploy fast path (deploy_incremental.py):
+    # the whole Bethesda family (all subclasses, incl. SkyrimSE) uses the
+    # plain move_to_core → deploy_filemap → deploy_core sequence with a
+    # single Data/ target, which is exactly what the diff supports.
+    supports_incremental_deploy = True
+
     plugins_use_star_prefix = False
     plugins_include_vanilla = True
     vanilla_plugins = ["Fallout3.esm"]
@@ -151,6 +157,8 @@ class Fallout_3(BaseGame):
         "script_extender_swap",
         "profile_ini_files",
         "profile_saves",
+
+        "plugins_txt_filename",
     )
 
     # BAIN packages are authored for Bethesda games, so re-enable the
@@ -167,6 +175,10 @@ class Fallout_3(BaseGame):
         self._script_extender_swap: bool = True
         self._profile_ini_files: bool = False
         self._profile_saves: bool = False
+        # In-prefix plugins.txt filename casing. None = follow the game's
+        # class default (_PLUGINS_TXT_FILENAME); the user can override it in
+        # the Configure Game panel (plugins.txt vs Plugins.txt).
+        self._plugins_txt_filename_override: str | None = None
         self.load_paths()
 
     # -----------------------------------------------------------------------
@@ -184,6 +196,26 @@ class Fallout_3(BaseGame):
     @property
     def exe_name(self) -> str:
         return "Fallout3Launcher.exe"
+
+    # Alternate launcher basenames that some store editions ship instead of
+    # ``exe_name``.  Used both for auto-detection (exe_name_alts) and for the
+    # script-extender launcher swap, so whichever launcher actually exists on
+    # disk is detected and swapped.  Default empty so the many subclasses that
+    # reuse Fallout_3 for code (Skyrim, Fallout 4, …) don't inherit a bogus
+    # alt; only classes with a real alternate launcher populate it (below).
+    _launcher_alts: list[str] = []
+
+    @property
+    def exe_name_alts(self) -> list[str]:
+        alts = list(self._launcher_alts)
+        # GOG editions of Fallout 3 / Fallout 3 GOTY ship FalloutLauncher.exe
+        # instead of Fallout3Launcher.exe.  Both classes keep that exe_name
+        # (every other subclass overrides it), so key the alt off it — this
+        # can't leak to Skyrim/Fallout 4/etc.
+        if self.exe_name == "Fallout3Launcher.exe" and \
+                "FalloutLauncher.exe" not in alts:
+            alts.append("FalloutLauncher.exe")
+        return alts
 
     @property
     def plugin_extensions(self) -> list[str]:
@@ -365,9 +397,51 @@ class Fallout_3(BaseGame):
             ),
         ]
 
+    # The latest official xEdit is now released through the xEdit Discord (not
+    # Nexus) as a single multi-game build.  It ships three launchers, one per
+    # game family; the per-game build name (FO4Edit/SF1Edit/TES5Edit/…) maps to
+    # whichever launcher its family uses.
+    _DISCORD_XEDIT_EXES: dict[str, str] = {
+        "fo": "xFOEdit.exe",     # Fallout 3 / New Vegas / 4 / VR
+        "sf": "xSFEdit.exe",     # Starfield
+        "tes": "xTESEdit.exe",   # Oblivion / Skyrim / SSE / VR / Enderal
+    }
+
+    # The multi-game Discord launcher requires a game-mode argument to pick the
+    # game (it refuses to start without one).  Map each per-game build name to
+    # the mode token the launcher accepts (FNV/FO3/FO4/FO4VR/SSE/TES4/TES5/
+    # TES5VR/SF1/Enderal/EnderalSE).  Enderal shares its build name with
+    # Skyrim/SSE, so those callers pass ``discord_mode=`` explicitly.
+    _DISCORD_XEDIT_MODES: dict[str, str] = {
+        "fo3edit": "FO3", "fnvedit": "FNV", "fo4edit": "FO4",
+        "fo4vredit": "FO4VR", "fo76edit": "FO76", "sf1edit": "SF1",
+        "tes4edit": "TES4", "tes5edit": "TES5", "tes5vredit": "TES5VR",
+        "sseedit": "SSE",
+    }
+
+    @staticmethod
+    def _discord_xedit_exe(build: str) -> str:
+        """Pick the Discord xEdit launcher for a per-game *build* name.
+
+        FO3Edit/FNVEdit/FO4Edit/FO4VREdit -> xFOEdit; SF1Edit -> xSFEdit;
+        TES4Edit/TES5Edit/TES5VREdit/SSEEdit -> xTESEdit.
+        """
+        b = build.lower()
+        if b.startswith("sf"):
+            return Fallout_3._DISCORD_XEDIT_EXES["sf"]
+        if b.startswith(("fo", "fnv")):
+            return Fallout_3._DISCORD_XEDIT_EXES["fo"]
+        return Fallout_3._DISCORD_XEDIT_EXES["tes"]
+
+    @staticmethod
+    def _discord_xedit_mode(build: str) -> str:
+        """Default game-mode arg for a *build* (e.g. FO4Edit -> 'FO4')."""
+        return Fallout_3._DISCORD_XEDIT_MODES.get(build.lower(), build)
+
     @staticmethod
     def _xedit_wizard_tools(
-        build: str, id_suffix: str, nexus_url: str, qac: bool = True
+        build: str, id_suffix: str, nexus_url: str, qac: bool = True,
+        discord_only: bool = False, discord_mode: str | None = None,
     ) -> list[WizardTool]:
         """Build the 'Run <xEdit>' (+ optional QAC) wizard entries for a game.
 
@@ -376,27 +450,73 @@ class Fallout_3(BaseGame):
         via ``extra``.  Plugins xEdit creates/cleans are rescued generically by
         the game's ``restore()`` (``restore_data_core`` with overwrite/staging),
         so no per-game restore code is needed.
+
+        Every game also gets the "Discord version" of xEdit — the latest
+        official build, now released through the xEdit Discord (not Nexus) as
+        one multi-game download whose launcher differs per game family
+        (xFOEdit/xSFEdit/xTESEdit).  Its QAC is the same exe with
+        ``-quickautoclean`` (no separate build), so it is registered as its own
+        wizard entry.  ``discord_only`` drops the Nexus entries entirely (used
+        by games whose Nexus build was discontinued, e.g. Starfield).
         """
         exe = f"{build}.exe"
-        tools = [
-            WizardTool(
-                id=f"run_{build.lower()}_{id_suffix}",
-                label=f"Run {build}",
-                description=f"Install {build}, deploy mods, and run {exe}.",
-                dialog_class_path="wizards.sseedit.SSEEditWizard",
-                extra={"xedit_exe": exe, "nexus_url": nexus_url, "display_name": build},
-            ),
-        ]
-        if qac:
+        tools: list[WizardTool] = []
+        if not discord_only:
             tools.append(
                 WizardTool(
-                    id=f"run_{build.lower()}_qac_{id_suffix}",
-                    label=f"Run {build} QAC",
-                    description=f"Deploy mods and run {build}QuickAutoClean.exe.",
-                    dialog_class_path="wizards.sseedit.SSEEditQACWizard",
-                    extra={"xedit_exe": exe, "nexus_url": nexus_url, "display_name": build},
+                    id=f"run_{build.lower()}_{id_suffix}",
+                    label=f"Run {build}",
+                    description=f"Install {build}, deploy mods, and run {exe}.",
+                    dialog_class_path="wizards.sseedit.SSEEditWizard",
+                    extra={"xedit_exe": exe, "nexus_url": nexus_url,
+                           "display_name": build},
                 )
             )
+            if qac:
+                tools.append(
+                    WizardTool(
+                        id=f"run_{build.lower()}_qac_{id_suffix}",
+                        label=f"Run {build} QAC",
+                        description=f"Deploy mods and run {build}QuickAutoClean.exe.",
+                        dialog_class_path="wizards.sseedit.SSEEditQACWizard",
+                        extra={"xedit_exe": exe, "nexus_url": nexus_url,
+                               "display_name": build},
+                    )
+                )
+
+        # Community Discord build (multi-game exe, downloaded off Nexus).  The
+        # launcher needs a game-mode arg to select the game (see xedit_view).
+        discord_exe = Fallout_3._discord_xedit_exe(build)
+        mode = discord_mode or Fallout_3._discord_xedit_mode(build)
+        discord_extra = {
+            "xedit_exe": discord_exe,
+            "display_name": "xEdit",
+            "app_dir": "xEdit (Discord)",
+            "discord": True,
+            "discord_mode": mode,
+        }
+        tools.append(
+            WizardTool(
+                id=f"run_xedit_discord_{id_suffix}",
+                label="Run xEdit (Discord version)",
+                description=(
+                    f"Deploy mods and run {discord_exe} -{mode} from the latest "
+                    "xEdit build, released through the xEdit Discord."),
+                dialog_class_path="wizards.sseedit.XEditDiscordWizard",
+                extra=dict(discord_extra),
+            )
+        )
+        tools.append(
+            WizardTool(
+                id=f"run_xedit_discord_qac_{id_suffix}",
+                label="Run xEdit QAC (Discord version)",
+                description=(
+                    f"Deploy mods and run {discord_exe} -{mode} -quickautoclean "
+                    "from the latest xEdit build, released through the xEdit Discord."),
+                dialog_class_path="wizards.sseedit.XEditDiscordQACWizard",
+                extra=dict(discord_extra),
+            )
+        )
         return tools
 
     # -----------------------------------------------------------------------
@@ -421,12 +541,24 @@ class Fallout_3(BaseGame):
         self._script_extender_swap = data.get("script_extender_swap", True)
         self._profile_ini_files = data.get("profile_ini_files", False)
         self._profile_saves = data.get("profile_saves", False)
+        raw_pfname = data.get("plugins_txt_filename")
+        # Only treat a stored value as an override when it differs from the
+        # game's class default, so a value equal to the default (which we now
+        # always persist — see _save_paths_extra) doesn't masquerade as one.
+        pfname = str(raw_pfname) if raw_pfname else ""
+        self._plugins_txt_filename_override = (
+            pfname if pfname and pfname != self._PLUGINS_TXT_FILENAME else None)
 
     def _save_paths_extra(self) -> dict:
+        # Always emit the effective filename (never omit it): omitting it left a
+        # stale value in paths.json when the user switched back to the default,
+        # so the change appeared to do nothing. A concrete value here also lets
+        # save_paths() pin it per-profile via profile_overridable_paths_extras.
         return {
             "script_extender_swap": self._script_extender_swap,
             "profile_ini_files":    self._profile_ini_files,
             "profile_saves":        self._profile_saves,
+            "plugins_txt_filename": self.plugins_txt_filename,
         }
 
     def set_staging_path(self, path: "Path | str | None") -> None:
@@ -587,10 +719,34 @@ class Fallout_3(BaseGame):
 
     _PLUGINS_TXT_FILENAME = "plugins.txt"
 
+    # Whether this game reads an in-prefix plugins.txt at all. FO76 and the
+    # like set this False so the Configure Game panel hides the casing option.
+    uses_plugins_txt = True
+
+    @property
+    def plugins_txt_filename(self) -> str:
+        """The in-prefix plugins.txt filename the game reads.
+
+        Follows the per-game class default unless the user has overridden the
+        casing in the Configure Game panel."""
+        return self._plugins_txt_filename_override or self._PLUGINS_TXT_FILENAME
+
+    def set_plugins_txt_filename(self, value: str) -> None:
+        """Override the in-prefix plugins.txt filename casing and persist it.
+
+        Passing a value that matches the game's default clears the override so
+        the game keeps following its default afterwards."""
+        value = (value or "").strip() or self._PLUGINS_TXT_FILENAME
+        if value == self._PLUGINS_TXT_FILENAME:
+            self._plugins_txt_filename_override = None
+        else:
+            self._plugins_txt_filename_override = value
+        self.save_paths()
+
     # GOG builds of Bethesda games can't read a *symlinked* plugins.txt, so we
     # deploy a real copy (see Utils.plugins.deploy_plugins_copy). Casing follows
-    # each game's _PLUGINS_TXT_FILENAME (lowercase for most, Plugins.txt for
-    # Oblivion/Oblivion Remastered/Starfield).
+    # plugins_txt_filename (the game default — lowercase for most, Plugins.txt
+    # for Oblivion/Oblivion Remastered/Starfield — or the user's override).
     def _plugins_txt_targets(self, prefix_root: "Path | None" = None) -> list[Path]:
         """Return every in-prefix path where the game might expect plugins.txt.
 
@@ -603,7 +759,7 @@ class Fallout_3(BaseGame):
         root = prefix_root if prefix_root is not None else self._prefix_path
         if root is None:
             return []
-        fname = self._PLUGINS_TXT_FILENAME
+        fname = self.plugins_txt_filename
         steam_dir = root / self._APPDATA_SUBPATH
         targets: list[Path] = []
         if steam_dir.is_dir():
@@ -642,6 +798,15 @@ class Fallout_3(BaseGame):
         content = source.read_text(encoding="utf-8")
         for target in targets:
             deploy_plugins_copy(target.parent, target.name, content, _log)
+            if self._lock_plugins_txt:
+                # Mark read-only so Fallout 4's AE launcher can't rewrite it on
+                # launch. Restore deletes the file (unlink ignores the read-only
+                # bit), so the next deploy writes a fresh copy — no need to clear
+                # the flag first.
+                try:
+                    target.chmod(0o444)
+                except OSError as exc:
+                    _log(f"  WARN: could not set {target.name} read-only: {exc}")
 
     def _remove_plugins_txt_symlink(self, log_fn) -> None:
         """Remove the deployed plugins.txt copy (or legacy symlink) on restore."""
@@ -661,6 +826,11 @@ class Fallout_3(BaseGame):
 
     # Every Bethesda engine loads master-flagged plugins before non-masters.
     plugins_master_block = True
+
+    # When True, the deployed plugins.txt is marked read-only. Only Fallout 4
+    # needs this (its AE launcher rewrites the file on launch); every other
+    # Bethesda game leaves it writable.
+    _lock_plugins_txt = False
 
     def _orders_plugins_by_mtime(self) -> bool:
         return self._plugin_load_order_by_mtime and not self.plugins_use_star_prefix
@@ -1045,6 +1215,55 @@ class Fallout_3(BaseGame):
         names = ", ".join(p.name for p in ini_paths)
         _log(f"  Archive invalidation reverted in {names}.")
 
+    # (section, key, value) triples forced into the game's INIs on every deploy,
+    # independent of archive invalidation. Removed again on restore. Used by
+    # Fallout 4 to set [Bethesda.net] bEnablePlatform=0, which stops the AE
+    # launcher's Creations/Bethesda.net sync from rewriting plugins.txt.
+    _ini_override_keys: tuple[tuple[str, str, str], ...] = ()
+
+    def apply_ini_overrides(self, log_fn) -> None:
+        """Force ``_ini_override_keys`` into every managed game INI.
+
+        Unlike archive invalidation, this is not gated on any setting — the
+        keys are written on every deploy and always set to our value (an
+        existing user value is overwritten, since the whole point is to
+        override it).
+        """
+        if not self._ini_override_keys:
+            return
+        _log = log_fn
+        ini_paths = self._get_archive_ini_paths()
+        if not ini_paths:
+            return
+        for ini_path in ini_paths:
+            ini_path.parent.mkdir(parents=True, exist_ok=True)
+            for section, key, value in self._ini_override_keys:
+                if _read_ini_key(ini_path, section, key) == value:
+                    continue
+                _set_ini_key(ini_path, section, key, value)
+        names = ", ".join(p.name for p in ini_paths)
+        _log(f"  Applied INI overrides in {names}.")
+
+    def revert_ini_overrides(self, log_fn) -> None:
+        """Remove any ``_ini_override_keys`` this game previously wrote.
+
+        Only removes a key whose current value still matches what we wrote, so
+        a value the user has since changed by hand is left untouched.
+        """
+        if not self._ini_override_keys:
+            return
+        _log = log_fn
+        ini_paths = [p for p in self._get_archive_ini_paths() if p.is_file()]
+        if not ini_paths:
+            return
+        for ini_path in ini_paths:
+            for section, key, value in self._ini_override_keys:
+                if _read_ini_key(ini_path, section, key) != value:
+                    continue
+                _set_ini_key(ini_path, section, key, None)
+        names = ", ".join(p.name for p in ini_paths)
+        _log(f"  Reverted INI overrides in {names}.")
+
     def _write_dummy_bsa_file(self, _log) -> None:
         """Write the dummy BSA into the game's Data folder, if configured."""
         bsa_name = self._invalidation_bsa_name
@@ -1225,7 +1444,9 @@ class Fallout_3(BaseGame):
         star/asterisk activation prefix used by later games."""
         if self._active_profile_dir is None:
             return []
-        path = self._active_profile_dir / self._PLUGINS_TXT_FILENAME
+        # The profile-side file is always written lowercase; the plugins.txt
+        # casing option only affects the in-prefix copy the game reads.
+        path = self._active_profile_dir / "plugins.txt"
         if not path.is_file():
             return []
         order: list[str] = []
@@ -1281,6 +1502,24 @@ class Fallout_3(BaseGame):
         unmatched = [t for t in ranked if t[0] < 0]
         return [b for _, _, b in matched] + [b for _, _, b in unmatched]
 
+    def _launcher_name(self) -> str:
+        """The launcher filename that actually exists in the game folder.
+
+        Some store editions ship a differently-named launcher (e.g. GOG
+        Fallout 3 uses ``FalloutLauncher.exe`` instead of
+        ``Fallout3Launcher.exe``).  Return the first of ``exe_name`` /
+        ``exe_name_alts`` that is present on disk (or has a matching ``.bak``
+        backup from a previous swap), falling back to ``exe_name``.
+        """
+        candidates = [self.exe_name, *self.exe_name_alts]
+        if self._game_path is not None:
+            for name in candidates:
+                stem = Path(name).stem
+                if (self._game_path / name).is_file() or \
+                   (self._game_path / (stem + ".bak")).is_file():
+                    return name
+        return self.exe_name
+
     def swap_launcher(self, log_fn) -> None:
         """Replace the game launcher with the script extender if present."""
         _log = log_fn
@@ -1293,27 +1532,29 @@ class Fallout_3(BaseGame):
         if not se.is_file():
             _log(f"  {self._script_extender_exe} not found — skipping launcher swap.")
             return
-        launcher = self._game_path / self.exe_name
-        backup   = self._game_path / (Path(self.exe_name).stem + ".bak")
+        exe_name = self._launcher_name()
+        launcher = self._game_path / exe_name
+        backup   = self._game_path / (Path(exe_name).stem + ".bak")
         if launcher.is_file():
             launcher.rename(backup)
-            _log(f"  Renamed {self.exe_name} → {backup.name}.")
+            _log(f"  Renamed {exe_name} → {backup.name}.")
         shutil.copy2(se, launcher)
-        _log(f"  Copied {self._script_extender_exe} → {self.exe_name}.")
+        _log(f"  Copied {self._script_extender_exe} → {exe_name}.")
 
     def _restore_launcher(self, log_fn) -> None:
         """Reverse the script extender launcher swap if a backup exists."""
         _log = log_fn
         if self._game_path is None:
             return
-        backup   = self._game_path / (Path(self.exe_name).stem + ".bak")
-        launcher = self._game_path / self.exe_name
+        exe_name = self._launcher_name()
+        backup   = self._game_path / (Path(exe_name).stem + ".bak")
+        launcher = self._game_path / exe_name
         if not backup.is_file():
             return
         if launcher.is_file():
             launcher.unlink()
         backup.rename(launcher)
-        _log(f"  Restored {self.exe_name} from {backup.name}.")
+        _log(f"  Restored {exe_name} from {backup.name}.")
 
     def deploy(self, log_fn=None, mode: LinkMode = LinkMode.HARDLINK,
                profile: str = "default", progress_fn=None) -> None:
@@ -1410,6 +1651,8 @@ class Fallout_3(BaseGame):
         _log("Step 7: Applying archive invalidation ...")
         self.apply_archive_invalidation(_log)
 
+        self.apply_ini_overrides(_log)
+
         if self._orders_plugins_by_mtime():
             _log("Step 8: Setting plugin mtimes to match load order ...")
             self.stamp_plugin_load_order(profile, _log)
@@ -1434,6 +1677,8 @@ class Fallout_3(BaseGame):
 
         _log("Restore: reverting archive invalidation ...")
         self.revert_archive_invalidation(_log)
+
+        self.revert_ini_overrides(_log)
 
         _profile_dir = self._active_profile_dir
         _entries = read_modlist(_profile_dir / "modlist.txt") if _profile_dir else []
@@ -1460,6 +1705,7 @@ class Fallout_3(BaseGame):
             staging_root=self.get_effective_mod_staging_path(),
             strip_prefixes=self.mod_folder_strip_prefixes,
             log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher(rel_prefix="data/"),
         )
         _log(f"  Restored {restored} file(s). Data_Core/ removed.")
 
@@ -1744,6 +1990,8 @@ class Fallout_4(Fallout_3):
     _archive_list_needs_mod_bsas = False
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
+    # CC plugins (Fallout4.ccc) must be written into plugins.txt for load order.
+    plugins_include_cc = True
     supports_esl_flag = True
     vanilla_plugins = [
         "Fallout4.esm",
@@ -1765,7 +2013,7 @@ class Fallout_4(Fallout_3):
 
     @property
     def wizard_tools(self) -> list[WizardTool]:
-        from wizards.bodyslide import find_mod_exe
+        from Utils.wizard_gates import find_mod_exe
         bodyslide_tools = []
         if find_mod_exe(self, ("BodySlide.exe", "BodySlide x64.exe")) is not None:
             bodyslide_tools.append(WizardTool(
@@ -1860,6 +2108,11 @@ class Fallout_4(Fallout_3):
     _ARCHIVE_INI_FILENAME = "Fallout4.ini"
     _ARCHIVE_PREFS_INI_FILENAME = "Fallout4Prefs.ini"
     _archive_invalidation_extra_keys = (("sResourceDataDirsFinal", ""),)
+    # Disable the AE launcher's Creations/Bethesda.net platform sync, which
+    # otherwise rewrites plugins.txt on launch and clobbers our load order.
+    _ini_override_keys = (("Bethesda.net", "bEnablePlatform", "0"),)
+    # The AE launcher rewrites plugins.txt on launch — mark it read-only.
+    _lock_plugins_txt = True
     # BA2-based — no dummy BSA, only the bInvalidateOlderFiles INI key.
     _invalidation_bsa_name = None
     _invalidation_bsa_version = None
@@ -2319,6 +2572,8 @@ class Starfield(Fallout_3):
 
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
+    # CC plugins (Starfield.ccc) must be written into plugins.txt for load order.
+    plugins_include_cc = True
     supports_esl_flag = True
     vanilla_plugins = [
         "Starfield.esm", "Constellation.esm", "ShatteredSpace.esm",
@@ -2363,9 +2618,12 @@ class Starfield(Fallout_3):
                 description="Download and run Wrye Bash.",
                 dialog_class_path="wizards.wrye_bash.WryeBashWizard",
             ),
+            # Starfield no longer has a dedicated Nexus xEdit build — it uses
+            # the Discord-released xEdit build (xSFEdit) exclusively.
             *self._xedit_wizard_tools(
                 build="SF1Edit", id_suffix="starfield",
                 nexus_url="https://www.nexusmods.com/starfield/mods/121?tab=files",
+                discord_only=True,
             ),
         ]
 
@@ -2412,7 +2670,9 @@ class Starfield(Fallout_3):
             self._saves_routing_rule([".sfs"]),
         ]
 
-    # plugins.txt lives at AppData/Local/Starfield/plugins.txt — same pattern as other Bethesda titles.
+    # Plugins.txt lives at AppData/Local/Starfield/Plugins.txt (capital P) —
+    # same pattern as Oblivion. The class default drives plugins_txt_filename.
+    _PLUGINS_TXT_FILENAME = "Plugins.txt"
     _APPDATA_SUBPATH = Path("drive_c/users/steamuser/AppData/Local/Starfield")
     _APPDATA_SUBPATH_GOG = None
     _MYGAMES_SUBPATH = Path("Starfield")
@@ -2429,10 +2689,11 @@ class Starfield(Fallout_3):
         return "sfse_loader.exe"
 
     def _plugins_txt_target(self) -> Path | None:
-        """Return the in-prefix path where Starfield expects Plugins.txt (capital P)."""
+        """Return the in-prefix path where Starfield expects Plugins.txt (capital P
+        by default; the Configure Game panel can override the casing)."""
         if self._prefix_path is None:
             return None
-        return self._prefix_path / self._APPDATA_SUBPATH / "Plugins.txt"
+        return self._prefix_path / self._APPDATA_SUBPATH / self.plugins_txt_filename
 
     def _symlink_plugins_txt(self, profile: str, log_fn) -> None:
         """Write a Blueprint-stripped copy of Plugins.txt into the prefix.
@@ -2603,6 +2864,7 @@ class Enderal(Fallout_3):
             *self._xedit_wizard_tools(
                 build="TES5Edit", id_suffix="enderal",
                 nexus_url="https://www.nexusmods.com/skyrim/mods/25859?tab=files",
+                discord_mode="Enderal",
             ),
         ]
 
@@ -2692,6 +2954,7 @@ class EnderalSE(Fallout_3):
             *self._xedit_wizard_tools(
                 build="SSEEdit", id_suffix="enderalse",
                 nexus_url="https://www.nexusmods.com/skyrimspecialedition/mods/164?tab=files",
+                discord_mode="EnderalSE",
             ),
         ]
 
@@ -2709,6 +2972,7 @@ class Fallout_76(Fallout_3):
 
     # No plugin system at all — empty plugin_extensions disables the Plugins tab,
     # load-order tracking, master logic, ESL flags, and orphan-plugin scanning.
+    uses_plugins_txt = False
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
     supports_esl_flag = False

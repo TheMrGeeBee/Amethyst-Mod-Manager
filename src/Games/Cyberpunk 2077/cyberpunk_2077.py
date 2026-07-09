@@ -260,5 +260,7 @@ class Cyberpunk2077(BaseGame):
             restore_custom_rules(filemap, game_root, rules=custom_rules, log_fn=_log)
 
         _log("Restore: removing mod files and restoring vanilla files ...")
-        removed = restore_filemap_from_root(filemap, game_root, log_fn=_log)
+        removed = restore_filemap_from_root(
+            filemap, game_root, log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher())
         _log(f"Restore complete. {removed} mod file(s) removed from game root.")

@@ -1,0 +1,405 @@
+"""Game/profile state controller for the Qt UI.
+
+Thin wrapper over the real (toolkit-neutral) helpers in gui.game_helpers and
+Games.base_game so the Qt app drives the same load flow as the Tk app:
+discover games, list profiles, switch the active game/profile, and resolve the
+active modlist.txt + staging dir.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from Utils.game_helpers import (
+    _load_games, _profiles_for_game, _load_last_game, _save_last_game, _GAMES,
+)
+from Utils.ui_config import load_last_session, save_last_session
+
+
+@dataclass
+class ConflictData:
+    """Everything the modlist/plugins panels need to draw conflicts + cross-panel
+    highlights. All maps key on mod name. *_codes are 1 win / -1 lose / 2 mixed.
+    *_overrides[mod] = mods this mod beats; *_overridden_by[mod] = mods that beat
+    it. plugin_owner maps a plugin filename (lower) → the mod that deploys it."""
+    loose_codes: dict[str, int] = field(default_factory=dict)
+    bsa_codes: dict[str, int] = field(default_factory=dict)
+    overrides: dict[str, set] = field(default_factory=dict)
+    overridden_by: dict[str, set] = field(default_factory=dict)
+    bsa_overrides: dict[str, set] = field(default_factory=dict)
+    bsa_overridden_by: dict[str, set] = field(default_factory=dict)
+    plugin_owner: dict[str, str] = field(default_factory=dict)
+    # Filemap/index-derived flag inputs (mod names): mods with pre-RTX
+    # (natives/x64) files (info flag) and mods owning root-rule-routed files
+    # (root flag). Computed from modindex.bin in build_conflicts.
+    prertx_mods: set = field(default_factory=set)
+    root_rule_mods: set = field(default_factory=set)
+    # Framework banner rows (list[FrameworkStatus]) precomputed on the conflict
+    # worker — detect_frameworks re-reads filemap.txt (+ the mod index), which
+    # is too slow for the UI thread on a 100k-file modlist.
+    framework_statuses: list = field(default_factory=list)
+
+
+class GameState:
+    def __init__(self):
+        self.game_names: list[str] = []
+        self.game_name: str | None = None
+        self.profile: str | None = None
+
+    # -- discovery / load ---------------------------------------------------
+    def load(self) -> None:
+        """Discover games and select the last-used game + profile (from
+        amethyst.ini [session], falling back to last_game.json / first game and
+        the first profile). Populates game_names / game_name / profile."""
+        self.game_names = _load_games()
+        sess_game, sess_profile = load_last_session()
+        last = _load_last_game()
+        if sess_game and sess_game in self.game_names:
+            self.game_name = sess_game
+        elif last and last in self.game_names:
+            self.game_name = last
+        elif self.game_names and self.game_names[0] != "No games configured":
+            self.game_name = self.game_names[0]
+        else:
+            self.game_name = None
+        # Restore the profile: prefer the global session profile (the one open
+        # when the app last closed), then this game's own last-active profile,
+        # then the first profile. Records it as the game's last-active too.
+        g = self.game
+        per_game = g.get_last_active_profile() if g is not None else None
+        self.profile = (self._select_profile(sess_profile)
+                        if sess_profile else None) or \
+            self._select_profile(per_game)
+        self._apply_active_profile()
+        self._save_last_active_profile()
+
+    # -- current handler ----------------------------------------------------
+    @property
+    def game(self):
+        return _GAMES.get(self.game_name) if self.game_name else None
+
+    def profiles(self) -> list[str]:
+        return _profiles_for_game(self.game_name) if self.game_name else []
+
+    # -- switching ----------------------------------------------------------
+    def set_game(self, name: str) -> None:
+        if name == self.game_name or name not in self.game_names:
+            return
+        self.game_name = name
+        _save_last_game(name)
+        # Restore the profile last used ON THIS GAME (Tk parity — top_bar uses
+        # game.get_last_active_profile()), falling back to the first profile.
+        self._select_last_active_profile()
+        self._apply_active_profile()
+        self._save_last_active_profile()
+        save_last_session(self.game_name, self.profile)
+
+    def set_profile(self, profile: str) -> None:
+        if profile == self.profile:
+            return
+        self.profile = profile
+        self._apply_active_profile()
+        # Remember this as the game's last active profile so switching away and
+        # back returns here (Tk parity — top_bar._on_profile_change).
+        self._save_last_active_profile()
+        save_last_session(self.game_name, self.profile)
+
+    # -- resolved paths -----------------------------------------------------
+    def modlist_path(self) -> Path | None:
+        g = self.game
+        if g is None or not self.profile:
+            return None
+        return g.get_profile_root() / "profiles" / self.profile / "modlist.txt"
+
+    def profile_dir(self) -> Path | None:
+        """Active profile dir — where per-profile state (collapsed separators,
+        separator locks, etc.) is stored."""
+        g = self.game
+        if g is None or not self.profile:
+            return None
+        return g.get_profile_root() / "profiles" / self.profile
+
+    def staging_dir(self) -> Path | None:
+        g = self.game
+        if g is None:
+            return None
+        try:
+            p = g.get_effective_mod_staging_path()
+            return p if p.is_dir() else None
+        except Exception:
+            return None
+
+    def bsa_index_path(self) -> Path | None:
+        """Location of bsa_index.bin (next to filemap.txt), or None."""
+        staging = self.staging_dir()
+        if staging is None:
+            return None
+        p = staging.parent / "bsa_index.bin"
+        return p if p.is_file() else None
+
+    def build_conflicts(self, log_fn=None, rescan_index: bool = False) -> "ConflictData":
+        """Build the filemap for the active game/profile and return a ConflictData
+        with loose + BSA conflict codes, the override maps (for highlights), and a
+        plugin→owner map. Expensive — run off-thread. Empty on failure.
+
+        rescan_index=True forces a full re-scan of every mod folder from disk
+        (the Refresh path) so file changes inside existing mods are picked up."""
+        g = self.game
+        if g is None or not self.profile:
+            return ConflictData()
+        from Utils.deploy_pipeline import _build_filemap_for_game
+        from gui_qt.modlist_data import display_codes_from_conflict_map
+        from Utils.perftrace import span
+        log = log_fn or (lambda _m: None)
+        with span("_build_filemap_for_game"):
+            result = _build_filemap_for_game(
+                g, self.profile, log_fn=log, rescan_index=rescan_index)
+        if not result:
+            return ConflictData()
+        _count, _conflict_map, overrides, overridden_by = result
+        with span("display_codes+copy_maps"):
+            data = ConflictData(
+                # Use the backend's real conflict_map so FULL (redundant) is kept.
+                loose_codes=display_codes_from_conflict_map(_conflict_map),
+                overrides={k: set(v) for k, v in (overrides or {}).items()},
+                overridden_by={k: set(v) for k, v in (overridden_by or {}).items()},
+            )
+        with span("_build_bsa_conflicts"):
+            (data.bsa_codes, data.bsa_overrides,
+             data.bsa_overridden_by) = self._build_bsa_conflicts(g, log)
+        with span("_build_plugin_owner"):
+            data.plugin_owner = self._build_plugin_owner(g)
+        with span("_build_index_flag_mods"):
+            data.prertx_mods, data.root_rule_mods = self._build_index_flag_mods(g)
+        with span("detect_frameworks"):
+            data.framework_statuses = self._detect_frameworks(g)
+        return data
+
+    def _detect_frameworks(self, g) -> list:
+        """Framework banner statuses (worker-side; see ConflictData)."""
+        try:
+            from Utils.framework_detect import detect_frameworks
+            staging = self.staging_dir()
+            fm = (staging.parent / "filemap.txt") if staging is not None else None
+            return detect_frameworks(g, fm, self.modlist_path(),
+                                     rf_toggle_enabled=True)
+        except Exception as exc:
+            print(f"[gui_qt] framework detect error: {exc}", flush=True)
+            return []
+
+    def _build_index_flag_mods(self, g) -> "tuple[set, set]":
+        """(prertx_mods, root_rule_mods) from modindex.bin — the info/root flag
+        inputs. pre-RTX = a mod with a file under a remapped source prefix (e.g.
+        natives/x64/); root-rule = a mod owning files matched by a custom routing
+        rule with dest="". Ports gui/modlist_panel pre-RTX detect (~9307) +
+        _compute_root_rule_mods (1699). Runs on the conflict worker.
+
+        Both scans depend only on the index content + static game rules — a
+        mod toggle/reorder doesn't touch modindex.bin — so the result is
+        cached by (index path, mtime) and per-toggle rebuilds skip the
+        ~100-150 ms file walk entirely."""
+        from Utils.perftrace import span
+        staging = self.staging_dir()
+        if staging is None:
+            return set(), set()
+        index_path = staging.parent / "modindex.bin"
+        try:
+            mtime = index_path.stat().st_mtime
+        except OSError:
+            return set(), set()
+        cache_key = (str(index_path), mtime, getattr(g, "name", None))
+        cached = getattr(self, "_flag_mods_cache", None)
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
+        try:
+            from Utils.filemap import read_mod_index
+            with span("flag_mods: read_mod_index"):
+                index = read_mod_index(index_path)
+        except Exception:
+            index = None
+        if not index:
+            return set(), set()
+        # pre-RTX: any file under a remapped source prefix.
+        prertx: set = set()
+        try:
+            prefixes = [k.lower() for k in
+                        (getattr(g, "mod_deploy_path_remap", {}) or {})]
+        except Exception:
+            prefixes = []
+        if prefixes:
+            with span("flag_mods: prertx scan"):
+                for mod_name, entry in index.items():
+                    normal = entry[0] if isinstance(entry, tuple) else {}
+                    for rel_key in normal:
+                        if any(rel_key.startswith(p) for p in prefixes):
+                            prertx.add(mod_name)
+                            break
+        # root-rule: mods owning files matched by a dest="" custom routing rule.
+        root_rule: set = set()
+        try:
+            rules = list(getattr(g, "custom_routing_rules", None) or [])
+            if any(r.dest == "" and not r.to_prefix for r in rules):
+                from Utils.deploy_custom_rules import mods_matching_root_rules
+                with span("flag_mods: root-rule match"):
+                    mod_files = {
+                        name: (list(entry[0].values()) + list(entry[1].values()))
+                        for name, entry in index.items()
+                        if isinstance(entry, tuple) and len(entry) >= 2}
+                    root_rule = mods_matching_root_rules(mod_files, rules)
+        except Exception:
+            root_rule = set()
+        self._flag_mods_cache = (cache_key, (prertx, root_rule))
+        return prertx, root_rule
+
+    def _build_plugin_owner(self, g) -> dict[str, str]:
+        """Map plugin filename (lower) → the mod that wins it, from filemap.txt.
+        Used for plugin↔mod cross-panel highlighting."""
+        staging = self.staging_dir()
+        if staging is None:
+            return {}
+        fm = staging.parent / "filemap.txt"
+        if not fm.is_file():
+            return {}
+        exts = tuple(e.lower() for e in (getattr(g, "plugin_extensions", []) or []))
+        if not exts:
+            exts = (".esp", ".esm", ".esl")
+        owner: dict[str, str] = {}
+        try:
+            for line in fm.read_text(encoding="utf-8").splitlines():
+                if "\t" not in line:
+                    continue
+                rel_key, mod = line.split("\t", 1)
+                base = rel_key.rsplit("/", 1)[-1].lower()
+                if base.endswith(exts):
+                    owner[base] = mod
+        except Exception:
+            return {}
+        return owner
+
+    def _build_bsa_conflicts(self, g, log):
+        """Compute BSA/BA2 archive conflicts. Returns (codes, overrides,
+        overridden_by) — codes as 1 win / -1 lose / 2 mixed; the two maps key
+        mod → set(mods). Empty triple for non-archive games or on failure.
+
+        The "Hide BSA conflicts" setting empties the pipeline entirely (Tk
+        parity) so the expensive parse is skipped and no codes are produced."""
+        empty = ({}, {}, {})
+        try:
+            from Utils.ui_config import load_hide_bsa_conflicts
+            if load_hide_bsa_conflicts():
+                return empty
+        except Exception:
+            pass
+        exts = frozenset(getattr(g, "archive_extensions", frozenset()) or frozenset())
+        if not exts:
+            return empty
+        staging = self.staging_dir()
+        ml = self.modlist_path()
+        if staging is None or ml is None or not ml.is_file():
+            return empty
+        try:
+            from Utils.bsa_filemap import build_bsa_conflicts, rebuild_bsa_index
+            from Utils.plugins import read_loadorder
+        except Exception:
+            return empty
+        out_dir = staging.parent
+        bsa_index = out_dir / "bsa_index.bin"
+        try:
+            if not bsa_index.is_file():
+                rebuild_bsa_index(bsa_index, staging, exts, log_fn=log)
+            pdir = self.profile_dir()
+            plugin_order = (read_loadorder(pdir / "loadorder.txt")
+                            if pdir is not None else None)
+            plugin_exts = frozenset(getattr(g, "plugin_extensions", []) or [])
+            (bsa_map, bsa_over, bsa_overby, lob, bol) = build_bsa_conflicts(
+                ml, bsa_index, exts,
+                loose_index_path=out_dir / "modindex.bin",
+                plugin_order=plugin_order or None,
+                plugin_extensions=plugin_exts or None,
+                log_fn=log,
+            )
+        except Exception as exc:
+            log(f"BSA conflict build failed: {exc}")
+            return empty
+        # build_bsa_conflicts returns CONFLICT_* codes; normalise to our scheme
+        # (1 win / -1 lose / 2 mixed) matching conflicts_from_filemap.
+        from Utils.filemap import (
+            CONFLICT_WINS, CONFLICT_LOSES, CONFLICT_PARTIAL, CONFLICT_FULL,
+        )
+        codes: dict[str, int] = {}
+        for name, c in bsa_map.items():
+            if c == CONFLICT_WINS:
+                codes[name] = 1
+            elif c == CONFLICT_LOSES:
+                codes[name] = -1
+            elif c in (CONFLICT_PARTIAL, CONFLICT_FULL):
+                codes[name] = 2
+        # Fold loose↔BSA cross relationships so highlights match the engine's
+        # "loose beats BSA" rule (lob: loose_mod→{bsa_mod}, bol: bsa_mod→{loose}).
+        over = {k: set(v) for k, v in (bsa_over or {}).items()}
+        overby = {k: set(v) for k, v in (bsa_overby or {}).items()}
+        for loose_mod, bsa_mods in (lob or {}).items():
+            over.setdefault(loose_mod, set()).update(bsa_mods)
+        for bsa_mod, loose_mods in (bol or {}).items():
+            overby.setdefault(bsa_mod, set()).update(loose_mods)
+        return codes, over, overby
+
+    # -- internals ----------------------------------------------------------
+    def _select_profile(self, preferred: "str | None") -> "str | None":
+        """*preferred* if it's a real profile for the current game, else the first
+        profile, else None."""
+        profs = self.profiles()
+        if preferred and preferred in profs:
+            return preferred
+        return profs[0] if profs else None
+
+    def _select_default_profile(self) -> None:
+        self.profile = self._select_profile(None)
+
+    def _select_last_active_profile(self) -> None:
+        """Set self.profile to this game's saved last-active profile (if it still
+        exists), else the first profile. Used when switching games."""
+        g = self.game
+        preferred = g.get_last_active_profile() if g is not None else None
+        self.profile = self._select_profile(preferred)
+
+    def _save_last_active_profile(self) -> None:
+        """Persist self.profile as the current game's last-active profile, so a
+        later switch back to this game restores it (Tk parity)."""
+        g = self.game
+        if g is not None and self.profile:
+            try:
+                g.save_last_active_profile(self.profile)
+            except Exception:
+                pass
+
+    def reassert_active_profile(self) -> None:
+        """Force the game object's ``_active_profile_dir`` back in sync with our
+        ``profile``.
+
+        Background workers (restore, profile-remove, bundle import) temporarily
+        swap the game's ``_active_profile_dir`` and restore it in a ``finally``
+        block. If the user switches profiles while one runs — or a worker
+        restores to the wrong value (e.g. ``None``/default) — the game object
+        can be left pointing at a different profile than the dropdown shows,
+        which makes path-derived actions (Open ▸ Staging/Profile folder, etc.)
+        resolve to the wrong profile. Call this before reading any path that
+        depends on the active profile so GameState stays the single authority.
+        """
+        self._apply_active_profile()
+
+    def _apply_active_profile(self) -> None:
+        g = self.game
+        if g is not None and self.profile:
+            g.set_active_profile_dir(
+                g.get_profile_root() / "profiles" / self.profile)
+            # Re-resolve paths so this profile's game/prefix/deploy-mode
+            # overrides take effect — or fall back to the default profile's
+            # values when it has none (Tk parity: top_bar re-ran load_paths on
+            # every profile switch). Without this the previous profile's paths
+            # stay live on the game object.
+            try:
+                g.load_paths()
+            except Exception:
+                pass

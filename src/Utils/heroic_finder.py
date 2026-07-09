@@ -385,6 +385,28 @@ def find_heroic_app_name_by_exe(exe_name: str) -> str | None:
     return info[2] if info else None
 
 
+def _stored_exe_matches(stored_exe: str, rel_parts: list[str]) -> bool:
+    """Case-insensitive match of a stored executable path against the
+    handler's exe name (pre-split into lowercase path segments).
+
+    When the handler name includes directories (e.g. 'launcher/Launcher.exe')
+    every segment must match the tail of the stored path — a bare-filename
+    match is not enough, since generic names like Launcher.exe collide across
+    games.  Single-segment names compare by filename only (Heroic may store a
+    bare name or a relative/absolute path).
+    """
+    if not stored_exe or not rel_parts:
+        return False
+    stored_parts = [p.lower() for p in stored_exe.replace("\\", "/").split("/") if p]
+    if not stored_parts:
+        return False
+    if len(rel_parts) > 1:
+        if len(stored_parts) < len(rel_parts):
+            return False
+        return stored_parts[-len(rel_parts):] == rel_parts
+    return stored_parts[-1] == rel_parts[0]
+
+
 def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str] | None":
     """
     Full Heroic detection workflow keyed by executable name from the handler:
@@ -395,10 +417,18 @@ def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
     3. Look in GamesConfig/<appname>.json for the winePrefix.
     4. Return (install_path, prefix_path, app_name) if all found.
 
+    Handler names that include directories ('launcher/Launcher.exe') must
+    match the stored executable path segment-for-segment at the tail; bare
+    names match on filename alone.
+
     Used for games like Subnautica Below Zero where the handler provides
     SubnauticaZero.exe; we resolve appname (Foxglove), install path, and prefix.
     """
-    exe_lower = exe_name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    rel = exe_name.replace("\\", "/").strip("/")
+    rel_parts = [p.lower() for p in rel.split("/") if p]
+    if not rel_parts:
+        return None
+    exe_lower = rel_parts[-1]
 
     for heroic_root in _find_heroic_config_roots():
         # 1. Epic (Legendary) installed.json
@@ -407,9 +437,7 @@ def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
             if not isinstance(entry, dict):
                 continue
             stored_exe = entry.get("executable", "")
-            # Heroic may store a bare name or a relative/absolute path — compare only the filename
-            stored_bare = stored_exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
-            if stored_bare != exe_lower:
+            if not _stored_exe_matches(stored_exe, rel_parts):
                 continue
             install_path_raw = entry.get("install_path", "")
             if not install_path_raw:
@@ -440,16 +468,18 @@ def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
                 continue
 
             stored_exe = entry.get("executable", "") or entry.get("exe", "")
-            stored_bare = stored_exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
 
             matched = False
-            if stored_bare and stored_bare == exe_lower:
-                matched = True
-            elif not stored_bare:
+            if stored_exe:
+                matched = _stored_exe_matches(stored_exe, rel_parts)
+            else:
                 # Scan install_path for the exe (case-insensitive, recursive).
                 try:
                     for candidate in install_path.rglob("*"):
-                        if candidate.is_file() and candidate.name.lower() == exe_lower:
+                        if not candidate.is_file() or candidate.name.lower() != exe_lower:
+                            continue
+                        cand_parts = [p.lower() for p in candidate.parts]
+                        if len(rel_parts) == 1 or cand_parts[-len(rel_parts):] == rel_parts:
                             matched = True
                             break
                 except OSError:
@@ -470,10 +500,7 @@ def find_heroic_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
                 continue
             install = entry.get("install") or {}
             stored_exe = install.get("executable", "") if isinstance(install, dict) else ""
-            if not stored_exe:
-                continue
-            stored_bare = stored_exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
-            if stored_bare != exe_lower:
+            if not _stored_exe_matches(stored_exe, rel_parts):
                 continue
             install_path = _sideload_game_root(stored_exe, exe_name)
             if not install_path:

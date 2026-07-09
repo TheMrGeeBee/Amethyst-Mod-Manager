@@ -18,6 +18,7 @@ _TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
 _MAX_BACKUPS = 20
 _BACKUPS_SUBDIR = "backups"
 _TIMESTAMP_PATTERN = re.compile(r"^\d{8}_\d{6}$")
+_SEPARATOR_SUFFIX = "_separator"
 
 # Files to backup/restore (in profile dir). Copy only if present.
 _BACKUP_FILES = [
@@ -62,6 +63,34 @@ def set_backup_kept(backup_dir: Path, keep: bool) -> None:
     marker = backup_dir / _KEEP_MARKER
     if keep:
         marker.touch(exist_ok=True)
+    elif marker.is_file():
+        marker.unlink()
+
+
+_LABEL_MARKER = ".label"
+
+
+def get_backup_label(backup_dir: Path) -> str:
+    """Return the user-given label for this backup, or "" if none set.
+
+    Stored in a ``.label`` marker file alongside the backup so the folder name
+    stays a parseable timestamp (used for sorting and pruning).
+    """
+    marker = backup_dir / _LABEL_MARKER
+    if not marker.is_file():
+        return ""
+    try:
+        return marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def set_backup_label(backup_dir: Path, label: str) -> None:
+    """Set (or clear, when blank) the user-given label for this backup."""
+    marker = backup_dir / _LABEL_MARKER
+    label = (label or "").strip()
+    if label:
+        marker.write_text(label, encoding="utf-8")
     elif marker.is_file():
         marker.unlink()
 
@@ -130,6 +159,52 @@ def list_backups(profile_dir: Path) -> list[tuple[datetime, Path]]:
             result.append((dt, p))
     result.sort(key=lambda x: x[0], reverse=True)
     return result
+
+
+def backup_stats(backup_dir: Path) -> dict:
+    """Summarise a backup folder's contents for display in the restore UI.
+
+    Returns a dict with:
+      - mods_total / mods_enabled: real mods in modlist.txt (separators excluded)
+      - separators: number of separator entries
+      - plugins: number of plugin entries in plugins.txt (comments excluded)
+
+    Counting is tolerant of missing files (returns 0 for that section) so it
+    can be called on any backup, including legacy ones.
+    """
+    mods_total = mods_enabled = separators = plugins = 0
+
+    modlist = backup_dir / "modlist.txt"
+    if modlist.is_file():
+        for line in modlist.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            prefix, name = line[0], line[1:]
+            if prefix not in "+-*" or not name:
+                continue
+            if name.endswith(_SEPARATOR_SUFFIX):
+                separators += 1
+                continue
+            mods_total += 1
+            # '+' and '*' are enabled; '-' is disabled (non-separator).
+            if prefix in "+*":
+                mods_enabled += 1
+
+    plugins_txt = backup_dir / "plugins.txt"
+    if plugins_txt.is_file():
+        for line in plugins_txt.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            plugins += 1
+
+    return {
+        "mods_total": mods_total,
+        "mods_enabled": mods_enabled,
+        "separators": separators,
+        "plugins": plugins,
+    }
 
 
 def restore_backup(profile_dir: Path, backup_dir: Path) -> None:

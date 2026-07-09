@@ -136,6 +136,9 @@ class NexusModInfo:
     status: str = ""
     uploaded_by: str = ""
     category_name: str = ""
+    created_at: str = ""        # ISO-8601 string (GraphQL createdAt), "" if absent
+    updated_at: str = ""        # ISO-8601 string (GraphQL updatedAt), "" if absent
+    file_size_kb: int = 0       # primary file size in KB (GraphQL fileSize), 0 if absent
 
 
 @dataclass
@@ -866,6 +869,11 @@ class NexusAPI:
                     endorsements
                     downloads
                     pictureUrl
+                    adultContent
+                    createdAt
+                    updatedAt
+                    fileSize
+                    modCategory { name }
                 }
             }
         }
@@ -908,6 +916,11 @@ class NexusAPI:
                     endorsement_count=n.get("endorsements", 0) or 0,
                     downloads_total=n.get("downloads", 0) or 0,
                     picture_url=n.get("pictureUrl", "") or "",
+                    contains_adult_content=bool(n.get("adultContent", False)),
+                    created_at=n.get("createdAt", "") or "",
+                    updated_at=n.get("updatedAt", "") or "",
+                    file_size_kb=n.get("fileSize", 0) or 0,
+                    category_name=(n.get("modCategory") or {}).get("name", "") or "",
                 ))
             return results
         except NexusAPIError:
@@ -1816,6 +1829,10 @@ class NexusAPI:
                     downloads
                     pictureUrl
                     adultContent
+                    createdAt
+                    updatedAt
+                    fileSize
+                    modCategory {{ name }}
                 }}
             }}
         }}
@@ -1860,6 +1877,10 @@ class NexusAPI:
                     downloads_total=n.get("downloads", 0) or 0,
                     picture_url=n.get("pictureUrl", "") or "",
                     contains_adult_content=bool(n.get("adultContent", False)),
+                    created_at=n.get("createdAt", "") or "",
+                    updated_at=n.get("updatedAt", "") or "",
+                    file_size_kb=n.get("fileSize", 0) or 0,
+                    category_name=(n.get("modCategory") or {}).get("name", "") or "",
                 ))
             return results
         except NexusAPIError:
@@ -1870,11 +1891,21 @@ class NexusAPI:
     def search_mods(
         self, game_domain: str, query_text: str, count: int = 10, offset: int = 0,
         category_names: list[str] | None = None,
+        sort_key: str = "downloads",
     ) -> list[NexusModInfo]:
         """
         Search mods by name for a game via the GraphQL v2 API.
         Pass category_names to restrict results to specific categories.
+        Results are sorted by `sort_key` descending (see get_top_mods for the
+        valid values); invalid keys fall back to "downloads".
         """
+        if sort_key not in self._TOP_MODS_SORT_KEYS:
+            sort_key = "downloads"
+        # The `name` WILDCARD operator (below) is rejected by the Nexus GraphQL
+        # server for values shorter than 2 characters ("Wildcard value must have
+        # 2 or more characters"). Short-circuit rather than issue a doomed query.
+        if len((query_text or "").strip()) < 2:
+            return []
         base_filter = self._build_mods_filter(game_domain, category_names)
         # Inject the name search into the filter.
         #
@@ -1890,15 +1921,15 @@ class NexusAPI:
             base_filter["filter"].append(name_cond)
         else:
             base_filter.update(name_cond)
-        query = """
-        query SearchMods($filter: ModsFilter, $count: Int, $offset: Int) {
+        query = f"""
+        query SearchMods($filter: ModsFilter, $count: Int, $offset: Int) {{
             mods(
                 filter: $filter
-                sort: [{ downloads: { direction: DESC } }]
+                sort: [{{ {sort_key}: {{ direction: DESC }} }}]
                 count: $count
                 offset: $offset
-            ) {
-                nodes {
+            ) {{
+                nodes {{
                     modId
                     name
                     summary
@@ -1909,9 +1940,13 @@ class NexusAPI:
                     downloads
                     pictureUrl
                     adultContent
-                }
-            }
-        }
+                    createdAt
+                    updatedAt
+                    fileSize
+                    modCategory {{ name }}
+                }}
+            }}
+        }}
         """
         variables = {
             "filter": base_filter,
@@ -1952,6 +1987,10 @@ class NexusAPI:
                     downloads_total=n.get("downloads", 0) or 0,
                     picture_url=n.get("pictureUrl", "") or "",
                     contains_adult_content=bool(n.get("adultContent", False)),
+                    created_at=n.get("createdAt", "") or "",
+                    updated_at=n.get("updatedAt", "") or "",
+                    file_size_kb=n.get("fileSize", 0) or 0,
+                    category_name=(n.get("modCategory") or {}).get("name", "") or "",
                 ))
             return results
         except NexusAPIError:
@@ -2123,7 +2162,8 @@ class NexusAPI:
     _COLLECTION_DETAIL_QUERY = """
     query CollectionDetail($slug: String!, $domain: String!) {
         collection(slug: $slug, domainName: $domain) {
-            name slug totalDownloads
+            name slug totalDownloads endorsements
+            tileImage { url }
             revisions {
                 revisionNumber
                 revisionStatus
@@ -2165,7 +2205,7 @@ class NexusAPI:
 
     def get_collection_detail(
         self, slug: str, game_domain: str, revision_number: "int | None" = None
-    ) -> "tuple[str, int, int, list[NexusCollectionMod], str, list[dict]]":
+    ) -> "tuple[str, int, int, list[NexusCollectionMod], str, list[dict], dict]":
         """
         Fetch the full mod list for a collection revision.
 
@@ -2179,9 +2219,13 @@ class NexusAPI:
 
         Returns
         -------
-        (collection_name, total_size_bytes, mod_count, mods, download_link_path, revisions)
-        where ``revisions`` is a list of dicts with ``revisionNumber`` and ``revisionStatus``
-        (only populated on the initial/latest fetch, not on specific-revision fetches).
+        (collection_name, total_size_bytes, mod_count, mods, download_link_path,
+         revisions, card)
+        where ``revisions`` is a list of dicts with ``revisionNumber`` and
+        ``revisionStatus`` (only populated on the initial/latest fetch, not on
+        specific-revision fetches), and ``card`` carries collection-level display
+        fields (``tile_image_url``, ``total_downloads``, ``endorsements``) for
+        re-hydrating a NexusCollection.
         """
         headers = dict(self._session.headers)
         try:
@@ -2197,13 +2241,18 @@ class NexusAPI:
             self._log_response("POST", "GraphQL get_collection_detail", resp)
             if not resp.ok:
                 app_log(f"GraphQL get_collection_detail failed: {resp.status_code}")
-                return ("", 0, 0, [], "", [])
+                return ("", 0, 0, [], "", [], {})
             data = resp.json()
             if "errors" in data:
                 app_log(f"GraphQL get_collection_detail errors: {data['errors']}")
-                return ("", 0, 0, [], "", [])
+                return ("", 0, 0, [], "", [], {})
             col = data.get("data", {}).get("collection") or {}
             col_name = col.get("name", "") or ""
+            card = {
+                "tile_image_url": (col.get("tileImage") or {}).get("url", "") or "",
+                "total_downloads": int(col.get("totalDownloads") or 0),
+                "endorsements": int(col.get("endorsements") or 0),
+            }
             revisions: list[dict] = col.get("revisions") or []
             latest_rev = col.get("latestPublishedRevision") or {}
             latest_rev_num = int(latest_rev.get("revisionNumber") or 0)
@@ -2221,11 +2270,11 @@ class NexusAPI:
                 self._log_response("POST", "GraphQL get_collection_detail (specific revision)", rev_resp)
                 if not rev_resp.ok:
                     app_log(f"GraphQL get_collection_detail (revision) failed: {rev_resp.status_code}")
-                    return ("", 0, 0, [], "", [])
+                    return ("", 0, 0, [], "", [], {})
                 rev_data = rev_resp.json()
                 if "errors" in rev_data:
                     app_log(f"GraphQL get_collection_detail (revision) errors: {rev_data['errors']}")
-                    return ("", 0, 0, [], "", [])
+                    return ("", 0, 0, [], "", [], {})
                 rev = rev_data.get("data", {}).get("collectionRevision") or {}
             else:
                 rev = latest_rev
@@ -2259,10 +2308,11 @@ class NexusAPI:
                     size_bytes=int(f.get("sizeInBytes") or 0),
                     optional=bool(entry.get("optional", False)),
                 ))
-            return (col_name, total_size, mod_count, mods, download_link_path, revisions)
+            return (col_name, total_size, mod_count, mods, download_link_path,
+                    revisions, card)
         except Exception as exc:
             app_log(f"GraphQL get_collection_detail error: {exc}")
-            return ("", 0, 0, [], "", [])
+            return ("", 0, 0, [], "", [], {})
 
     def get_collection_archive_json(
         self, download_link_path: str,

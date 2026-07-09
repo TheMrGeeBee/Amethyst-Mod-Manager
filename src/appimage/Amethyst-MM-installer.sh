@@ -42,10 +42,29 @@ if [ "$ALLOW_PRERELEASE" = "1" ]; then
 else
     URL="$RELEASES_API_URL"
 fi
+# Honor GITHUB_TOKEN (or GH_TOKEN) to lift the 60 req/hour unauthenticated
+# rate limit — useful on shared IPs and in CI.
+GH_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 if command -v curl &>/dev/null; then
-    JSON="$(curl -sL "$URL")"
+    if [ -n "$GH_AUTH_TOKEN" ]; then
+        JSON="$(curl -sL -H "Authorization: Bearer $GH_AUTH_TOKEN" "$URL")"
+    else
+        JSON="$(curl -sL "$URL")"
+    fi
 else
-    JSON="$(wget -qO- "$URL")"
+    if [ -n "$GH_AUTH_TOKEN" ]; then
+        JSON="$(wget -qO- --header="Authorization: Bearer $GH_AUTH_TOKEN" "$URL")"
+    else
+        JSON="$(wget -qO- "$URL")"
+    fi
+fi
+
+# Distinguish a GitHub API error (rate limit, network, private repo) from a
+# real missing asset — otherwise the check below blames a missing AppImage.
+if echo "$JSON" | grep -q '"message" *: *"API rate limit exceeded'; then
+    echo "Error: GitHub API rate limit exceeded for your IP." >&2
+    echo "Wait ~1 hour, or set GITHUB_TOKEN=<your token> and retry." >&2
+    exit 1
 fi
 
 # Both paths parse with the same grep/sed pipeline. On /releases/latest the

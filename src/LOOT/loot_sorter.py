@@ -39,9 +39,31 @@ from Utils.atomic_write import write_atomic_text
 try:
     import LOOT.loot as loot
     _AVAILABLE = True
-except ImportError:
+except ImportError as _exc:
     loot = None
     _AVAILABLE = False
+    # A missing or ABI-mismatched extension disables LOOT sorting for the
+    # whole session — record why instead of failing silently (e.g. a flatpak
+    # runtime whose Python version has no matching loot.cpython-3XX .so).
+    try:
+        import sysconfig
+        _tag = sysconfig.get_config_var("EXT_SUFFIX") or ""
+        _present = sorted(p.name for p in Path(__file__).parent.glob("loot.*.so"))
+        _IMPORT_DETAIL = (
+            "LOOT: native extension failed to import — sorting disabled. "
+            f"Interpreter needs 'loot{_tag}', found {_present or 'none'}. ({_exc})"
+        )
+    except Exception:
+        _IMPORT_DETAIL = f"LOOT: native extension failed to import: {_exc}"
+    # Best-effort: app_log drops messages until the GUI registers its sink,
+    # so unavailable_reason() re-surfaces this when the user tries to sort.
+    try:
+        from Utils.app_log import app_log
+        app_log(_IMPORT_DETAIL)
+    except Exception:
+        pass
+else:
+    _IMPORT_DETAIL = None
 
 # Bundled masterlists shipped with the application (read-only in AppImage)
 _BUNDLED_DATA_DIR = Path(__file__).parent / "data"
@@ -315,6 +337,11 @@ def _masterlist_filename(game_type_attr: str) -> str:
 def is_available() -> bool:
     """Return True if libloot is importable and ready to use."""
     return _AVAILABLE
+
+
+def unavailable_reason() -> str | None:
+    """Why the libloot extension failed to import, or None when available."""
+    return _IMPORT_DETAIL
 
 
 @dataclass

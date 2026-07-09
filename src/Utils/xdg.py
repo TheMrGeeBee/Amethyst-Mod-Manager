@@ -36,7 +36,7 @@ _APPIMAGE_LEAK_VARS = (
     "APPIMAGE_ARCH", "APPIMAGE_UUID",
     "SHARUN_DIR", "SHARUN_WORKING_DIR", "SHARUN_ALLOW_SYS_VKICD",
     "PYTHONPATH", "PYTHONHOME", "PYTHONDONTWRITEBYTECODE",
-    "MOD_MANAGER_GAMES",  # gui.py auto-points this at $APPDIR/.../Games
+    "MOD_MANAGER_GAMES",  # app_bootstrap auto-points this at $APPDIR/.../Games
     "GIO_LAUNCH_DESKTOP",
     "GDK_PIXBUF_MODULEDIR", "GDK_PIXBUF_MODULE_FILE",
     "GIO_MODULE_DIR",
@@ -119,13 +119,20 @@ def xdg_download_dir() -> Path:
     return home / "Downloads"
 
 
-def _spawn_watched(
+def spawn_watched(
     cmd: list[str],
     label: str,
     log_fn: Callable[[str], None] | None,
     on_fail: Callable[[], None] | None = None,
 ) -> None:
-    """Run *cmd* in the background, log non-zero exits, optionally chain a fallback."""
+    """Run *cmd* in the background, log non-zero exits, optionally chain a fallback.
+
+    Public so other launchers (Utils/exe_launch.launch_via_steam) can reuse the
+    Flatpak-safe CWD handling and exit-code watching instead of calling
+    ``subprocess.Popen`` directly — a bare Popen of ``flatpak-spawn --host …``
+    succeeds even when the *host* command it forwards to is missing or fails,
+    which silently swallows launch errors.
+    """
     # Use a CWD the host definitely has. Inside Flatpak the sandbox CWD
     # (e.g. /app/share/amethyst-mod-manager) doesn't exist on the host, so
     # `flatpak-spawn --host` inherits it and the spawned host process fails
@@ -180,7 +187,7 @@ def xdg_open(path: str | Path, log_fn: Callable[[str], None] | None = None) -> N
         cmd = ["flatpak-spawn", "--host", "xdg-open", target]
     else:
         cmd = ["xdg-open", target]
-    _spawn_watched(cmd, f"xdg-open {target!r}", log_fn)
+    spawn_watched(cmd, f"xdg-open {target!r}", log_fn)
 
 
 def open_url(url: str, log_fn: Callable[[str], None] | None = None) -> None:
@@ -194,19 +201,19 @@ def open_url(url: str, log_fn: Callable[[str], None] | None = None) -> None:
     Each step's failure is logged and triggers the next.
     """
     if not _in_flatpak():
-        _spawn_watched(["xdg-open", url], f"xdg-open {url!r}", log_fn)
+        spawn_watched(["xdg-open", url], f"xdg-open {url!r}", log_fn)
         return
 
     def try_gio() -> None:
         if shutil.which("gio"):
-            _spawn_watched(["gio", "open", url], f"gio open {url!r}", log_fn,
+            spawn_watched(["gio", "open", url], f"gio open {url!r}", log_fn,
                            on_fail=try_xdg)
         else:
             try_xdg()
 
     def try_xdg() -> None:
         if shutil.which("xdg-open"):
-            _spawn_watched(["xdg-open", url], f"xdg-open {url!r}", log_fn)
+            spawn_watched(["xdg-open", url], f"xdg-open {url!r}", log_fn)
         else:
             msg = f"open_url: no working launcher for {url!r}"
             app_log(msg)
@@ -214,7 +221,7 @@ def open_url(url: str, log_fn: Callable[[str], None] | None = None) -> None:
                 log_fn(msg)
 
     if shutil.which("flatpak-spawn"):
-        _spawn_watched(
+        spawn_watched(
             ["flatpak-spawn", "--host", "xdg-open", url],
             f"flatpak-spawn xdg-open {url!r}",
             log_fn,

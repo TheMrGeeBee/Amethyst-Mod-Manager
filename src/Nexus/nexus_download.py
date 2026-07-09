@@ -570,6 +570,7 @@ class NexusDownloader:
                 except Exception:
                     pass
 
+        # Fetch a fresh signed CDN link (one rate-limited API call per download).
         try:
             links = self._api.get_download_links(
                 game_domain=game_domain,
@@ -601,7 +602,7 @@ class NexusDownloader:
             except Exception:
                 pass
 
-        return self._download_from_links(
+        result = self._download_from_links(
             links=links,
             file_name=file_name,
             dest_dir=dest_dir or self._download_dir,
@@ -611,6 +612,7 @@ class NexusDownloader:
             mod_id=mod_id,
             file_id=file_id,
         )
+        return result
 
     # -- Internal -----------------------------------------------------------
 

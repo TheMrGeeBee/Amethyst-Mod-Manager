@@ -14,6 +14,17 @@ from pathlib import Path
 from Utils.config_paths import get_config_dir
 
 _INI_SECTION = "ui"
+
+# Bumped when amethyst.ini's schema changes incompatibly. On startup,
+# ensure_ini_version() wipes a file whose [meta] version differs (or is absent)
+# so the Qt build starts from a clean ini — this clears Tk-era ini files when
+# users move over.
+_META_SECTION = "meta"
+_APP_INI_VERSION = 2
+# Last-used game + profile (restored at startup).
+_SESSION_SECTION = "session"
+# First-run onboarding completion flag (missing/0 → show onboarding on launch).
+_ONBOARDING_SECTION = "onboarding"
 _INI_OPTION = "scale"
 _INI_AUTO = "auto"
 _DEFAULT_SCALE = 1.0
@@ -27,13 +38,30 @@ _AUTO_MAX_SCALE = 1.5
 _DEFAULT_FONT_FAMILY = "Noto Sans"
 _INI_FONT_OPTION = "font_family"
 
+# Language / locale. Empty string ("") means "follow the system locale"; any
+# other value is a locale code (e.g. "en", "de", "fr") matching a compiled
+# translations/amethyst_<code>.qm file.
+_DEFAULT_LANGUAGE = ""
+_INI_LANGUAGE_OPTION = "language"
+
 _ui_scale: float = _DEFAULT_SCALE
 _font_family: str = _DEFAULT_FONT_FAMILY
+_language: str = _DEFAULT_LANGUAGE
 
 
 def get_ui_config_path() -> Path:
     """Return the path to the amethyst.ini config file."""
     return get_config_dir() / "amethyst.ini"
+
+
+def _new_parser() -> "configparser.ConfigParser":
+    """A ConfigParser tolerant of a duplicated option/section (last value wins
+    instead of raising). amethyst.ini is shared with column_state.py, which uses
+    a case-preserving optionxform; a legacy key that differs only in case (e.g.
+    ``w_Mod Name`` vs ``w_mod name`` in [qt_columns]) would otherwise make EVERY
+    read here raise DuplicateOptionError and break all saves. strict=False lets
+    the file still load so settings can be written."""
+    return configparser.ConfigParser(strict=False)
 
 
 def _get_portal_scale() -> float:
@@ -323,25 +351,30 @@ def _get_primary_monitor_size() -> tuple[int, int]:
     return 0, 0
 
 
+# Toolkit-specific display probe → (width, height, de_scale). Injected by the
+# GUI (set_screen_probe) so this module needn't import a GUI toolkit. When
+# unset, get_screen_info falls back to the xrandr/wlr-randr + portal path.
+_screen_probe: "callable | None" = None
+
+
+def set_screen_probe(fn: "callable | None") -> None:
+    """Register a callable() -> (width, height, de_scale) display probe."""
+    global _screen_probe
+    _screen_probe = fn
+
+
 def get_screen_info() -> tuple[int, int, float]:
     """Return (screen_width, screen_height, detected_scale) for the primary display."""
-    try:
-        import tkinter as _tk
-        root = _tk.Tk()
-        root.withdraw()
-        root.update_idletasks()
-        w = root.winfo_screenwidth()
-        h = root.winfo_screenheight()
-        # winfo_fpixels('1i') returns pixels-per-inch as seen by Tk; higher
-        # than 96 means the DE is applying its own scaling.
+    if _screen_probe is not None:
         try:
-            dpi = root.winfo_fpixels('1i')
-            de_scale = dpi / 96.0 if dpi > 96 else 1.0
+            w, h, de_scale = _screen_probe()
         except Exception:
-            de_scale = 1.0
-        root.destroy()
-    except Exception:
-        return 0, 0, _DEFAULT_SCALE
+            return 0, 0, _DEFAULT_SCALE
+    else:
+        # No GUI toolkit attached: derive size from xrandr/wlr-randr and let the
+        # portal/compositor path below supply the scale.
+        w, h = _get_primary_monitor_size()
+        de_scale = 1.0
     if w <= 0 or h <= 0:
         return w, h, _DEFAULT_SCALE
 
@@ -417,7 +450,7 @@ def load_ui_scale() -> float:
         _seed_first_run_defaults(path)
         return _ui_scale
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         if parser.has_section(_INI_SECTION) and parser.has_option(_INI_SECTION, _INI_OPTION):
             raw = parser.get(_INI_SECTION, _INI_OPTION).strip().lower()
@@ -435,7 +468,7 @@ def load_ui_scale() -> float:
 def _write_ini(path: Path, scale_str: str) -> None:
     """Write the [ui] scale to amethyst.ini."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _INI_SECTION not in parser:
@@ -452,12 +485,11 @@ def _seed_first_run_defaults(path: Path) -> None:
     never run this code path so their behaviour is unchanged.
     """
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         if path.is_file():
             parser.read(path)
         if _COLLECTIONS_SECTION not in parser:
             parser[_COLLECTIONS_SECTION] = {}
-        parser[_COLLECTIONS_SECTION]["download_order"] = _FIRST_RUN_DOWNLOAD_ORDER
         parser[_COLLECTIONS_SECTION]["max_concurrent"] = str(_FIRST_RUN_MAX_CONCURRENT)
         parser[_COLLECTIONS_SECTION]["max_extract_workers"] = str(_FIRST_RUN_MAX_EXTRACT_WORKERS)
         if _COLUMNS_SECTION not in parser:
@@ -487,6 +519,25 @@ def get_ui_scale() -> float:
     return _ui_scale
 
 
+def load_ui_scale_is_auto() -> bool:
+    """Return True when [ui] scale is literally 'auto' (or unset → auto default).
+
+    load_ui_scale() resolves 'auto' into a concrete float, so the Settings UI
+    needs this to know whether to show the Auto checkbox as ticked. A missing
+    file / section / key counts as auto (that is the first-run default written
+    by load_ui_scale)."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return True
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        raw = parser.get(_INI_SECTION, _INI_OPTION, fallback=_INI_AUTO).strip().lower()
+        return raw == _INI_AUTO
+    except Exception:
+        return True
+
+
 def load_font_family() -> str:
     """Load font_family from INI. Returns the value, or the default if unset."""
     global _font_family
@@ -494,7 +545,7 @@ def load_font_family() -> str:
     if not path.is_file():
         return _font_family
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         value = parser.get(_INI_SECTION, _INI_FONT_OPTION, fallback="").strip()
         _font_family = value if value else _DEFAULT_FONT_FAMILY
@@ -509,7 +560,7 @@ def save_font_family(family: str) -> None:
     _font_family = family.strip() or _DEFAULT_FONT_FAMILY
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _INI_SECTION not in parser:
@@ -524,6 +575,94 @@ def get_font_family() -> str:
     return _font_family
 
 
+def load_language() -> str:
+    """Load the UI language code from amethyst.ini [ui] language.
+
+    Returns "" (follow system locale) when unset. The value is cached so
+    get_language() can be called cheaply after this runs once at startup.
+    """
+    global _language
+    path = get_ui_config_path()
+    if not path.is_file():
+        return _language
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        _language = parser.get(
+            _INI_SECTION, _INI_LANGUAGE_OPTION, fallback="").strip()
+    except Exception:
+        pass
+    return _language
+
+
+def save_language(code: str) -> None:
+    """Persist the UI language code to amethyst.ini [ui] language.
+
+    Pass "" to follow the system locale. Takes effect on next launch.
+    """
+    global _language
+    _language = (code or "").strip()
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _INI_SECTION not in parser:
+        parser[_INI_SECTION] = {}
+    parser[_INI_SECTION][_INI_LANGUAGE_OPTION] = _language
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def get_language() -> str:
+    """Return the current language code (call load_language first at startup)."""
+    return _language
+
+
+# ---------------------------------------------------------------------------
+# Tab pins — per-view preferred presentation mode (full / modlist / plugins).
+# A view is identified by its tab `key` (e.g. "change_version", "nexus_browser").
+# When a user re-pins a tab we remember the choice here so the same view reopens
+# in that mode next time. Section is [tab_pins]; value is one of the mode names.
+# ---------------------------------------------------------------------------
+_TAB_PINS_SECTION = "tab_pins"
+_VALID_TAB_MODES = ("full", "modlist", "plugins")
+
+
+def get_tab_pin(key: str) -> "str | None":
+    """Return the saved presentation mode for the view *key*, or None if unset
+    (view opens in whatever mode its call site requests)."""
+    if not key:
+        return None
+    path = get_ui_config_path()
+    if not path.is_file():
+        return None
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        val = parser.get(_TAB_PINS_SECTION, key, fallback="").strip()
+        return val if val in _VALID_TAB_MODES else None
+    except Exception:
+        return None
+
+
+def save_tab_pin(key: str, mode: str) -> None:
+    """Persist the preferred presentation *mode* for the view *key* to
+    amethyst.ini [tab_pins]. No-op for an empty key or unknown mode."""
+    if not key or mode not in _VALID_TAB_MODES:
+        return
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _TAB_PINS_SECTION not in parser:
+        parser[_TAB_PINS_SECTION] = {}
+    parser[_TAB_PINS_SECTION][key] = mode
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 def _clamp(value: float) -> float:
     return max(_MIN_SCALE, min(_MAX_SCALE, value))
 
@@ -533,72 +672,89 @@ def _clamp(value: float) -> float:
 # ---------------------------------------------------------------------------
 _COLLECTIONS_SECTION = "collections"
 
-_DEFAULT_DOWNLOAD_ORDER = "largest"   # "largest" | "smallest"
-_DEFAULT_MAX_CONCURRENT = 3
-_DEFAULT_MAX_EXTRACT_WORKERS = 4
+# Download order is no longer configurable — collection downloads always run
+# strictly smallest→largest (unknown-size mods last). Defaults are 8/8: more
+# concurrency past this gives little practical benefit on typical hardware.
+_DEFAULT_MAX_CONCURRENT = 8
+_DEFAULT_MAX_EXTRACT_WORKERS = 8
+
+# Upper clamps for the user-configurable concurrency (Settings ▸ Downloads).
+_MAX_CONCURRENT_CEILING = 12
+_MAX_EXTRACT_WORKERS_CEILING = 8
 
 # First-run defaults — written to the INI only when it is being created for
 # the first time (see load_ui_scale). Existing installs keep whatever defaults
 # they had even if they have never saved these settings explicitly.
-_FIRST_RUN_DOWNLOAD_ORDER = "smallest"
 _FIRST_RUN_MAX_CONCURRENT = 8
 _FIRST_RUN_MAX_EXTRACT_WORKERS = 8
 _FIRST_RUN_HIDDEN_COLUMNS = [2, 5, 8]  # category, installed, size
 
 
 def load_collection_settings() -> dict:
-    """Return collection settings dict with keys: download_order, max_concurrent, max_extract_workers, check_download_locations, clear_archive_after_install."""
+    """Return collection settings dict with keys: max_concurrent, max_extract_workers, check_download_locations, clear_archive_after_install, download_order.
+
+    NB *download_order* is retained ONLY for the legacy Tk settings dialog
+    (gui/status_bar.py) — the Qt download scheduler ignores it (downloads always
+    use the double-ended big-first + small-first policy)."""
     path = get_ui_config_path()
     defaults = {
-        "download_order": _DEFAULT_DOWNLOAD_ORDER,
         "max_concurrent": _DEFAULT_MAX_CONCURRENT,
         "max_extract_workers": _DEFAULT_MAX_EXTRACT_WORKERS,
         "check_download_locations": True,
         "clear_archive_after_install": False,
+        "download_order": "largest",   # legacy Tk key; unused by Qt
     }
     if not path.is_file():
         return defaults
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         if not parser.has_section(_COLLECTIONS_SECTION):
             return defaults
         s = parser[_COLLECTIONS_SECTION]
-        download_order = s.get("download_order", _DEFAULT_DOWNLOAD_ORDER).strip().lower()
-        if download_order not in ("largest", "smallest"):
-            download_order = _DEFAULT_DOWNLOAD_ORDER
         max_concurrent = int(s.get("max_concurrent", str(_DEFAULT_MAX_CONCURRENT)))
-        max_concurrent = max(1, min(8, max_concurrent))
+        max_concurrent = max(1, min(_MAX_CONCURRENT_CEILING, max_concurrent))
         max_extract_workers = int(s.get("max_extract_workers", str(_DEFAULT_MAX_EXTRACT_WORKERS)))
-        max_extract_workers = max(1, min(8, max_extract_workers))
+        max_extract_workers = max(1, min(_MAX_EXTRACT_WORKERS_CEILING, max_extract_workers))
         check_download_locations = s.getboolean("check_download_locations", True)
         clear_archive_after_install = s.getboolean("clear_archive_after_install", False)
+        download_order = s.get("download_order", "largest").strip().lower()
+        if download_order not in ("largest", "smallest"):
+            download_order = "largest"
         return {
-            "download_order": download_order,
             "max_concurrent": max_concurrent,
             "max_extract_workers": max_extract_workers,
             "check_download_locations": check_download_locations,
             "clear_archive_after_install": clear_archive_after_install,
+            "download_order": download_order,
         }
     except Exception:
         return defaults
 
 
-def save_collection_settings(download_order: str, max_concurrent: int,
+def save_collection_settings(max_concurrent: int,
                               check_download_locations: bool = True,
                               clear_archive_after_install: bool = False,
-                              max_extract_workers: int = _DEFAULT_MAX_EXTRACT_WORKERS) -> None:
-    """Persist collection settings to amethyst.ini."""
+                              max_extract_workers: int = _DEFAULT_MAX_EXTRACT_WORKERS,
+                              download_order: str | None = None) -> None:
+    """Persist collection settings to amethyst.ini.
+
+    *download_order* is accepted for backward-compatibility (the Tk settings
+    dialog still passes it) but the Qt download scheduler ignores it — downloads
+    always use the double-ended (big-first + small-first) policy. When given, it
+    is still written through so the Tk UI round-trips.
+    """
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _COLLECTIONS_SECTION not in parser:
         parser[_COLLECTIONS_SECTION] = {}
-    parser[_COLLECTIONS_SECTION]["download_order"] = download_order
-    parser[_COLLECTIONS_SECTION]["max_concurrent"] = str(max(1, min(8, max_concurrent)))
-    parser[_COLLECTIONS_SECTION]["max_extract_workers"] = str(max(1, min(8, max_extract_workers)))
+    if download_order is not None:
+        parser[_COLLECTIONS_SECTION]["download_order"] = download_order
+    parser[_COLLECTIONS_SECTION]["max_concurrent"] = str(max(1, min(_MAX_CONCURRENT_CEILING, max_concurrent)))
+    parser[_COLLECTIONS_SECTION]["max_extract_workers"] = str(max(1, min(_MAX_EXTRACT_WORKERS_CEILING, max_extract_workers)))
     parser[_COLLECTIONS_SECTION]["check_download_locations"] = "true" if check_download_locations else "false"
     parser[_COLLECTIONS_SECTION]["clear_archive_after_install"] = "true" if clear_archive_after_install else "false"
     with path.open("w", encoding="utf-8") as f:
@@ -617,7 +773,7 @@ def load_nexus_show_adult() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_NEXUS_SECTION, "show_adult", fallback=False)
     except Exception:
@@ -634,7 +790,7 @@ def load_column_widths() -> dict[int, int]:
     if not path.is_file():
         return {}
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         if _COLUMNS_SECTION not in parser:
             return {}
@@ -653,7 +809,7 @@ def save_column_widths(widths: dict[int, int]) -> None:
     """Persist column width overrides to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     # Preserve column order/hidden/sort keys across the section overwrite
@@ -683,7 +839,7 @@ def load_column_order() -> list[int]:
     if not path.is_file():
         return list(_DEFAULT_COL_ORDER)
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         raw = parser.get(_COLUMNS_SECTION, "order", fallback=None)
         if raw is None:
@@ -709,7 +865,7 @@ def save_column_order(order: list[int]) -> None:
     """Persist column display order to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _COLUMNS_SECTION not in parser:
@@ -730,7 +886,7 @@ def load_column_hidden() -> set[int]:
     if not path.is_file():
         return set()
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         raw = parser.get(_COLUMNS_SECTION, "hidden", fallback=None)
         if raw is None:
@@ -750,7 +906,7 @@ def load_column_hidden() -> set[int]:
 
 def _save_columns_hidden_and_introduced(path: Path, hidden: set[int], introduced: set[int]) -> None:
     """Persist both the hidden set and the introduced marker together."""
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _COLUMNS_SECTION not in parser:
@@ -765,7 +921,7 @@ def save_column_hidden(hidden: set[int]) -> None:
     """Persist hidden column indices to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _COLUMNS_SECTION not in parser:
@@ -782,7 +938,7 @@ def load_sort_state() -> tuple[str | None, bool]:
     if not path.is_file():
         return None, True
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         col = parser.get(_COLUMNS_SECTION, "sort_column", fallback=None)
         if col == "none":
@@ -797,7 +953,7 @@ def save_sort_state(sort_column: str | None, ascending: bool) -> None:
     """Persist sort column and direction to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _COLUMNS_SECTION not in parser:
@@ -814,7 +970,7 @@ def load_window_geometry() -> str | None:
     if not path.is_file():
         return None
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_WINDOW_SECTION, "geometry", fallback=None)
     except Exception:
@@ -825,7 +981,7 @@ def save_window_geometry(geometry: str) -> None:
     """Persist window geometry string to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _WINDOW_SECTION not in parser:
@@ -847,7 +1003,7 @@ def load_dev_mode() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_DEV_SECTION, "devmode", fallback="false").strip().lower() == "true"
     except Exception:
@@ -864,7 +1020,7 @@ def load_force_manual_install() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_DEV_SECTION, "force_manual_install", fallback="false").strip().lower() == "true"
     except Exception:
@@ -883,7 +1039,7 @@ def load_normalize_folder_case() -> bool:
     if not path.is_file():
         return True
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "normalize_folder_case", fallback=True)
     except Exception:
@@ -894,7 +1050,7 @@ def save_normalize_folder_case(value: bool) -> None:
     """Persist the normalize_folder_case setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -916,7 +1072,7 @@ def load_allow_prerelease() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_UPDATES_SECTION, "allow_prerelease", fallback=False)
     except Exception:
@@ -927,12 +1083,52 @@ def save_allow_prerelease(value: bool) -> None:
     """Persist the allow_prerelease setting to amethyst.ini under [updates]."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _UPDATES_SECTION not in parser:
         parser[_UPDATES_SECTION] = {}
     parser[_UPDATES_SECTION]["allow_prerelease"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+# ---------------------------------------------------------------------------
+# Favourite wizard tools (global, shown at the top of the Wizard header menu)
+# ---------------------------------------------------------------------------
+# Stored as one key per favourited tool id under [wizard_favourites] (value is
+# ignored, presence = favourited). Global across games — a tool id is unique
+# per tool, and the Wizard menu only lists tools applicable to the active game
+# anyway, so unrelated ids simply never match.
+_WIZARD_FAV_SECTION = "wizard_favourites"
+
+
+def load_favourite_wizards() -> set[str]:
+    """Return the set of favourited wizard-tool ids (empty if none/unset)."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return set()
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        if _WIZARD_FAV_SECTION not in parser:
+            return set()
+        return {k for k, v in parser[_WIZARD_FAV_SECTION].items()
+                if str(v).strip().lower() in ("1", "true", "yes", "on", "")}
+    except Exception:
+        return set()
+
+
+def save_favourite_wizards(tool_ids) -> None:
+    """Persist the set of favourited wizard-tool ids under [wizard_favourites],
+    replacing any previous contents."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    # Rewrite the section from scratch so unchecked tools are dropped.
+    parser[_WIZARD_FAV_SECTION] = {tid: "true" for tid in sorted(set(tool_ids))}
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
@@ -943,7 +1139,7 @@ def load_clear_archive_after_install() -> bool:
     if not path.is_file():
         return True
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "clear_archive_after_install", fallback=True)
     except Exception:
@@ -954,7 +1150,7 @@ def save_clear_archive_after_install(value: bool) -> None:
     """Persist the clear_archive_after_install setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -974,7 +1170,7 @@ def load_keep_fomod_archives() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "keep_fomod_archives", fallback=False)
     except Exception:
@@ -985,7 +1181,7 @@ def save_keep_fomod_archives(value: bool) -> None:
     """Persist the keep_fomod_archives setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -1001,7 +1197,7 @@ def load_show_summary_tooltips() -> bool:
     if not path.is_file():
         return True
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "show_summary_tooltips", fallback=True)
     except Exception:
@@ -1012,7 +1208,7 @@ def save_show_summary_tooltips(value: bool) -> None:
     """Persist the show_summary_tooltips setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -1032,7 +1228,7 @@ def load_hide_bsa_conflicts() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "hide_bsa_conflicts", fallback=False)
     except Exception:
@@ -1043,7 +1239,7 @@ def save_hide_bsa_conflicts(value: bool) -> None:
     """Persist the hide_bsa_conflicts setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -1062,7 +1258,7 @@ def load_rename_mod_after_install() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "rename_mod_after_install", fallback=False)
     except Exception:
@@ -1073,7 +1269,7 @@ def save_rename_mod_after_install(value: bool) -> None:
     """Persist the rename_mod_after_install setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -1093,7 +1289,7 @@ def load_restore_on_close() -> bool:
     if not path.is_file():
         return False
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.getboolean(_FILEMAP_SECTION, "restore_on_close", fallback=False)
     except Exception:
@@ -1104,7 +1300,7 @@ def save_restore_on_close(value: bool) -> None:
     """Persist the restore_on_close setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _FILEMAP_SECTION not in parser:
@@ -1118,12 +1314,40 @@ def save_nexus_show_adult(value: bool) -> None:
     """Persist the show_adult setting to amethyst.ini."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _NEXUS_SECTION not in parser:
         parser[_NEXUS_SECTION] = {}
     parser[_NEXUS_SECTION]["show_adult"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_nexus_page_size(default: int = 30) -> int:
+    """Return the persisted Nexus browser 'shown per page' setting."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return default
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        val = parser.getint(_NEXUS_SECTION, "page_size", fallback=default)
+        return val if val in (20, 30, 40, 50) else default
+    except Exception:
+        return default
+
+
+def save_nexus_page_size(value: int) -> None:
+    """Persist the Nexus browser 'shown per page' setting to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _NEXUS_SECTION not in parser:
+        parser[_NEXUS_SECTION] = {}
+    parser[_NEXUS_SECTION]["page_size"] = str(int(value))
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
@@ -1140,7 +1364,7 @@ def load_heroic_config_path() -> str:
     if not path.is_file():
         return ""
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_PATHS_SECTION, "heroic_config_path", fallback="").strip()
     except Exception:
@@ -1151,7 +1375,7 @@ def save_heroic_config_path(value: str) -> None:
     """Persist the Heroic config directory path to amethyst.ini. Pass '' to clear."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _PATHS_SECTION not in parser:
@@ -1167,7 +1391,7 @@ def load_steam_libraries_vdf_path() -> str:
     if not path.is_file():
         return ""
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_PATHS_SECTION, "steam_libraries_vdf", fallback="").strip()
     except Exception:
@@ -1178,7 +1402,7 @@ def save_steam_libraries_vdf_path(value: str) -> None:
     """Persist the Steam libraryfolders.vdf path to amethyst.ini. Pass '' to clear."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _PATHS_SECTION not in parser:
@@ -1198,7 +1422,7 @@ def load_default_staging_path() -> str:
     if not path.is_file():
         return ""
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_PATHS_SECTION, "default_staging_path", fallback="").strip()
     except Exception:
@@ -1209,7 +1433,7 @@ def save_default_staging_path(value: str) -> None:
     """Persist the default mod staging folder to amethyst.ini. Pass '' to clear."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _PATHS_SECTION not in parser:
@@ -1230,7 +1454,7 @@ def load_download_cache_path() -> str:
     if not path.is_file():
         return ""
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         return parser.get(_PATHS_SECTION, "download_cache_path", fallback="").strip()
     except Exception:
@@ -1241,12 +1465,243 @@ def save_download_cache_path(value: str) -> None:
     """Persist the download cache root to amethyst.ini. Pass '' to clear."""
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _PATHS_SECTION not in parser:
         parser[_PATHS_SECTION] = {}
     parser[_PATHS_SECTION]["download_cache_path"] = value.strip()
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_onboarding_complete() -> bool:
+    """Return True once first-run onboarding has been finished/dismissed.
+
+    False when the file / section / key is missing (covers 'missing or 0'), so
+    a fresh amethyst.ini shows the onboarding on launch exactly once.
+    """
+    path = get_ui_config_path()
+    if not path.is_file():
+        return False
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.getboolean(_ONBOARDING_SECTION, "complete", fallback=False)
+    except Exception:
+        return False
+
+
+def save_onboarding_complete(value: bool) -> None:
+    """Persist the onboarding completion flag to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _ONBOARDING_SECTION not in parser:
+        parser[_ONBOARDING_SECTION] = {}
+    parser[_ONBOARDING_SECTION]["complete"] = "1" if value else "0"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+# ---------------------------------------------------------------------------
+# Custom install-name regex patterns
+#
+# User-defined search/replace rules applied to a downloaded archive's filename
+# stem *before* the built-in Nexus/mod.io parsers, so users can adapt to a new
+# download-name format (Nexus changes these often) without a code change. Each
+# rule is a {"search": <regex>, "replace": <repl>, "enabled": bool} dict;
+# ``re.sub(search, replace, stem)`` is applied in order. Stored as a JSON list
+# under one option so the ordered pairs round-trip cleanly through configparser.
+# ---------------------------------------------------------------------------
+_NAME_PATTERNS_SECTION = "install_name_patterns"
+_NAME_PATTERNS_OPTION = "patterns"
+# One-shot marker: the built-in default rules are seeded into `patterns` exactly
+# once (the first time the rules are read). Without this, a user who deletes all
+# the default rows would get them re-added on the next launch.
+_NAME_PATTERNS_SEEDED_OPTION = "seeded"
+# Comma-separated ids of the default rules already introduced to this config.
+# A default id not in this list is injected once (at its canonical position) so a
+# NEW built-in rule shipped in an update reaches users who were seeded earlier —
+# without re-adding a default the user deliberately deleted (its id is recorded
+# here from the first seed, so it won't come back).
+_NAME_PATTERNS_INTRODUCED_OPTION = "introduced"
+
+
+def _read_install_name_patterns_raw(parser) -> list[dict] | None:
+    """Parse the stored JSON list, or None if the option is absent/blank/bad."""
+    import json
+    raw = parser.get(_NAME_PATTERNS_SECTION, _NAME_PATTERNS_OPTION, fallback="").strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(data, list):
+        return None
+    rules: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        search = str(item.get("search", ""))
+        if not search:
+            continue
+        rule = {
+            "search": search,
+            "replace": str(item.get("replace", "")),
+            "enabled": bool(item.get("enabled", True)),
+        }
+        # id/label are carried for built-in default rows so the editor can offer
+        # a reset; user-added rows simply omit them.
+        if item.get("id"):
+            rule["id"] = str(item["id"])
+        if item.get("label"):
+            rule["label"] = str(item["label"])
+        rules.append(rule)
+    return rules
+
+
+def load_install_name_patterns() -> list[dict]:
+    """Return the install-name rules (built-in defaults + user rules), in order.
+
+    Each item is ``{"search", "replace", "enabled"[, "id", "label"]}``. On the
+    very first read the built-in defaults (``mod_name_utils.default_install_name_rules``)
+    are seeded into the config, so callers and the editor always see the same
+    list. Returns ``[]`` only when the config is unreadable.
+    """
+    path = get_ui_config_path()
+    if not path.is_file():
+        # Config not created yet — return defaults without writing (the ini is
+        # written on first save/seed once load_ui_scale has created the file).
+        try:
+            from Utils.mod_name_utils import default_install_name_rules
+            return default_install_name_rules()
+        except Exception:
+            return []
+    try:
+        from Utils.mod_name_utils import default_install_name_rules
+        defaults = default_install_name_rules()
+    except Exception:
+        defaults = []
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        rules = _read_install_name_patterns_raw(parser)
+        already_seeded = parser.getboolean(
+            _NAME_PATTERNS_SECTION, _NAME_PATTERNS_SEEDED_OPTION, fallback=False)
+        if rules is None and not already_seeded:
+            # First run: seed the built-in defaults and persist them so they show
+            # (editable) in the editor and run at install time.
+            save_install_name_patterns(defaults)
+            return defaults
+        rules = rules or []
+        # Migration: inject any default rule NOT yet introduced to this config
+        # (a new built-in shipped in an update), at its canonical position, once.
+        intro_raw = parser.get(
+            _NAME_PATTERNS_SECTION, _NAME_PATTERNS_INTRODUCED_OPTION, fallback="")
+        introduced = {x.strip() for x in intro_raw.split(",") if x.strip()}
+        # Legacy configs seeded before the `introduced` marker existed: treat the
+        # ids currently present as already-introduced so we don't re-add a rule
+        # the user deleted from that original set.
+        if not introduced:
+            introduced = {str(r.get("id")) for r in rules if r.get("id")}
+        new_defaults = [d for d in defaults
+                        if d.get("id") and d["id"] not in introduced]
+        if new_defaults:
+            merged = _merge_new_defaults(rules, defaults, new_defaults)
+            save_install_name_patterns(merged)
+            return merged
+        return rules
+    except Exception:
+        return []
+
+
+def _merge_new_defaults(rules: list[dict], defaults: list[dict],
+                        new_defaults: list[dict]) -> list[dict]:
+    """Insert *new_defaults* into *rules* at their canonical position (relative
+    to the other defaults in *defaults*), leaving existing rules and their order
+    otherwise untouched."""
+    default_order = [d.get("id") for d in defaults]
+    merged = list(rules)
+    for nd in new_defaults:
+        nid = nd.get("id")
+        try:
+            di = default_order.index(nid)
+        except ValueError:
+            merged.append(dict(nd))
+            continue
+        # Find the insert point: after the last already-present default that
+        # precedes this one in the canonical order.
+        insert_at = len(merged)
+        prior_ids = {default_order[j] for j in range(di)}
+        last_prior = -1
+        for idx, r in enumerate(merged):
+            if r.get("id") in prior_ids:
+                last_prior = idx
+        if last_prior >= 0:
+            insert_at = last_prior + 1
+        else:
+            # No preceding default present → put it before the first custom row
+            # (i.e. before the first row without a known default id).
+            default_ids = set(default_order)
+            for idx, r in enumerate(merged):
+                if r.get("id") not in default_ids:
+                    insert_at = idx
+                    break
+        merged.insert(insert_at, dict(nd))
+    return merged
+
+
+def save_install_name_patterns(rules: list[dict]) -> None:
+    """Persist the install-name rules to amethyst.ini as a JSON list.
+
+    Rules with an empty ``search`` are dropped. Order is preserved (rules are
+    applied top-to-bottom at install time). Carries the optional ``id``/``label``
+    on built-in default rows so the editor can offer a reset. Always sets the
+    ``seeded`` marker so defaults are seeded at most once (see load_*)."""
+    import json
+    cleaned = []
+    for r in rules:
+        if not str(r.get("search", "")).strip():
+            continue
+        item = {
+            "search": str(r.get("search", "")),
+            "replace": str(r.get("replace", "")),
+            "enabled": bool(r.get("enabled", True)),
+        }
+        if r.get("id"):
+            item["id"] = str(r["id"])
+        if r.get("label"):
+            item["label"] = str(r["label"])
+        cleaned.append(item)
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _NAME_PATTERNS_SECTION not in parser:
+        parser[_NAME_PATTERNS_SECTION] = {}
+    parser[_NAME_PATTERNS_SECTION][_NAME_PATTERNS_OPTION] = json.dumps(cleaned)
+    parser[_NAME_PATTERNS_SECTION][_NAME_PATTERNS_SEEDED_OPTION] = "true"
+    # Record every shipped default id as "introduced" (union with what's already
+    # there), so a default remains introduced even after the user deletes it —
+    # it won't be re-added by the load-time migration.
+    try:
+        from Utils.mod_name_utils import default_install_name_rules
+        default_ids = {str(d["id"]) for d in default_install_name_rules() if d.get("id")}
+    except Exception:
+        default_ids = set()
+    prior_intro = {
+        x.strip()
+        for x in parser.get(_NAME_PATTERNS_SECTION,
+                            _NAME_PATTERNS_INTRODUCED_OPTION, fallback="").split(",")
+        if x.strip()
+    }
+    parser[_NAME_PATTERNS_SECTION][_NAME_PATTERNS_INTRODUCED_OPTION] = \
+        ",".join(sorted(prior_intro | default_ids))
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
@@ -1277,23 +1732,39 @@ THEME_DEFAULTS: dict[str, str] = {
 _theme_defaults_override_cache: dict[str, dict[str, str]] = {}
 
 
-def _theme_defaults_override_for(mode: str) -> dict[str, str]:
-    """Return {key: hex} overrides declared by the active theme file.
+# Resolver that maps a theme *mode* name → {key: hex} overrides. Injected by
+# the GUI (set_theme_override_resolver) so this module needn't import the GUI's
+# theme package. Headless / non-GUI builds leave it unset → no overrides.
+_theme_override_resolver: "callable | None" = None
 
-    Imports gui.themes.<mode> lazily. Missing file or missing dict yields {}.
-    Results are cached per mode to keep the ini read path cheap.
+
+def set_theme_override_resolver(fn: "callable | None") -> None:
+    """Register a callable(mode: str) -> dict[str, str] of theme overrides.
+
+    Clears the per-mode cache so a freshly-registered resolver takes effect.
+    """
+    global _theme_override_resolver
+    _theme_override_resolver = fn
+    _theme_defaults_override_cache.clear()
+
+
+def _theme_defaults_override_for(mode: str) -> dict[str, str]:
+    """Return {key: hex} overrides declared by the active theme.
+
+    Delegates to the GUI-registered resolver (set_theme_override_resolver);
+    yields {} when no resolver is attached or it fails. Results are cached per
+    mode to keep the ini read path cheap.
     """
     if mode in _theme_defaults_override_cache:
         return _theme_defaults_override_cache[mode]
     result: dict[str, str] = {}
-    try:
-        import importlib
-        mod = importlib.import_module(f"gui.themes.{mode}")
-        raw = getattr(mod, "THEME_DEFAULTS_OVERRIDE", None)
-        if isinstance(raw, dict):
-            result = {k: v for k, v in raw.items() if k in THEME_DEFAULTS and _valid_hex(v)}
-    except Exception:
-        pass
+    if _theme_override_resolver is not None:
+        try:
+            raw = _theme_override_resolver(mode)
+            if isinstance(raw, dict):
+                result = {k: v for k, v in raw.items() if k in THEME_DEFAULTS and _valid_hex(v)}
+        except Exception:
+            pass
     _theme_defaults_override_cache[mode] = result
     return result
 
@@ -1325,7 +1796,7 @@ def load_theme_colors() -> dict[str, str]:
     path = get_ui_config_path()
     if path.is_file():
         try:
-            parser = configparser.ConfigParser()
+            parser = _new_parser()
             parser.read(path)
             if parser.has_section(_THEME_SECTION):
                 for key in THEME_DEFAULTS:
@@ -1352,7 +1823,7 @@ def save_theme_color(key: str, value: str) -> None:
     value = value.strip()
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _THEME_SECTION not in parser:
@@ -1377,7 +1848,10 @@ def get_theme_color(key: str) -> str:
 # ---------------------------------------------------------------------------
 _APPEARANCE_OPTION = "appearance_mode"
 _APPEARANCE_DEFAULT = "dark"
-_APPEARANCE_ID_RE = _re.compile(r"^[a-z0-9_][a-z0-9_-]*$")
+# Theme ids are lowercase word chars/digits/dashes/underscores; user-authored
+# JSON themes add a single "custom:" namespace prefix (see Utils.custom_themes),
+# so a colon is permitted between the prefix and the slug.
+_APPEARANCE_ID_RE = _re.compile(r"^[a-z0-9_][a-z0-9_:-]*$")
 
 
 def get_appearance_mode() -> str:
@@ -1386,7 +1860,7 @@ def get_appearance_mode() -> str:
     if not path.is_file():
         return _APPEARANCE_DEFAULT
     try:
-        parser = configparser.ConfigParser()
+        parser = _new_parser()
         parser.read(path)
         raw = parser.get(_INI_SECTION, _APPEARANCE_OPTION, fallback=_APPEARANCE_DEFAULT).strip().lower()
         return raw if _APPEARANCE_ID_RE.match(raw) else _APPEARANCE_DEFAULT
@@ -1403,7 +1877,7 @@ def save_appearance_mode(mode: str) -> None:
         return
     path = get_ui_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    parser = configparser.ConfigParser()
+    parser = _new_parser()
     if path.is_file():
         parser.read(path)
     if _INI_SECTION not in parser:
@@ -1411,3 +1885,103 @@ def save_appearance_mode(mode: str) -> None:
     parser[_INI_SECTION][_APPEARANCE_OPTION] = mode
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
+
+
+# ---------------------------------------------------------------------------
+# Last session (game + profile) — restored at startup
+# ---------------------------------------------------------------------------
+
+def load_last_session() -> "tuple[str | None, str | None]":
+    """Return (last_game, last_profile) from amethyst.ini, each None if unset."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return (None, None)
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        g = parser.get(_SESSION_SECTION, "last_game", fallback="") or ""
+        p = parser.get(_SESSION_SECTION, "last_profile", fallback="") or ""
+        return (g or None, p or None)
+    except Exception:
+        return (None, None)
+
+
+def save_last_session(game: "str | None", profile: "str | None") -> None:
+    """Persist the last-used game + profile to amethyst.ini ([session])."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parser = _new_parser()
+        if path.is_file():
+            parser.read(path)
+        if _SESSION_SECTION not in parser:
+            parser[_SESSION_SECTION] = {}
+        parser[_SESSION_SECTION]["last_game"] = game or ""
+        parser[_SESSION_SECTION]["last_profile"] = profile or ""
+        with path.open("w", encoding="utf-8") as f:
+            parser.write(f)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# amethyst.ini schema version gate (migration wipe)
+# ---------------------------------------------------------------------------
+
+def ensure_ini_version() -> None:
+    """Ensure amethyst.ini matches the current schema version.
+
+    If the file exists but its ``[meta] version`` is missing or != _APP_INI_VERSION
+    (an old Tk-era ini), DELETE it so the Qt build starts fresh. Then make sure a
+    file exists stamping the current version. amethyst.ini only — other config
+    (last_game.json, games/, profiles, caches) is left untouched.
+
+    Call this ONCE at the very start of startup, before anything reads the ini.
+    Best-effort: any error falls back to wiping + rewriting so a corrupt/locked
+    ini can never block startup.
+    """
+    path = get_ui_config_path()
+    try:
+        needs_wipe = False
+        if path.is_file():
+            try:
+                parser = _new_parser()
+                parser.read(path)
+                ver = parser.getint(_META_SECTION, "version", fallback=0)
+            except Exception:
+                ver = -1   # unreadable → treat as outdated
+            if ver != _APP_INI_VERSION:
+                needs_wipe = True
+        if needs_wipe:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        if not path.is_file():
+            # Fresh stamp (brand-new install or just-wiped).
+            path.parent.mkdir(parents=True, exist_ok=True)
+            parser = _new_parser()
+            parser[_META_SECTION] = {"version": str(_APP_INI_VERSION)}
+            with path.open("w", encoding="utf-8") as f:
+                parser.write(f)
+        else:
+            # File is current but make sure the version key is present/correct.
+            parser = _new_parser()
+            parser.read(path)
+            if (not parser.has_section(_META_SECTION)
+                    or parser.get(_META_SECTION, "version", fallback="")
+                    != str(_APP_INI_VERSION)):
+                if _META_SECTION not in parser:
+                    parser[_META_SECTION] = {}
+                parser[_META_SECTION]["version"] = str(_APP_INI_VERSION)
+                with path.open("w", encoding="utf-8") as f:
+                    parser.write(f)
+    except Exception:
+        # Last resort: try a clean rewrite; swallow anything so startup proceeds.
+        try:
+            parser = _new_parser()
+            parser[_META_SECTION] = {"version": str(_APP_INI_VERSION)}
+            with path.open("w", encoding="utf-8") as f:
+                parser.write(f)
+        except Exception:
+            pass

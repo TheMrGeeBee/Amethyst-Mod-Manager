@@ -10,6 +10,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -806,7 +807,8 @@ def mods_matching_root_rules(
     any_folders_simple: set[str] = set()    # folder names with no "/"
     any_folders_path:   list[str] = []      # folder names containing "/"
     any_exts:           set[str] = set()
-    any_filenames:      set[str] = set()
+    exact_names:        set[str] = set()    # plain filenames → O(1) set lookup
+    glob_pats:          list[str] = []      # wildcard filenames → one regex
     for _rule, folders, exts, filenames in norm:
         for f in folders:
             if "/" in f:
@@ -814,7 +816,18 @@ def mods_matching_root_rules(
             else:
                 any_folders_simple.add(f)
         any_exts.update(exts)
-        any_filenames.update(filenames)
+        # Split filenames once here: calling _name_match per FILE re-scans
+        # every pattern for glob chars and fnmatches them one-by-one (~1.2 s
+        # on a 105k-file Skyrim modlist with the ~21 ENB/SKSE root-rule
+        # names). An exact-name set + one combined compiled regex is ~10×
+        # faster; the per-rule loop below still confirms real matches.
+        for n in filenames:
+            if any(c in n for c in "*?["):
+                glob_pats.append(fnmatch.translate(n))
+            else:
+                exact_names.add(n)
+    glob_re = re.compile("|".join(glob_pats)) if glob_pats else None
+    exts_tuple = tuple(any_exts)
     # Build a quick suffix-style match: pre-compute the set of file extensions
     # we care about for the cheap extension check below. _ext_match handles
     # double-extensions (.tar.gz) but for the pre-filter a simple endswith is
@@ -850,13 +863,12 @@ def mods_matching_root_rules(
                     if (f + "/") in rel_lower or rel_lower.endswith("/" + f) or rel_lower == f or rel_lower.endswith(f):
                         could_match = True
                         break
-            if not could_match and any_exts:
+            if not could_match and exts_tuple and filename.endswith(exts_tuple):
                 # Cheap extension check — over-accepts, real check inside the rule.
-                for ext in any_exts:
-                    if filename.endswith(ext):
-                        could_match = True
-                        break
-            if not could_match and any_filenames and _name_match(filename, any_filenames):
+                could_match = True
+            if not could_match and (filename in exact_names
+                                    or (glob_re is not None
+                                        and glob_re.match(filename))):
                 could_match = True
             if not could_match:
                 continue

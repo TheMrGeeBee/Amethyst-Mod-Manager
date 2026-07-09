@@ -180,7 +180,13 @@ class OpenMW(BaseGame):
           4. None if nothing found.
         """
         if self._is_flatpak_install():
-            if shutil.which("flatpak"):
+            # Inside our own Flatpak sandbox there is no `flatpak` CLI —
+            # forward the launch to the host via flatpak-spawn.
+            if Path("/.flatpak-info").exists():
+                if shutil.which("flatpak-spawn"):
+                    return ["flatpak-spawn", "--host", "--directory=/",
+                            "flatpak", "run", _OPENMW_FLATPAK_ID]
+            elif shutil.which("flatpak"):
                 return ["flatpak", "run", _OPENMW_FLATPAK_ID]
         launcher = shutil.which("openmw-launcher")
         if launcher:

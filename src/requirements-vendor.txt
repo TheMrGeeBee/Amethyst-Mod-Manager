@@ -1,0 +1,21 @@
+# Python deps bundled alongside the app (everything except PySide6, which
+# comes from the platform: Arch's `pyside6` package in the AppImage, the
+# io.qt.PySide.BaseApp in the flatpak).
+#
+# Consumed by:
+#   - src/appimage/PKGBUILD build()          (pip --target _vendor)
+#   - flatpak/pypi-dependencies.yaml         (regenerated from this file via
+#     flatpak-pip-generator — see that file's header for the exact command)
+py7zr
+libarchive-c
+Pillow
+lz4
+zstandard
+requests
+websocket-client
+keyring
+jeepney
+importlib_metadata
+backports.tarfile
+msgpack
+bsdiff4

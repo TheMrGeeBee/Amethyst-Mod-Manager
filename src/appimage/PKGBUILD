@@ -12,9 +12,8 @@
 #   * /usr/bin/7zzs     — 7-Zip 26.00 standalone binary
 #   * /usr/bin/{7z,7za} — symlinks to 7zzs
 #
-# bsdtar and the Cantarell font are still staged outside this package — bsdtar
-# would conflict with the libarchive package, and a font isn't really a /usr
-# binary.
+# bsdtar is still staged outside this package — it would conflict with the
+# libarchive package.
 #
 # pkgver is read from src/version.py at makepkg time.
 
@@ -25,8 +24,14 @@ pkgdesc='Linux-native mod manager for a variety of games'
 arch=('x86_64')
 url='https://github.com/ChrisDKN/Amethyst-Mod-Manager'
 license=('GPL-3.0-only')
-depends=('python' 'gtk3' 'tk')
-# `zenity` is listed as a conflict because we ship our own /usr/bin/zenity.
+# qt6-wayland is explicit: pyside6 doesn't hard-depend on it, and quick-sharun
+# only deploys the wayland-*/ Qt plugin dirs when they exist on disk.
+# qt6-imageformats provides libqwebp.so (omitted from qt6-base): Nexus serves
+# its mod/collection thumbnails as WebP, so without it the browser cards render
+# blank. Same "must exist on disk for quick-sharun to deploy" reasoning.
+depends=('python' 'pyside6' 'qt6-wayland' 'qt6-imageformats')
+# `zenity` is listed as a conflict because we ship our own /usr/bin/zenity
+# (Utils/portal_filechooser.py falls back to it when the portal is missing).
 # If the build host happened to have the stock zenity package installed,
 # pacman -U would refuse without this. In our CI it's never installed, but
 # this makes the intent explicit and protects local builds.
@@ -41,12 +46,14 @@ sha256sums=()
 _seven_zip_url='https://github.com/ip7z/7zip/releases/download/26.00/7z2600-linux-x64.tar.xz'
 
 build() {
-    # Vendor pip deps so package() can install a frozen tree.
+    # Vendor pip deps so package() can install a frozen tree. PySide6 is NOT
+    # vendored — it comes from the system pyside6 package so quick-sharun
+    # traces the shared Qt libs and deploys their plugins.
     rm -rf "$srcdir/_vendor"
     mkdir -p "$srcdir/_vendor"
     python3 -m pip install --no-cache-dir --quiet \
         --target "$srcdir/_vendor" \
-        -r "$SRC_TREE/src/requirements-appimage.txt"
+        -r "$SRC_TREE/src/requirements-vendor.txt"
     rm -rf "$srcdir/_vendor/bin"
     find "$srcdir/_vendor" -type f -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
@@ -81,15 +88,15 @@ package() {
     install -d "$app_share" "$pkgdir/usr/bin"
 
     local _src="$SRC_TREE/src"
-    install -Dm644 "$_src/gui.py"        "$app_share/gui.py"
-    install -Dm644 "$_src/cli.py"        "$app_share/cli.py"
-    install -Dm644 "$_src/version.py"    "$app_share/version.py"
-    [ -f "$_src/splash_gtk.py" ] && install -Dm644 "$_src/splash_gtk.py" "$app_share/splash_gtk.py"
+    install -Dm644 "$_src/run_qt.py"        "$app_share/run_qt.py"
+    install -Dm644 "$_src/cli.py"           "$app_share/cli.py"
+    install -Dm644 "$_src/app_bootstrap.py" "$app_share/app_bootstrap.py"
+    install -Dm644 "$_src/version.py"       "$app_share/version.py"
     [ -f "$SRC_TREE/Changelog.txt" ] && install -Dm644 "$SRC_TREE/Changelog.txt" "$app_share/Changelog.txt"
 
     local _dir
-    for _dir in gui Utils Games LOOT Nexus icons wizards wrappers; do
-        cp -r "$_src/$_dir" "$app_share/$_dir"
+    for _dir in gui_qt wizards_qt Utils Games LOOT Nexus icons translations wrappers gpak; do
+        [ -d "$_src/$_dir" ] && cp -r "$_src/$_dir" "$app_share/$_dir"
     done
 
     # Drop build/dev artefacts that shouldn't be in the installed tree.
@@ -114,16 +121,24 @@ package() {
 #!/bin/sh
 # Don't export PYTHONPATH here — it would inherit into any child shell the
 # user spawns from the app, shadowing their system Pillow with our vendored
-# copy long after the AppImage's /tmp mount has disappeared. gui.py / cli.py
-# add _vendor to sys.path themselves when \$APPDIR is set.
+# copy long after the AppImage's /tmp mount has disappeared. run_qt.py /
+# cli.py add _vendor to sys.path themselves (app_bootstrap) when \$APPDIR
+# is set.
 APP_SHARE=/usr/share/$pkgname
 export MOD_MANAGER_PROFILES_DIR="\${XDG_CONFIG_HOME:-\$HOME/.config}/AmethystModManager/Profiles"
 mkdir -p "\$MOD_MANAGER_PROFILES_DIR"
+# Force XWayland (xcb): under native Wayland Qt has no global coordinate system
+# (window pos reports (0,0), mapToGlobal is wrong) so QToolTip mis-anchors,
+# badly once QT_SCALE_FACTOR != 1. XWayland exposes real global coords so
+# tooltips place correctly and scaling stays exact. Matches the flatpak build.
+# \`:=\` respects a user override.
+: "\${QT_QPA_PLATFORM:=xcb}"
+export QT_QPA_PLATFORM
 case "\$1" in
     deploy|restore|list-games|list-profiles|clear-credentials)
         exec python3 "\$APP_SHARE/cli.py" "\$@" ;;
     *)
-        exec python3 "\$APP_SHARE/gui.py" "\$@" ;;
+        exec python3 "\$APP_SHARE/run_qt.py" "\$@" ;;
 esac
 EOF
     chmod 0755 "$pkgdir/usr/bin/mod-manager"

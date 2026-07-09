@@ -63,6 +63,33 @@ def _deploy_workers() -> int:
         return 16
 
 
+def _map_batched(fn, items: list, chunk: int = 2048) -> list:
+    """Parallel map for very cheap per-item work (an lstat or readlink).
+
+    ThreadPoolExecutor.map creates one future per item (its chunksize
+    argument only applies to process pools), and at ~30µs of dispatch
+    overhead per future that swamps a ~10µs syscall — 125k items cost
+    seconds of pure overhead.  Slicing the list so each worker runs a plain
+    loop over a chunk keeps the parallelism while paying dispatch once per
+    chunk.  Preserves item order.
+    """
+    if not items:
+        return []
+    if len(items) <= chunk:
+        return [fn(x) for x in items]
+    slices = [items[i:i + chunk] for i in range(0, len(items), chunk)]
+
+    def _run(sl: list) -> list:
+        return [fn(x) for x in sl]
+
+    out: list = []
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(_deploy_workers(), len(slices))) as pool:
+        for part in pool.map(_run, slices):
+            out.extend(part)
+    return out
+
+
 @_contextmanager
 def _timer(label: str):
     """Print elapsed wall-clock time for a labelled block to stderr."""
@@ -642,6 +669,138 @@ class CustomRule:
     exclude_extensions: list[str] = field(default_factory=list)
 
 
+@dataclass
+class RestoreWhitelistRule:
+    """A rule that keeps matching runtime files in the game folder on restore.
+
+    Matching is anchored at ``path`` (relative to the game root, "" = root),
+    case-insensitive and not recursive.  ``folders`` match names directly at
+    ``path`` and protect the whole subtree; ``filenames`` and ``extensions``
+    match files directly at ``path`` only.  ``folders``/``filenames`` accept
+    fnmatch globs (``ego_dlc*``, ``*.log``).  Only runtime-generated files are
+    protected — deployed mod files are still removed by restore.
+    """
+    path: str = ""
+    extensions: list[str] = field(default_factory=list)
+    folders: list[str] = field(default_factory=list)
+    filenames: list[str] = field(default_factory=list)
+
+
+def build_restore_whitelist_matcher(rules, rel_prefix: str = ""):
+    """Compile restore-whitelist rules into a ``match(rel_lower) -> bool``.
+
+    rel_lower is a lowercased, "/"-separated path relative to the walk root.
+    Returns None when no rule is effective, so callers keep a no-op fast path.
+
+    rel_prefix (e.g. "data/") re-bases rules for a walk root that is a
+    subdirectory of the game root: rules anchored under it have the prefix
+    stripped; rules anchored elsewhere are dropped (the game-root sweep's own
+    matcher covers them).  A glob folder rule matching the deploy subfolder
+    name itself is not re-based into the subtree (rare; use a literal instead).
+    """
+    import fnmatch as _fnmatch
+
+    def _norm(p: str) -> str:
+        return p.replace("\\", "/").strip("/ ").lower()
+
+    def _is_glob(s: str) -> bool:
+        return any(c in s for c in "*?[")
+
+    rel_prefix = _norm(rel_prefix)
+    if rel_prefix:
+        rel_prefix += "/"
+
+    dir_prefixes: list[str] = []
+    exact_files: set[str] = set()
+    exts_by_dir: dict[str, tuple[str, ...]] = {}
+    # Glob variants keyed by the walk-root-relative anchor dir they apply to.
+    folder_globs_by_dir: dict[str, list[str]] = {}
+    file_globs_by_dir: dict[str, list[str]] = {}
+    for rule in rules or []:
+        anchor = _norm(getattr(rule, "path", ""))
+        base = anchor + "/" if anchor else ""
+        for folder in getattr(rule, "folders", None) or []:
+            folder = _norm(folder)
+            if not folder:
+                continue
+            if _is_glob(folder):
+                if not rel_prefix or (base or "/").startswith(rel_prefix):
+                    key = anchor[len(rel_prefix):] if rel_prefix else anchor
+                    folder_globs_by_dir.setdefault(key, []).append(folder)
+                continue
+            full = base + folder + "/"
+            if full.startswith(rel_prefix):
+                dir_prefixes.append(full[len(rel_prefix):])
+            elif rel_prefix.startswith(full):
+                # Protected folder contains the walk root — protect everything.
+                dir_prefixes.append("")
+        for fname in getattr(rule, "filenames", None) or []:
+            fname = fname.strip().lower()
+            if not fname:
+                continue
+            if _is_glob(fname):
+                if not rel_prefix or (base or "/").startswith(rel_prefix):
+                    key = anchor[len(rel_prefix):] if rel_prefix else anchor
+                    file_globs_by_dir.setdefault(key, []).append(fname)
+                continue
+            full = base + fname
+            if full.startswith(rel_prefix):
+                exact_files.add(full[len(rel_prefix):])
+        exts = tuple(
+            e if e.startswith(".") else "." + e
+            for e in (x.strip().lower() for x in getattr(rule, "extensions", None) or [])
+            if e
+        )
+        if exts and (not rel_prefix or (anchor + "/").startswith(rel_prefix)):
+            key = anchor[len(rel_prefix):]
+            exts_by_dir[key] = exts_by_dir.get(key, ()) + exts
+
+    if not (dir_prefixes or exact_files or exts_by_dir
+            or folder_globs_by_dir or file_globs_by_dir):
+        return None
+
+    dir_prefixes_t = tuple(dir_prefixes)
+    exact_files_f = frozenset(exact_files)
+    _fnmatchcase = _fnmatch.fnmatchcase
+
+    def _split_at(rel_lower: str, anchor: str):
+        """(first-segment, has-more) of rel_lower below anchor, or None."""
+        if anchor:
+            if not rel_lower.startswith(anchor + "/"):
+                return None
+            rest = rel_lower[len(anchor) + 1:]
+        else:
+            rest = rel_lower
+        slash = rest.find("/")
+        if slash == -1:
+            return rest, False
+        return rest[:slash], True
+
+    def _match(rel_lower: str) -> bool:
+        if rel_lower in exact_files_f:
+            return True
+        for p in dir_prefixes_t:
+            if rel_lower.startswith(p):
+                return True
+        if exts_by_dir:
+            slash = rel_lower.rfind("/")
+            parent = rel_lower[:slash] if slash != -1 else ""
+            exts = exts_by_dir.get(parent)
+            if exts and rel_lower.endswith(exts):
+                return True
+        for anchor, pats in folder_globs_by_dir.items():
+            seg = _split_at(rel_lower, anchor)
+            if seg is not None and any(_fnmatchcase(seg[0], p) for p in pats):
+                return True
+        for anchor, pats in file_globs_by_dir.items():
+            seg = _split_at(rel_lower, anchor)
+            if seg is not None and not seg[1] and any(_fnmatchcase(seg[0], p) for p in pats):
+                return True
+        return False
+
+    return _match
+
+
 def _default_core(deploy_dir: Path) -> Path:
     """Return the default backup directory for deploy_dir."""
     return deploy_dir.parent / f"{deploy_dir.name}_Core"
@@ -754,6 +913,13 @@ def _transfer(src: Path, dst: Path, mode: LinkMode) -> None:
 # only a *.mm_tmp leftover, never a partial file/folder at the real path —
 # restore walkers skip and clean these.
 _MOVE_TMP_SUFFIX = ".mm_tmp"
+
+# Sibling-name infix for restore's deferred delete (see deploy_standard):
+# "Data" is renamed to "Data.mm_trash-<time_ns>" and deleted in a background
+# thread.  Every game-root walker must skip these dirs — they can hold
+# thousands of files mid-delete, which would poison the deploy snapshot or
+# trip _move_runtime_files' low-overlap safety net.
+_TRASH_INFIX = ".mm_trash-"
 
 
 def _move_crash_safe(src: "Path | str", dst: "Path | str") -> None:
@@ -1072,19 +1238,30 @@ def _prebuild_mod_indexes(
     staging_root: Path,
     mod_index_cache: dict,
     *,
-    profile_dir: "Path | None" = None,
+    index_dir: "Path | None" = None,
     strip_prefixes: "set[str] | None" = None,
     per_mod_strip_prefixes: "dict[str, list[str]] | None" = None,
 ) -> None:
     """Pre-build per-mod file indexes for all mods referenced in the filemap.
 
-    Fast path: synthesize on-disk paths from Profiles/<game>/modindex.bin
+    Fast path: synthesize on-disk paths from ``<index_dir>/modindex.bin``
     (already built by filemap.py) — no filesystem walk.  The index stores
     *stripped* rel paths, so when strip prefixes are in play the actual file
     may sit behind a wrapper folder (e.g. Data/); those wrapper chains are
     rediscovered with a couple of scandir calls per mod and each entry is
     mapped back to its physical location by checking its first path segment
     against the cached directory listings.
+
+    index_dir — the directory holding filemap.txt + modindex.bin, i.e. the
+    STAGING PARENT (callers pass ``filemap_path.parent``). For shared-mods
+    profiles that is ``Profiles/<game>/`` — NEVER the per-profile folder
+    (``profiles/<name>/``): all shared profiles use the one shared mods/
+    folder, so a single modindex.bin next to it is valid for every profile.
+    (Only profile-specific-mods profiles keep their filemap + index inside
+    the profile dir, and there staging parent == profile dir anyway.) The
+    parameter was previously named ``profile_dir``, which wrongly suggested
+    the per-profile folder — the Tk-era install path wrote a stray
+    ``profiles/<name>/modindex.bin`` because of exactly that confusion.
 
     Slow path: os.walk each mod folder (index missing/stale, or per-mod
     *path*-style strip prefixes whose semantics we don't mirror here).
@@ -1098,10 +1275,10 @@ def _prebuild_mod_indexes(
             mod_names.add(ln[tab_pos + 1:])
 
     index_from_disk: dict | None = None
-    if profile_dir is not None:
+    if index_dir is not None:
         try:
             from Utils.filemap import read_mod_index
-            index_from_disk = read_mod_index(profile_dir / "modindex.bin")
+            index_from_disk = read_mod_index(index_dir / "modindex.bin")
         except Exception:
             index_from_disk = None
 
@@ -1399,6 +1576,8 @@ def _write_deploy_snapshot(
                     with os.scandir(cur) as it:
                         for entry in it:
                             if entry.is_dir(follow_symlinks=False):
+                                if _TRASH_INFIX in entry.name:
+                                    continue  # deferred-delete dir mid-removal
                                 if (excluded is not None
                                         and entry.path[prefix_len:].replace(
                                             "\\", "/").lower() in excluded):
@@ -1478,6 +1657,7 @@ def _move_runtime_files(
     dest_dir: Path,
     log_fn=None,
     exclude_dirs=None,
+    restore_whitelist=None,
 ) -> int:
     """Move files that appeared after deploy (runtime-generated) to dest_dir.
 
@@ -1491,6 +1671,10 @@ def _move_runtime_files(
 
     exclude_dirs — must match the value passed to _write_deploy_snapshot so the
     excluded subtree is never treated as runtime-generated.
+
+    restore_whitelist — optional matcher from build_restore_whitelist_matcher
+    (over lowercased game_root-relative paths); matching files are left in
+    the game folder instead of being moved.
 
     Safety net: if the on-disk game root barely overlaps the snapshot (the
     deploy path or sub-folder setting was changed while deployed, so restore
@@ -1527,6 +1711,8 @@ def _move_runtime_files(
             with os.scandir(cur) as it:
                 for entry in it:
                     if entry.is_dir(follow_symlinks=False):
+                        if _TRASH_INFIX in entry.name:
+                            continue  # deferred-delete dir mid-removal
                         if (excluded is not None
                                 and entry.path[prefix_len:].replace(
                                     "\\", "/").lower() in excluded):
@@ -1565,7 +1751,12 @@ def _move_runtime_files(
     emptied_dirs: set[Path] = set()
     moved_rels: list[str] = []
     moved = 0
+    whitelisted = 0
     for rel in candidate_rels:
+        if restore_whitelist is not None and restore_whitelist(
+                rel.replace("\\", "/").lower()):
+            whitelisted += 1
+            continue
         src_path = game_root_str + "/" + rel
         dst = overwrite_str + "/" + rel
         if os.path.exists(dst):
@@ -1586,6 +1777,9 @@ def _move_runtime_files(
     # Prune any directories left empty after moving runtime files out
     if emptied_dirs:
         _prune_empty_dirs(emptied_dirs, stop_dirs={game_root})
+
+    if whitelisted:
+        _log(f"  Left {whitelisted} whitelisted runtime file(s) in the game folder.")
 
     if moved_rels:
         _append_overwrite_log(dest_dir, moved_rels, _log)
@@ -1733,6 +1927,8 @@ __all__ = [
     # Public classes/enums
     "LinkMode",
     "CustomRule",
+    "RestoreWhitelistRule",
+    "build_restore_whitelist_matcher",
     # Public helpers
     "load_per_mod_strip_prefixes",
     "load_separator_deploy_paths",

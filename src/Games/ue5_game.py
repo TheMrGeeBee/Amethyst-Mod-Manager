@@ -1338,7 +1338,8 @@ class UE5Game(BaseGame):
         if snapshot_path.is_file():
             _log("  Scanning game root for runtime-generated files ...")
             overwrite_dir.mkdir(parents=True, exist_ok=True)
-            moved_rt = _move_runtime_files(game_path, snapshot_path, overwrite_dir, _log)
+            moved_rt = _move_runtime_files(game_path, snapshot_path, overwrite_dir, _log,
+                                           restore_whitelist=self.restore_whitelist_matcher())
             _log(f"  Moved {moved_rt} runtime-generated file(s) to overwrite/.")
             try:
                 snapshot_path.unlink()

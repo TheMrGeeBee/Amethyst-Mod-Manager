@@ -299,7 +299,6 @@ def check_for_updates(
     for meta in checkable:
         by_mod_id.setdefault(meta.mod_id, []).append(meta)
 
-    total = len(by_mod_id)
     updates: list[UpdateInfo] = []
 
     # -----------------------------------------------------------------------
@@ -412,8 +411,6 @@ def check_for_updates(
             install_date = _parse_install_date(meta)
             has_update: bool
             gql_version_backfilled = False
-
-            fcat = (meta.file_category or "").strip().upper()
 
             # --- File-level check whenever we can identify the installed
             # file: the file record is authoritative for both version and

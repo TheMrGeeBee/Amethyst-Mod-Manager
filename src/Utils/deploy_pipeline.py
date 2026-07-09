@@ -21,10 +21,7 @@ from Utils.deploy import (
     load_per_mod_strip_prefixes,
     restore_root_folder,
 )
-from Utils.deploy_shared import (
-    _FILEMAP_SNAPSHOT_NAME,
-    _write_deploy_snapshot,
-)
+from Utils.deploy_shared import _FILEMAP_SNAPSHOT_NAME
 from Utils.filemap import build_filemap
 from Utils.profile_backup import create_backup
 from Utils.profile_state import read_excluded_mod_files
@@ -244,27 +241,90 @@ def _make_ue5_conflict_key_fn(game, index_path: Path):
     return _ck
 
 
-def _build_filemap_for_game(game, profile, *, log_fn: LogFn) -> None:
+def _build_filemap_for_game(game, profile, *, log_fn: LogFn,
+                            rescan_index: bool = False):
     """Rebuild filemap.txt + filemap_root.txt for *profile* of *game*.
 
     Mirrors the call in top_bar._run_deploy: pulls excluded-files, root-flagged
     mods (Nexus), folder-case normalization toggle, UE5 conflict-key resolver.
     Errors are logged but not raised — partial filemap is still useful.
+
+    When ``rescan_index`` is True the mod index is fully rescanned from disk
+    first (the slow Refresh path) so newly added/removed files inside existing
+    mod folders are picked up; otherwise the cached index fast-path is used.
+
+    Returns the build_filemap result tuple
+    ``(count, conflict_map, overrides, overridden_by)`` so callers that need the
+    conflict data (e.g. the Qt modlist) can use it without re-reading filemap.txt.
+    Returns None if the modlist is missing or the build fails.
     """
     profile_root = game.get_profile_root()
     staging = game.get_effective_mod_staging_path()
     modlist_path = profile_root / "profiles" / profile / "modlist.txt"
     filemap_out = staging.parent / "filemap.txt"
     if not modlist_path.is_file():
-        return
+        return None
 
     try:
         from Nexus.nexus_meta import collect_root_flagged_mods
         from Games.ue5_game import UE5Game
 
+        from Utils.perftrace import span
+
         exc_raw = read_excluded_mod_files(modlist_path.parent, None)
         exc = {k: set(v) for k, v in exc_raw.items()} if exc_raw else None
-        rf_mods = collect_root_flagged_mods(modlist_path, staging, log_fn=log_fn)
+        with span("collect_root_flagged_mods"):
+            rf_mods = collect_root_flagged_mods(modlist_path, staging, log_fn=log_fn)
+
+        if rescan_index:
+            # Sweep stray Tk-era per-profile indexes. The old Tk install path
+            # wrote modindex.bin/bsa_index.bin into the PROFILE folder
+            # (profiles/<name>/) even for shared-mods profiles, whose real
+            # index lives next to the shared mods/ folder (staging parent) and
+            # is valid for every profile sharing it. Those strays are never
+            # updated by this codebase, so they only mislead users debugging
+            # index staleness ("I have two modindex.bin files"). Only applies
+            # when the profile dir is NOT the index home — for
+            # profile-specific-mods profiles the two coincide and nothing is
+            # ever removed.
+            try:
+                _prof_dir = modlist_path.parent.resolve()
+                if _prof_dir != filemap_out.parent.resolve():
+                    for _stray_name in ("modindex.bin", "bsa_index.bin"):
+                        _stray = modlist_path.parent / _stray_name
+                        if _stray.is_file():
+                            _stray.unlink()
+                            log_fn(f"Removed stray legacy {_stray_name} from "
+                                   f"profile folder ({_stray}) — the real index "
+                                   f"lives next to the shared mods folder.")
+            except OSError as _sw_err:
+                log_fn(f"Stray index sweep warning: {_sw_err}")
+            # Heal mods already on disk that carry a non-UTF-8 (legacy Windows
+            # code page) file name — rebuild_mod_index would otherwise SKIP the
+            # whole mod (no index → no filemap → no conflicts/plugins/deploy).
+            # New installs are repaired at extract time; this covers mods
+            # installed before that existed, on the user's next Refresh.
+            try:
+                from Utils.filemap import repair_nonutf8_names
+                repair_nonutf8_names(staging, log_fn=log_fn)
+            except Exception as _rp_err:
+                log_fn(f"Non-UTF-8 name repair warning: {_rp_err}")
+            # Full rescan of every mod folder → rewrite modindex.bin from disk
+            # (Refresh button). Uses the same game-derived params build_filemap
+            # would, so the cached index stays consistent.
+            try:
+                from Utils.filemap import rebuild_mod_index
+                rebuild_mod_index(
+                    filemap_out.parent / "modindex.bin", staging,
+                    strip_prefixes=set(game.mod_folder_strip_prefixes or ()) or None,
+                    per_mod_strip_prefixes=load_per_mod_strip_prefixes(
+                        modlist_path.parent),
+                    allowed_extensions=set(game.mod_install_extensions or ()) or None,
+                    root_folder_mods=set(rf_mods or ()) or None,
+                    log_fn=log_fn,
+                )
+            except Exception as idx_err:
+                log_fn(f"Index rescan warning: {idx_err}")
         norm_case = (
             getattr(game, "normalize_folder_case", True)
             and load_normalize_folder_case()
@@ -281,28 +341,40 @@ def _build_filemap_for_game(game, profile, *, log_fn: LogFn) -> None:
             else:
                 conflict_key_fn = None
 
-        build_filemap(
-            modlist_path, staging, filemap_out,
-            strip_prefixes=game.mod_folder_strip_prefixes or None,
-            per_mod_strip_prefixes=load_per_mod_strip_prefixes(modlist_path.parent),
-            allowed_extensions=game.mod_install_extensions or None,
-            root_deploy_folders=game.mod_root_deploy_folders or None,
-            excluded_mod_files=exc,
-            conflict_ignore_filenames=getattr(game, "conflict_ignore_filenames", None) or None,
-            excluded_loose_filenames=getattr(game, "excluded_loose_filenames", None) or None,
-            allowed_top_level_folders=(
-                getattr(game, "mod_required_top_level_folders", None) or None
-                if getattr(game, "filemap_exclude_unknown_top_level", False)
-                else None
-            ),
-            exclude_dirs=getattr(game, "filemap_exclude_dirs", None) or None,
-            normalize_folder_case=norm_case,
-            filemap_casing=getattr(game, "filemap_casing", "upper"),
-            conflict_key_fn=conflict_key_fn,
-            root_folder_mods=rf_mods or None,
-        )
+        with span("build_filemap"):
+            result = build_filemap(
+                modlist_path, staging, filemap_out,
+                strip_prefixes=game.mod_folder_strip_prefixes or None,
+                per_mod_strip_prefixes=load_per_mod_strip_prefixes(modlist_path.parent),
+                allowed_extensions=game.mod_install_extensions or None,
+                root_deploy_folders=game.mod_root_deploy_folders or None,
+                excluded_mod_files=exc,
+                conflict_ignore_filenames=getattr(game, "conflict_ignore_filenames", None) or None,
+                excluded_loose_filenames=getattr(game, "excluded_loose_filenames", None) or None,
+                allowed_top_level_folders=(
+                    getattr(game, "mod_required_top_level_folders", None) or None
+                    if getattr(game, "filemap_exclude_unknown_top_level", False)
+                    else None
+                ),
+                exclude_dirs=getattr(game, "filemap_exclude_dirs", None) or None,
+                normalize_folder_case=norm_case,
+                filemap_casing=getattr(game, "filemap_casing", "upper"),
+                filemap_casing_pins=getattr(game, "filemap_casing_pins", None),
+                conflict_key_fn=conflict_key_fn,
+                root_folder_mods=rf_mods or None,
+            )
+        # Game-specific filemap rewrite (e.g. Witcher 3 routes staging paths
+        # like TrueFires_v1.01/modTrueFires/… to mods/modTrueFires/… so the
+        # Data tab and conflicts match the deployed game-root layout).
+        try:
+            with span("post_build_filemap"):
+                game.post_build_filemap(filemap_out, staging)
+        except Exception as pb_err:
+            log_fn(f"post_build_filemap warning: {pb_err}")
+        return result
     except Exception as fm_err:
         log_fn(f"Filemap rebuild warning: {fm_err}")
+        return None
 
 
 def run_deploy_pipeline(
@@ -349,6 +421,9 @@ def run_deploy_pipeline(
     _t_start = _time.perf_counter()
 
     try:
+        from Utils import deploy_incremental as _incr
+        from Utils.deploy_incremental import IncrementalFallback
+
         # Restore against the last-deployed profile so runtime files (saves,
         # ShaderCache, etc.) land in *that* profile's overwrite/ folder.
         last_deployed = game.get_last_deployed_profile()
@@ -360,7 +435,33 @@ def run_deploy_pipeline(
             # last-deployed profile may target a different game folder/prefix).
             game.load_paths()
             game_root = game.get_game_path()
-        if getattr(game, "restore_before_deploy", True) and hasattr(game, "restore"):
+
+        # Incremental fast path: redeploying the profile that is already
+        # deployed with the same link mode → skip the restore and let the
+        # standard primitives diff against the previous deploy instead.
+        incr_plan = None
+        if last_deployed == profile:
+            _probe_mode = (
+                game.get_deploy_mode()
+                if hasattr(game, "get_deploy_mode")
+                else LinkMode.HARDLINK
+            )
+            incr_plan = _incr.plan_incremental(game, profile, _probe_mode,
+                                               log_fn=log_fn)
+        if incr_plan is not None:
+            log_fn("Incremental deploy: existing deployment reused — "
+                   "skipping restore.")
+            # swap_launcher (end of pipeline) backs up the *current* launcher
+            # over <stem>.bak.  Without the full restore that current file is
+            # the script-extender copy from the last deploy, which would
+            # clobber the vanilla backup.  Undo the swap now; it is re-applied
+            # after the deploy as usual.
+            if hasattr(game, "_restore_launcher"):
+                try:
+                    game._restore_launcher(log_fn)
+                except Exception as exc:
+                    log_fn(f"  WARN: launcher un-swap failed: {exc}")
+        elif getattr(game, "restore_before_deploy", True) and hasattr(game, "restore"):
             try:
                 if progress_fn is not None:
                     game.restore(log_fn=log_fn, progress_fn=progress_fn)
@@ -410,13 +511,61 @@ def run_deploy_pipeline(
             if hasattr(game, "get_deploy_mode")
             else LinkMode.HARDLINK
         )
+        if incr_plan is not None and incr_plan.mode is not deploy_mode:
+            # Should be unreachable (the probe read the same config), but the
+            # restore was skipped on the strength of that probe — recover.
+            log_fn("Incremental deploy: link mode changed after the profile "
+                   "switch — running the full path.")
+            incr_plan = None
+            try:
+                if progress_fn is not None:
+                    game.restore(log_fn=log_fn, progress_fn=progress_fn)
+                else:
+                    game.restore(log_fn=log_fn)
+            except RuntimeError as restore_err:
+                log_fn(f"Restore before deploy failed: {restore_err} — continuing.")
         _log_deploy_context(game, profile, profile_dir, deploy_mode,
                             log_fn=log_fn)
-        if progress_fn is not None:
-            game.deploy(log_fn=log_fn, profile=profile, progress_fn=progress_fn,
-                        mode=deploy_mode)
-        else:
-            game.deploy(log_fn=log_fn, profile=profile, mode=deploy_mode)
+
+        def _run_game_deploy():
+            if progress_fn is not None:
+                game.deploy(log_fn=log_fn, profile=profile,
+                            progress_fn=progress_fn, mode=deploy_mode)
+            else:
+                game.deploy(log_fn=log_fn, profile=profile, mode=deploy_mode)
+
+        # Defer the handler's end-of-deploy game-root snapshot: the pipeline
+        # writes it once after the root-folder files land (below), instead of
+        # the handler walking the game root now and the pipeline walking it
+        # again for the refresh.
+        game.begin_deferred_runtime_snapshot()
+        try:
+            if incr_plan is not None:
+                _incr.activate(incr_plan)
+                try:
+                    _run_game_deploy()
+                except IncrementalFallback as fb:
+                    _incr.deactivate()
+                    incr_plan = None
+                    log_fn(f"Incremental deploy fell back to the full path: {fb}")
+                    # restore_data_core recovers any partially-diffed Data/,
+                    # then the classic full deploy runs.  Same profile, so no
+                    # profile switch is needed around the restore.
+                    try:
+                        if progress_fn is not None:
+                            game.restore(log_fn=log_fn, progress_fn=progress_fn)
+                        else:
+                            game.restore(log_fn=log_fn)
+                    except RuntimeError as restore_err:
+                        log_fn(f"Restore before deploy failed: {restore_err} "
+                               f"— continuing.")
+                    _run_game_deploy()
+                finally:
+                    _incr.deactivate()
+            else:
+                _run_game_deploy()
+        finally:
+            snapshot_requested = game.end_deferred_runtime_snapshot()
 
         pfx = game.get_prefix_path()
         if pfx and pfx.is_dir():
@@ -424,7 +573,7 @@ def run_deploy_pipeline(
                 game.name, pfx, game.wine_dll_overrides, log_fn=log_fn
             )
 
-        game.save_last_deployed_profile(profile)
+        game.save_last_deployed_profile(profile, deploy_mode=deploy_mode.name)
 
         target_rf = game.get_effective_root_folder_path()
         rf_allowed = getattr(game, "root_folder_deploy_enabled", True)
@@ -457,15 +606,14 @@ def run_deploy_pipeline(
             snapshot_path = (
                 game.get_effective_filemap_path().parent / _FILEMAP_SNAPSHOT_NAME
             )
-            if snapshot_path.is_file():
+            # Write the (single) runtime snapshot now that root files landed.
+            # `snapshot_requested` covers standard games whose handler call was
+            # deferred above; the is_file() check keeps the refresh for games
+            # that write the snapshot directly inside deploy (Witcher 3, UE5,
+            # game-root mode) exactly as before.
+            if snapshot_requested or snapshot_path.is_file():
                 try:
-                    # Refresh after root files landed; honour the game's
-                    # exclusion so the deploy subfolder isn't reintroduced.
-                    _excl = None
-                    if hasattr(game, "runtime_snapshot_exclude_dirs"):
-                        _excl = game.runtime_snapshot_exclude_dirs()
-                    _write_deploy_snapshot(Path(game_root), snapshot_path,
-                                           exclude_dirs=_excl, log_fn=log_fn)
+                    game.snapshot_root_for_runtime_capture(log_fn=log_fn)
                 except Exception as exc:
                     log_fn(f"WARN: could not refresh deploy snapshot: {exc}")
 
@@ -473,8 +621,9 @@ def run_deploy_pipeline(
         if hasattr(game, "swap_launcher"):
             game.swap_launcher(log_fn)
 
+        _tag = " (incremental)" if incr_plan is not None else ""
         log_fn(f"Deploy finished OK in {_time.perf_counter() - _t_start:.1f}s "
-               f"— profile '{profile}'.")
+               f"— profile '{profile}'.{_tag}")
         return True
     except Exception as e:
         log_fn(f"Deploy FAILED after {_time.perf_counter() - _t_start:.1f}s: "

@@ -1,0 +1,660 @@
+"""Settings view — a panel-scoped tab that overlays the Modlist panel.
+
+Opened from the top-bar gear button (app.py `_open_settings_tab`) via
+`DetachableTabWidget.open_scoped_tab(..., self._modlist_panel_stack, key="settings")`
+— the same modlist-scoped mechanism as the image preview / text editor. The
+modlist content is swapped out for this widget while the rest of the UI (plugins
+panel, headers, footers) stays live; closing the tab restores the modlist.
+
+Save-on-change: every control writes straight to amethyst.ini through the
+toolkit-free `Utils.ui_config` load_*/save_* helpers the moment it changes — there
+is no Save/Cancel button. A few settings (Language, Theme, UI Scale) only take
+effect on restart and say so inline.
+
+A curated subset of the Tk Settings panel (gui/status_bar.py `SettingsPanel`):
+User Interface (incl. Theme + UI Scale), Downloads & Collections, General, Paths
+— plus a Manage Caches action. Theme colour pickers are intentionally omitted
+(Qt has no colour-override system yet).
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea, QFrame,
+    QLabel, QCheckBox, QComboBox, QSlider, QLineEdit, QPushButton, QGroupBox,
+)
+
+from gui_qt.theme_qt import active_palette, _c
+from gui_qt.wheel_guard import no_wheel
+from Utils import ui_config as uc
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+class SettingsView(QWidget):
+    # Carries the cache-size scan result from a daemon worker thread to the UI
+    # pick_folder's callback fires on the portal WORKER thread; marshal the
+    # (edit, save_fn, path) result to the GUI thread before touching a widget.
+    _folder_picked = Signal(object)
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window          # main window — for _notify, threads
+        self._pal = active_palette()
+        self.setObjectName("SettingsView")
+        self._folder_picked.connect(self._on_folder_picked)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(scroll)
+
+        body = QWidget()
+        scroll.setWidget(body)
+        self._v = QVBoxLayout(body)
+        self._v.setContentsMargins(16, 14, 16, 18)
+        self._v.setSpacing(14)
+
+        title = QLabel(self.tr("Settings"))
+        f = title.font(); f.setPointSize(f.pointSize() + 4); f.setBold(True)
+        title.setFont(f)
+        self._v.addWidget(title)
+
+        self.setStyleSheet(self._qss())
+
+        self._build_user_interface()
+        self._build_downloads()
+        self._build_general()
+        self._build_paths()
+        self._v.addStretch(1)
+
+    # ---- styling ----------------------------------------------------------
+    def _qss(self) -> str:
+        c = lambda k: _c(self._pal, k)
+        return f"""
+        QGroupBox {{
+            border: 1px solid {c('BORDER')};
+            border-radius: 6px;
+            margin-top: 10px;
+            padding: 10px 12px 12px 12px;
+            background: {c('BG_PANEL')};
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            left: 10px; padding: 0 5px;
+            color: {c('TEXT_MAIN')};
+            font-weight: bold;
+        }}
+        QLabel#Help {{ color: {c('TEXT_DIM')}; }}
+        QLabel#RestartNote {{ color: {c('TEXT_WARN')}; }}
+        QSlider::groove:horizontal {{
+            height: 4px; background: {c('BG_DEEP')}; border-radius: 2px;
+        }}
+        QSlider::handle:horizontal {{
+            background: {c('ACCENT')}; width: 14px; margin: -6px 0;
+            border-radius: 7px;
+        }}
+        QSlider::sub-page:horizontal {{ background: {c('ACCENT')}; border-radius: 2px; }}
+        """
+
+    # ---- section + control builders --------------------------------------
+    def _section(self, title: str) -> QGridLayout:
+        """Add a QGroupBox and return a QGridLayout to fill (label | control)."""
+        box = QGroupBox(title)
+        grid = QGridLayout(box)
+        grid.setContentsMargins(8, 6, 8, 6)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
+        self._v.addWidget(box)
+        # Track the next free row per grid via a dynamic attribute.
+        grid.setProperty("_row", 0)
+        return grid
+
+    def _next_row(self, grid: QGridLayout) -> int:
+        r = int(grid.property("_row") or 0)
+        grid.setProperty("_row", r + 1)
+        return r
+
+    def _add_help(self, grid: QGridLayout, text: str) -> None:
+        lbl = QLabel(text)
+        lbl.setObjectName("Help")
+        lbl.setWordWrap(True)
+        grid.addWidget(lbl, self._next_row(grid), 0, 1, 2)
+
+    def _checkbox(self, grid: QGridLayout, label: str, load_fn, save_fn,
+                  help: str | None = None, on_changed=None) -> QCheckBox:
+        cb = QCheckBox(label)
+        try:
+            cb.setChecked(bool(load_fn()))
+        except Exception:
+            pass
+
+        def _toggled(v):
+            self._safe_save(save_fn, v)
+            if on_changed is not None:
+                try:
+                    on_changed(v)
+                except Exception:
+                    pass
+
+        cb.toggled.connect(_toggled)
+        grid.addWidget(cb, self._next_row(grid), 0, 1, 2)
+        if help:
+            self._add_help(grid, help)
+        return cb
+
+    def _combo(self, grid: QGridLayout, label: str,
+               pairs: list[tuple[str, str]], current_value: str, save_fn,
+               restart_note: bool = False) -> QComboBox:
+        """`pairs` = [(display, value), ...]; selecting saves the value."""
+        row = self._next_row(grid)
+        grid.addWidget(QLabel(label), row, 0)
+        combo = QComboBox()
+        values = [v for _d, v in pairs]
+        for disp, _v in pairs:
+            combo.addItem(disp)
+        if current_value in values:
+            combo.setCurrentIndex(values.index(current_value))
+        combo.currentIndexChanged.connect(
+            lambda i: self._safe_save(save_fn, values[i]))
+        no_wheel(combo)
+        grid.addWidget(combo, row, 1, Qt.AlignLeft)
+        if restart_note:
+            note = QLabel(self.tr("Changes take effect after restart."))
+            note.setObjectName("RestartNote")
+            grid.addWidget(note, self._next_row(grid), 0, 1, 2)
+        return combo
+
+    def _slider(self, grid: QGridLayout, label: str, lo: int, hi: int,
+                value: int, on_change) -> QSlider:
+        """Integer slider lo..hi with a live value label. `on_change(int)`."""
+        row = self._next_row(grid)
+        grid.addWidget(QLabel(label), row, 0)
+        wrap = QHBoxLayout()
+        sld = QSlider(Qt.Horizontal)
+        sld.setMinimum(lo); sld.setMaximum(hi)
+        sld.setValue(max(lo, min(hi, value)))
+        sld.setFixedWidth(220)
+        val_lbl = QLabel(str(sld.value()))
+        val_lbl.setMinimumWidth(48)
+        sld.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
+        sld.valueChanged.connect(lambda v: on_change(v))
+        no_wheel(sld)
+        wrap.addWidget(sld)
+        wrap.addWidget(val_lbl)
+        wrap.addStretch(1)
+        holder = QWidget(); holder.setLayout(wrap)
+        grid.addWidget(holder, row, 1)
+        return sld, val_lbl
+
+    def _path_row(self, grid: QGridLayout, label: str, load_fn, save_fn,
+                  help: str | None = None) -> QLineEdit:
+        row = self._next_row(grid)
+        grid.addWidget(QLabel(label), row, 0)
+        wrap = QHBoxLayout()
+        edit = QLineEdit()
+        try:
+            edit.setText(load_fn() or "")
+        except Exception:
+            pass
+        edit.editingFinished.connect(
+            lambda: self._safe_save(save_fn, edit.text().strip()))
+        browse = QPushButton(self.tr("Browse"))
+        browse.setCursor(Qt.PointingHandCursor)
+        browse.clicked.connect(lambda: self._browse_into(edit, save_fn, label))
+        clear = QPushButton(self.tr("Clear"))
+        clear.setCursor(Qt.PointingHandCursor)
+        clear.clicked.connect(lambda: self._clear_path(edit, save_fn))
+        wrap.addWidget(edit, 1)
+        wrap.addWidget(browse)
+        wrap.addWidget(clear)
+        holder = QWidget(); holder.setLayout(wrap)
+        grid.addWidget(holder, row, 1)
+        if help:
+            self._add_help(grid, help)
+        return edit
+
+    # ---- sections ---------------------------------------------------------
+    def _build_user_interface(self):
+        # Language, Theme and UI Scale are all applied once at startup (Qt reads
+        # QT_SCALE_FACTOR / the palette / the translator only at launch), so each
+        # change persists to amethyst.ini and offers a self-restart. They are
+        # grouped together with a single shared restart note beneath them; the
+        # Hide BSA conflicts toggle (which applies live) sits below that.
+        g = self._section(self.tr("User Interface"))
+        # Language row: combo + a "Sync language files" button that pulls the
+        # latest translations from the Resources branch on demand.
+        row = self._next_row(g)
+        g.addWidget(QLabel(self.tr("Language")), row, 0)
+        self._lang_combo = QComboBox()
+        no_wheel(self._lang_combo)
+        self._lang_sync_btn = QPushButton(self.tr("Sync language files"))
+        self._lang_sync_btn.setCursor(Qt.PointingHandCursor)
+        self._lang_sync_btn.clicked.connect(self._on_sync_languages)
+        lang_wrap = QHBoxLayout()
+        lang_wrap.setContentsMargins(0, 0, 0, 0)
+        lang_wrap.addWidget(self._lang_combo)
+        lang_wrap.addWidget(self._lang_sync_btn)
+        lang_wrap.addStretch(1)
+        lang_holder = QWidget(); lang_holder.setLayout(lang_wrap)
+        g.addWidget(lang_holder, row, 1)
+        self._populate_language_combo()
+
+        self._build_theme(g)
+        self._build_ui_scale(g)
+
+        # Single shared restart note beneath Language / Theme / UI Scale.
+        note = QLabel(self.tr("Changes take effect after restart."))
+        note.setObjectName("RestartNote")
+        g.addWidget(note, self._next_row(g), 0, 1, 2)
+
+        self._checkbox(
+            g, self.tr("Hide BSA conflicts"),
+            uc.load_hide_bsa_conflicts, uc.save_hide_bsa_conflicts,
+            help=self.tr("Hide BSA/BA2 archive conflict flags (also skips that "
+                 "conflict scan for a small speed-up)."),
+            on_changed=lambda _v: self._rebuild_conflicts())
+
+        # Read live by the modlist view on each hover, so persisting the value
+        # is enough — no rebuild/refresh needed.
+        self._checkbox(
+            g, self.tr("Show mod description tooltips"),
+            uc.load_show_summary_tooltips, uc.save_show_summary_tooltips,
+            help=self.tr("Show a mod's Nexus description as a tooltip when you "
+                 "hover over its name in the mod list."))
+
+    def _build_theme(self, g):
+        """Theme picker (formerly its own Appearance section). Takes effect on
+        restart, like Language / UI Scale — selecting a new theme persists it and
+        offers a self-restart via the window's theme restart prompt. The
+        "Edit / Create Theme…" button sits to the right of the dropdown (mirrors
+        the Language row's combo + sync button layout)."""
+        try:
+            from Utils.themes import load_display_names
+            themes = load_display_names() or {"dark": "Dark"}
+        except Exception:
+            themes = {"dark": "Dark", "light": "Light"}
+        try:
+            current = uc.get_appearance_mode()
+        except Exception:
+            current = "dark"
+
+        row = self._next_row(g)
+        g.addWidget(QLabel(self.tr("Theme")), row, 0)
+
+        combo = QComboBox()
+        no_wheel(combo)
+        values = [tid for tid in themes]
+        for tid, disp in themes.items():
+            combo.addItem(disp, tid)
+        if current in values:
+            combo.setCurrentIndex(values.index(current))
+        combo.currentIndexChanged.connect(
+            lambda i: self._on_theme_changed(values[i]))
+
+        edit_btn = QPushButton(self.tr("Edit / Create Theme…"))
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.clicked.connect(self._open_theme_editor)
+
+        wrap = QHBoxLayout()
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.addWidget(combo)
+        wrap.addWidget(edit_btn)
+        wrap.addStretch(1)
+        holder = QWidget(); holder.setLayout(wrap)
+        g.addWidget(holder, row, 1)
+
+    def _on_theme_changed(self, tid: str):
+        """Persist the chosen theme, then offer a restart (same pattern as UI
+        scale / language) so the new palette applies on a fresh launch."""
+        self._safe_save(uc.save_appearance_mode, tid)
+        self._prompt_restart("theme")
+
+    def _open_theme_editor(self):
+        """Open the full-screen theme editor tab via the main window."""
+        opener = getattr(self._window, "_open_theme_editor_tab", None)
+        if callable(opener):
+            opener()
+
+    def _open_install_name_patterns(self):
+        """Open the custom install-name rules editor tab via the main window."""
+        opener = getattr(self._window, "_open_install_name_patterns_tab", None)
+        if callable(opener):
+            opener()
+
+    def _build_ui_scale(self, g):
+        """Add the UI Scale row: an Auto checkbox + a 50–200% slider.
+
+        When Auto is ticked the slider is disabled and the saved value is the
+        string 'auto' (resolved to the detected HiDPI scale at load time);
+        unticking enables the slider and saves a float multiplier. Either edit
+        offers a self-restart so the new QT_SCALE_FACTOR takes effect.
+        """
+        current = uc.get_ui_scale()          # float, already loaded at startup
+        is_auto = uc.load_ui_scale_is_auto()
+        pct = int(round(max(0.5, min(3.0, current)) * 100))
+
+        # Percent slider. Persisting + the restart prompt fire only when the
+        # user finishes the gesture (sliderReleased / keyboard / click), never
+        # on every 1% valueChanged tick while dragging — otherwise the restart
+        # overlay would reappear on every intermediate value. The value label
+        # still tracks live via valueChanged. Pass a no-op change cb to _slider
+        # so it doesn't wire its own per-tick persist.
+        self._scale_slider, self._scale_val_lbl = self._slider(
+            g, self.tr("UI Scale"), 50, 200, pct, lambda _v: None)
+        self._scale_slider.setSingleStep(5)
+        self._scale_slider.setPageStep(10)
+        self._scale_val_lbl.setText(f"{pct}%")
+        # valueChanged fires on every tick — while dragging (isSliderDown()) it
+        # only updates the label; a change that lands with the handle NOT held
+        # down (arrow keys, groove click, page step) commits immediately.
+        # sliderReleased then commits the final value at the end of a drag.
+        self._scale_slider.valueChanged.connect(self._on_scale_value_changed)
+        self._scale_slider.sliderReleased.connect(self._commit_ui_scale)
+        self._scale_slider.setEnabled(not is_auto)
+
+        # Auto checkbox — sits below the slider; ticking it disables the slider.
+        self._scale_auto_cb = QCheckBox(self.tr("Auto (match display)"))
+        self._scale_auto_cb.setChecked(is_auto)
+        self._scale_auto_cb.toggled.connect(self._on_ui_scale_auto_toggled)
+        g.addWidget(self._scale_auto_cb, self._next_row(g), 0, 1, 2)
+
+        self._add_help(
+            g, self.tr("Make the whole interface bigger or smaller. "
+               "Changes take effect after a restart."))
+
+    def _on_ui_scale_auto_toggled(self, on: bool):
+        self._scale_slider.setEnabled(not on)
+        if on:
+            # Enabling auto switches to the detected scale, which differs from
+            # whatever manual value is applied — needs a restart to take effect.
+            self._safe_save(uc.save_ui_scale, "auto")
+            self._prompt_scale_restart()
+        else:
+            # Disabling auto just re-enables the slider. The slider already shows
+            # the currently-applied scale, so nothing changes until the user
+            # actually moves it (which commits + prompts then). Persist the
+            # explicit value so a manual scale is recorded, but don't prompt.
+            self._safe_save(uc.save_ui_scale, self._scale_slider.value() / 100.0)
+
+    def _on_scale_value_changed(self, pct: int):
+        """Live label update on every tick. Commit immediately only when the
+        handle is NOT being dragged (keyboard/click); a drag commits on release
+        via sliderReleased, so we don't prompt on every intermediate value."""
+        self._scale_val_lbl.setText(f"{pct}%")
+        if not self._scale_slider.isSliderDown():
+            self._commit_ui_scale()
+
+    def _commit_ui_scale(self):
+        """Persist the current slider value and offer a restart. Called when the
+        user finishes changing the slider (release / click / key), so the
+        restart prompt appears once per gesture, not per 1% tick."""
+        # Only persist when the user is driving the slider (Auto off).
+        if getattr(self, "_scale_auto_cb", None) is not None \
+                and self._scale_auto_cb.isChecked():
+            return
+        pct = self._scale_slider.value()
+        self._safe_save(uc.save_ui_scale, pct / 100.0)
+        self._prompt_scale_restart()
+
+    def _prompt_scale_restart(self):
+        self._prompt_restart("scale")
+
+    def _prompt_restart(self, kind: str):
+        """Offer a self-restart so a startup-only setting (UI scale / theme /
+        language) applies. Reuses the window's matching restart flow, falling
+        back to the UI-scale prompt (any of them just re-execs the app)."""
+        win = self._window
+        by_kind = {
+            "scale": "_prompt_ui_scale_restart",
+            "theme": "_prompt_theme_restart",
+            "language": "_prompt_language_restart",
+        }
+        names = [by_kind.get(kind, "")]
+        names += ["_prompt_ui_scale_restart", "_prompt_theme_restart",
+                  "_prompt_language_restart"]
+        for name in names:
+            prompt = getattr(win, name, None)
+            if callable(prompt):
+                try:
+                    prompt()
+                    return
+                except Exception:
+                    pass
+
+    def _populate_language_combo(self):
+        """(Re)fill the Language combo from i18n.available_languages(), storing
+        each locale code as item-data and preserving the current selection. Owns
+        its own save wiring (the generic _combo closure can't repopulate)."""
+        from gui_qt.i18n import available_languages
+        combo = getattr(self, "_lang_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        current = uc.load_language()
+        if getattr(self, "_lang_combo_connected", False):
+            combo.currentIndexChanged.disconnect()
+            self._lang_combo_connected = False
+        combo.clear()
+        sel = 0
+        for i, (disp, code) in enumerate(available_languages()):
+            combo.addItem(disp, userData=code)
+            if code == current:
+                sel = i
+        combo.setCurrentIndex(sel)
+        combo.currentIndexChanged.connect(
+            lambda i: self._on_language_changed(combo.itemData(i)))
+        self._lang_combo_connected = True
+        combo.blockSignals(False)
+
+    def _on_language_changed(self, code):
+        """Persist the chosen language, then offer a restart (same pattern as UI
+        scale / theme) so the new translator applies on a fresh launch."""
+        self._safe_save(uc.save_language, code)
+        self._prompt_restart("language")
+
+    def refresh_language_options(self):
+        """Called when a background sync adds new .qm files — refresh the picker
+        so newly-downloaded languages appear without reopening Settings."""
+        self._populate_language_combo()
+
+    def _on_sync_languages(self):
+        """Manually pull the latest translations from the Resources branch. The
+        worker fires the window's _languages_synced signal (→ refresh + toast)
+        just like the automatic startup sync."""
+        try:
+            self._window._sync_languages_now()
+        except Exception:
+            pass
+
+    def _build_downloads(self):
+        g = self._section(self.tr("Downloads & Collections"))
+        try:
+            cs = uc.load_collection_settings()
+        except Exception:
+            cs = {}
+        self._cs = {
+            "max_concurrent": int(cs.get("max_concurrent", uc._DEFAULT_MAX_CONCURRENT)),
+            "max_extract_workers": int(cs.get("max_extract_workers", uc._DEFAULT_MAX_EXTRACT_WORKERS)),
+            "check_download_locations": bool(cs.get("check_download_locations", True)),
+            "clear_archive_after_install": bool(cs.get("clear_archive_after_install", False)),
+        }
+
+        self._checkbox(
+            g, self.tr("Clear archive after install"),
+            uc.load_clear_archive_after_install,
+            uc.save_clear_archive_after_install,
+            help=self.tr("Delete a mod's downloaded archive after it is extracted."))
+        self._checkbox(
+            g, self.tr("Keep FOMOD archives"),
+            uc.load_keep_fomod_archives, uc.save_keep_fomod_archives,
+            help=self.tr("Mods installed via a FOMOD installer keep their archive even "
+                 "when 'Clear archive after install' is on."))
+
+        # Collection settings — all persisted together via save_collection_settings.
+        self._slider(
+            g, self.tr("Max concurrent downloads"), 1, uc._MAX_CONCURRENT_CEILING,
+            self._cs["max_concurrent"], self._save_max_concurrent)
+        self._slider(
+            g, self.tr("Max extractions"), 1, uc._MAX_EXTRACT_WORKERS_CEILING,
+            self._cs["max_extract_workers"], self._save_max_extract)
+        self._add_help(
+            g, self.tr("Extractions are gated by available memory; the effective number "
+               "may be lower than set."))
+
+        # Manage Caches action.
+        row = self._next_row(g)
+        g.addWidget(QLabel(self.tr("Caches")), row, 0)
+        self._cache_btn = QPushButton(self.tr("Manage Caches…"))
+        self._cache_btn.setCursor(Qt.PointingHandCursor)
+        self._cache_btn.clicked.connect(self._on_manage_caches)
+        cwrap = QHBoxLayout()
+        cwrap.addWidget(self._cache_btn)
+        cwrap.addStretch(1)
+        holder = QWidget(); holder.setLayout(cwrap)
+        g.addWidget(holder, row, 1)
+
+    def _build_general(self):
+        g = self._section(self.tr("General"))
+        self._checkbox(
+            g, self.tr("Normalise folder casing"),
+            uc.load_normalize_folder_case, uc.save_normalize_folder_case,
+            help=self.tr("Unify folder names to a single casing across mods. Disable on "
+                 "case-insensitive filesystems."))
+        self._checkbox(
+            g, self.tr("Rename mod after install"),
+            uc.load_rename_mod_after_install, uc.save_rename_mod_after_install,
+            help=self.tr("Show a rename prompt after installing a mod."))
+        # Custom install-name rules — a full editor (opened as its own tab)
+        # rather than a single control, so it gets a button + help row here.
+        row = self._next_row(g)
+        patt_btn = QPushButton(self.tr("Edit custom install-name rules…"))
+        patt_btn.setCursor(Qt.PointingHandCursor)
+        patt_btn.clicked.connect(self._open_install_name_patterns)
+        g.addWidget(patt_btn, row, 0, 1, 2, Qt.AlignLeft)
+        self._add_help(g, self.tr(
+            "Add your own regex search/replace rules to clean up mod names on "
+            "install — useful when a download site changes its filename format."))
+        self._checkbox(
+            g, self.tr("Restore on close"),
+            uc.load_restore_on_close, uc.save_restore_on_close,
+            help=self.tr("Restore all deployed games to vanilla when the app is closed."))
+        self._checkbox(
+            g, self.tr("Use pre-release versions"),
+            uc.load_allow_prerelease, uc.save_allow_prerelease,
+            help=self.tr("Also offer beta and release-candidate app builds when checking "
+                 "for updates."),
+            on_changed=self._on_prerelease_toggle)
+
+    def _build_paths(self):
+        g = self._section(self.tr("Paths"))
+        from Utils.config_paths import get_config_dir
+        base = get_config_dir()
+        self._path_row(
+            g, self.tr("Default Mod Staging Folder"),
+            uc.load_default_staging_path, uc.save_default_staging_path,
+            help=self.tr("When set, games added after this point stage mods here. "
+                 "Blank = default ({0}).").format(base / 'Profiles'))
+        self._path_row(
+            g, self.tr("Download Cache Folder"),
+            uc.load_download_cache_path, uc.save_download_cache_path,
+            help=self.tr("Where downloaded mod archives are stored. "
+                 "Blank = default ({0}).").format(base / 'download_cache'))
+        self._path_row(
+            g, self.tr("Heroic Config Location"),
+            uc.load_heroic_config_path, uc.save_heroic_config_path,
+            help=self.tr("Folder containing Heroic's config.json. Blank = auto-detect "
+                 "(Flatpak and native locations)."))
+        self._path_row(
+            g, self.tr("Steam libraryfolders.vdf"),
+            uc.load_steam_libraries_vdf_path, uc.save_steam_libraries_vdf_path,
+            help=self.tr("Path to libraryfolders.vdf (or its folder). Blank = auto-detect "
+                 "(standard, Flatpak and Snap locations)."))
+
+    # ---- collection setting handlers (all persist the whole group) --------
+    def _persist_collection(self):
+        self._safe_save(
+            uc.save_collection_settings,
+            self._cs["max_concurrent"],
+            self._cs["check_download_locations"],
+            self._cs["clear_archive_after_install"],
+            self._cs["max_extract_workers"])
+
+    def _save_max_concurrent(self, value: int):
+        self._cs["max_concurrent"] = int(value)
+        self._persist_collection()
+
+    def _save_max_extract(self, value: int):
+        self._cs["max_extract_workers"] = int(value)
+        self._persist_collection()
+
+
+    # ---- path browse / clear ----------------------------------------------
+    def _browse_into(self, edit: QLineEdit, save_fn, title: str):
+        from Utils.portal_filechooser import pick_folder
+        pick_folder(f"Select {title}",
+                    lambda path: self._folder_picked.emit((edit, save_fn, path)))
+
+    def _on_folder_picked(self, payload):
+        edit, save_fn, path = payload
+        if path:
+            edit.setText(str(path))
+            self._safe_save(save_fn, str(path))
+
+    def _clear_path(self, edit: QLineEdit, save_fn):
+        edit.clear()
+        self._safe_save(save_fn, "")
+
+    # ---- Manage Caches ----------------------------------------------------
+    def _on_manage_caches(self):
+        """Open the borderless per-game cache browser overlay (Tk parity)."""
+        from gui_qt.cache_manager_overlay import CacheManagerOverlay
+        active = getattr(getattr(self._window, "_gs", None), "game_name", "") or ""
+        CacheManagerOverlay.show_over(
+            self._window, active_game_name=active)
+
+    def _on_prerelease_toggle(self, value: bool):
+        """Re-run the app update check immediately (Tk parity).
+
+        When *unticking* (opting out), pass force_downgrade_prompt=True so the
+        user is offered a switch to the latest stable even if it's older than
+        the pre-release they're currently running. When *ticking*, no force —
+        the normal upgrade check already handles "is there a newer build?".
+        """
+        check = getattr(self._window, "_check_for_app_update", None)
+        if callable(check):
+            check(force_downgrade_prompt=not value, force_fresh=True)
+
+    # ---- helpers ----------------------------------------------------------
+    def _rebuild_conflicts(self):
+        """Ask the window to rebuild conflicts so a setting that affects them
+        (e.g. Hide BSA conflicts) applies live without a manual refresh."""
+        win = self._window
+        if win is not None and hasattr(win, "_rebuild_conflicts_async"):
+            try:
+                win._rebuild_conflicts_async()
+            except Exception:
+                pass
+
+    def _safe_save(self, save_fn, *args):
+        try:
+            save_fn(*args)
+        except Exception as exc:
+            self._notify(self.tr("Failed to save setting: {0}").format(exc), "warning")
+
+    def _notify(self, text: str, state: str = "info"):
+        win = self._window
+        if win is not None and hasattr(win, "_notify"):
+            try:
+                win._notify(text, state)
+                return
+            except Exception:
+                pass
+        print(f"[settings] {text}")

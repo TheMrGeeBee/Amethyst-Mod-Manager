@@ -321,6 +321,11 @@ def read_profile_settings(profile_dir: Path, state: dict | None = None) -> dict:
     return {}
 
 
+def profile_uses_specific_mods(profile_dir: Path) -> bool:
+    """Return True if this profile stores its own mods folder inside itself."""
+    return bool(read_profile_settings(profile_dir, None).get("profile_specific_mods", False))
+
+
 def read_ignored_missing_requirements(profile_dir: Path, state: dict | None = None) -> set[str]:
     """Read ignored_missing_requirements. Falls back to legacy .txt file."""
     if state is not None and "ignored_missing_requirements" in state:

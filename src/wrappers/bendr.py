@@ -246,7 +246,7 @@ def run_bendr(
     with open(log_file, "w") as f:
         f.write(f"BENDr Started  : {_timestamp()}\n")
         f.write(f"GameDir        : {game_data_dir}\n")
-        f.write(f"Platform       : Linux (all steps via Wine)\n\n")
+        f.write("Platform       : Linux (all steps via Wine)\n\n")
 
     def _file_log(msg: str):
         with open(log_file, "a") as f:

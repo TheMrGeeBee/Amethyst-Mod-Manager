@@ -91,13 +91,18 @@ class GpakReader:
             self.open()
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
+        dest_resolved = dest.resolve()
         created: list[Path] = []
         total = len(self._entries)
         if progress_fn and total:
             progress_fn(0, total)
         for i, entry in enumerate(self._entries):
             data = self.read_file(i, try_zlib=try_zlib)
-            out_path = dest / entry.name
+            out_path = (dest / entry.name).resolve()
+            if out_path != dest_resolved and dest_resolved not in out_path.parents:
+                raise ValueError(
+                    f"GPAK entry escapes destination directory: {entry.name!r}"
+                )
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(data)
             created.append(out_path)

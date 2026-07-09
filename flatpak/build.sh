@@ -5,9 +5,10 @@
 #   - Flatpak installed. flatpak-builder is provided by the org.flatpak.Builder
 #     flatpak (installed automatically when missing — no sudo or rootfs writes).
 #     Useful on SteamOS where the rootfs is read-only.
-#   - GNOME runtime: flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50
+#   - KDE runtime + PySide BaseApp (auto-installed by --install-deps-from=flathub):
+#       flatpak install flathub org.kde.Platform//6.9 org.kde.Sdk//6.9 io.qt.PySide.BaseApp//6.9
 #   - 32-bit compat extensions (auto-installed by --install-deps-from=flathub):
-#       org.freedesktop.Platform.Compat.i386//25.08
+#       org.freedesktop.Platform.Compat.i386//24.08
 #       org.freedesktop.Platform.GL32//1.4
 #     These provide /lib/i386-linux-gnu/ld-linux.so.2 etc., needed to exec
 #     Proton's bundled 32-bit `wine` binary during Synthesis prefix setup.
@@ -64,6 +65,7 @@ FB_CMD="$(resolve_flatpak_builder)"
 $FB_CMD \
   --verbose \
   --user \
+  --force-clean \
   --install-deps-from=flathub \
   --repo="${REPO_DIR}" \
   $INSTALL_FLAG \

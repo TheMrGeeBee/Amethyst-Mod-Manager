@@ -200,7 +200,7 @@ def apply_wine_dll_overrides(
 
     if section_start is None:
         # Section doesn't exist — append it at the end
-        _log(f"[Software\\\\Wine\\\\DllOverrides] not found; appending to user.reg.")
+        _log(r"[Software\\Wine\\DllOverrides] not found; appending to user.reg.")
         if lines and not lines[-1].endswith("\n"):
             lines.append("\n")
         lines.append("\n")

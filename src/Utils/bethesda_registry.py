@@ -83,6 +83,7 @@ def register_bethesda_game_path(
             "/t", "REG_SZ",
             "/d", wine_value,
             "/f",
+            env=env,
         )
         try:
             result = subprocess.run(

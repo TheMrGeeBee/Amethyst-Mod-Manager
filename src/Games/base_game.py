@@ -106,6 +106,13 @@ class BaseGame(ABC):
     # Override (e.g. to LinkMode.COPY) for games that never hardlink.
     deploy_mode_fallback: LinkMode = _DEFAULT_DEPLOY_MODE
 
+    # Opt-in for the incremental redeploy fast path (Utils/deploy_incremental).
+    # Only safe for handlers whose deploy() is the plain standard sequence
+    # (move_to_core → deploy_filemap → deploy_core) with a single Data-style
+    # target and idempotent post-deploy steps.  See Fallout_3 for the first
+    # opted-in family.
+    supports_incremental_deploy: bool = False
+
     profile_overridable_settings: tuple[str, ...] = (
         "auto_deploy",
         "archive_invalidation",
@@ -572,6 +579,31 @@ class BaseGame(ABC):
         return "upper"
 
     @property
+    def filemap_casing_pins(self) -> "dict[str, str]":
+        """
+        Per-folder casing overrides that win over ``filemap_casing``.
+
+        Some mods read their own data folders by a hardcoded, case-sensitive
+        path string, so the merged deploy MUST use the exact casing that mod
+        shipped — the ``filemap_casing`` heuristic only preserves it by
+        coincidence (e.g. when the required casing happens to be the most-
+        uppercase variant) and can be knocked over the moment another mod
+        ships a differently-cased variant of the same folder name.
+
+        A pin makes that guarantee explicit.  Keyed by the *lowercase* folder
+        segment name, valued by the exact casing to deploy.  Any folder with
+        that name (at any depth) is rewritten to the pinned casing regardless
+        of strategy or what mods ship.  Only the named segment is affected;
+        folders nested inside it still follow the normal strategy.
+
+        Returns an empty dict by default (no pins).  Example (Skyrim SE):
+        ``{"compassshoutmeterholder": "CompassShoutMeterHolder"}`` keeps
+        Compass Navigation Overhaul from crashing when the folder would
+        otherwise deploy lowercased.
+        """
+        return {}
+
+    @property
     def mod_staging_requires_subdir(self) -> bool:
         """
         When True, each mod's staging folder must contain a named subdirectory
@@ -787,6 +819,21 @@ class BaseGame(ABC):
         return False
 
     @property
+    def plugins_include_cc(self) -> bool:
+        """
+        Whether Creation Club plugins (from the .ccc manifest) should be written
+        into plugins.txt, even when base-game/DLC plugins are excluded.
+
+        Skyrim AE/SE, Fallout 4 and Starfield need their active CC plugins listed
+        in plugins.txt for a correct, LOOT-/xEdit-consistent load order (MO2 writes
+        them the same way — as always-active "foreign" entries). Base-game and DLC
+        masters do NOT need listing; the engine auto-loads those. Defaults to
+        plugins_include_vanilla so a game that already lists all vanilla plugins
+        keeps doing so.
+        """
+        return self.plugins_include_vanilla
+
+    @property
     def vanilla_plugins(self) -> list[str]:
         """Hardcoded vanilla plugin filenames for this game."""
         return []
@@ -944,6 +991,27 @@ class BaseGame(ABC):
         Return an empty list (the default) to use normal routing for all files.
         """
         return []
+
+    @property
+    def restore_whitelist(self) -> list:
+        """A list of RestoreWhitelistRule objects (from Utils.deploy) that keep
+        matching runtime files in the game folder on restore instead of moving
+        them to overwrite/ or Root_Folder/.  See RestoreWhitelistRule for the
+        anchored, glob-capable matching rules.  Default: protect nothing.
+        """
+        return []
+
+    def restore_whitelist_matcher(self, rel_prefix: str = ""):
+        """Compiled matcher over this game's restore_whitelist, or None.
+
+        rel_prefix — pass the deploy subfolder (e.g. "data/") when the walk
+        root is a subdirectory of the game root; rules are re-based onto it.
+        """
+        rules = self.restore_whitelist
+        if not rules:
+            return None
+        from Utils.deploy import build_restore_whitelist_matcher
+        return build_restore_whitelist_matcher(rules, rel_prefix=rel_prefix)
 
     @property
     def restore_before_deploy(self) -> bool:
@@ -1201,8 +1269,7 @@ class BaseGame(ABC):
         """
         if self._active_profile_dir is not None:
             try:
-                # Import here to avoid a circular import at module level.
-                from gui.game_helpers import profile_uses_specific_mods  # type: ignore
+                from Utils.profile_state import profile_uses_specific_mods
                 if profile_uses_specific_mods(self._active_profile_dir):
                     return self._active_profile_dir / "mods"
             except Exception:
@@ -1244,7 +1311,7 @@ class BaseGame(ABC):
         """
         if self._active_profile_dir is not None:
             try:
-                from gui.game_helpers import profile_uses_specific_mods  # type: ignore
+                from Utils.profile_state import profile_uses_specific_mods
                 if profile_uses_specific_mods(self._active_profile_dir):
                     return self._active_profile_dir / "Root_Folder"
             except Exception:
@@ -1275,6 +1342,24 @@ class BaseGame(ABC):
         excl = self.runtime_snapshot_exclude_dirs()
         return set(excl) if excl else set()
 
+    def begin_deferred_runtime_snapshot(self) -> None:
+        """Suppress in-deploy snapshot writes until end_deferred_runtime_snapshot.
+
+        Called by run_deploy_pipeline around game.deploy(): the handler's
+        end-of-deploy snapshot_root_for_runtime_capture() call becomes a no-op
+        that only records the request, and the pipeline writes the snapshot
+        once after the root-folder files have also landed — one game-root walk
+        per deploy instead of two (and chained handler deploys coalesce)."""
+        self._defer_runtime_snapshot = True
+        self._deferred_snapshot_requested = False
+
+    def end_deferred_runtime_snapshot(self) -> bool:
+        """End the deferral window; True if a snapshot was requested during it."""
+        requested = getattr(self, "_deferred_snapshot_requested", False)
+        self._defer_runtime_snapshot = False
+        self._deferred_snapshot_requested = False
+        return requested
+
     def snapshot_root_for_runtime_capture(self, exclude_dirs=None, log_fn=None) -> None:
         """Snapshot the game root at deploy time for later runtime capture.
 
@@ -1282,6 +1367,9 @@ class BaseGame(ABC):
         capture_runtime_files_to_root_folder() to detect files generated
         outside the deploy subfolder.
         """
+        if getattr(self, "_defer_runtime_snapshot", False):
+            self._deferred_snapshot_requested = True
+            return
         from Utils.deploy import _write_deploy_snapshot, _FILEMAP_SNAPSHOT_NAME
         gp = self.get_game_path()
         if not gp:
@@ -1307,6 +1395,7 @@ class BaseGame(ABC):
         moved = _move_runtime_files(
             Path(gp), snap, self.get_effective_root_folder_path(),
             log_fn=log_fn, exclude_dirs=exclude_dirs,
+            restore_whitelist=self.restore_whitelist_matcher(),
         )
         try:
             snap.unlink()
@@ -1345,8 +1434,25 @@ class BaseGame(ABC):
         except (OSError, ValueError):
             return False
 
-    def save_last_deployed_profile(self, profile_name: str) -> None:
-        """Persist profile_name as the last successfully deployed profile."""
+    def get_last_deploy_mode(self) -> str | None:
+        """LinkMode name (e.g. "HARDLINK") of the last deploy, or None.
+
+        Used by the incremental-deploy eligibility check: a mode change means
+        the on-disk links don't match what the current mode would produce, so
+        a full restore + redeploy is required."""
+        try:
+            data = json.loads(self._deploy_state_file.read_text(encoding="utf-8"))
+            return data.get("last_deploy_mode") or None
+        except (OSError, ValueError):
+            return None
+
+    def save_last_deployed_profile(self, profile_name: str,
+                                   deploy_mode: str | None = None) -> None:
+        """Persist profile_name as the last successfully deployed profile.
+
+        deploy_mode — optional LinkMode name to record alongside it (passed by
+        the deploy pipeline; other callers leave the stored value untouched).
+        """
         try:
             self._deploy_state_file.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -1355,6 +1461,8 @@ class BaseGame(ABC):
                 data = {}
             data["last_deployed"] = profile_name
             data["deploy_active"] = True
+            if deploy_mode is not None:
+                data["last_deploy_mode"] = deploy_mode
             self._deploy_state_file.write_text(
                 json.dumps(data, indent=2),
                 encoding="utf-8",

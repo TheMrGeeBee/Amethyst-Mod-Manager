@@ -1,3 +1,40 @@
+- v2.0.0
+### UI Rework
+- Complete rework of the user interface from scratch in QT
+- Overlays now open as tabs that can be switched between and undocked
+- Tabs can be right clicked and repinned to a different location
+- Added localisation support and several languages (Translated mostly via the deepl api)
+- Better theme support, Added a theme editor
+- Improved in app text editor and image viewer
+### Additions
+- Added Pragmata support
+- Added a favourites menu for wizard tools
+- Added support for adding and running jar files
+- Added an option to add custom regex rules to strip data from archive names
+- Added a wizard for the Discord version of xedit
+- Added a profile export code option for quickly sharing mods in a profile.
+- Added an option to change the casing of plugins.txt
+- Added a plugin index column to the plugins panel, Renamed the current one to priority
+- Added filter tags to the modlist search bar as an alternative way of filtering the modlist. The magnifying glass icon contains a tooltip showing these
+### Changes
+- Removed the generate separators function, Personally I didn't find it that useful and was wasted screenspace
+- Removed the bepinex wizard as this is just a mod that can be installed normally like any other.
+- Removed the Archive tab. Clicking a bsa/ba2 file in the mod files tab will now display it's content
+- Optional mods for collections are now selected before pressing install instead of after
+- The game/exe dropdown no longer auto populates with exe files found in the staging area but can still manually be added
+- plugins.txt is now copied instead of symlinked to prevent cases where a game could not read the symlinked version
+- Installed games now show at the top of the add game menu by default
+- Reworked the filemap rebuild process, Toggling/moving mods on large modlists should be faster and freeze the UI less
+- Appended collections can now be removed, The collection browser will show any collections appended to the current profile
+- Logging in via Nexus sso now shows a custom authorisation screen in the browser instead of flashbanging the user with a white background 
+- Skyrim AE cc plugins are now added to plugins.txt
+- Changed the default mod staging folder to ./home/games/Amethyst to prevent issues in the flatpak
+- Hovering over progress bars or notifications will hide them so buttons don't get blocked by them
+- When Cyberpunk is set to hardlink but falls back to symlinks on deploy, The CET warning is shown if installed
+### Bug Fixes
+- Fixed an issue where files in a Fomod wouldn't install if the moduleconfig and files in the archive had mismatched casing
+- Fixed an issue where mods that contained files with non utf-8 characters would not work and would block the filemap cache from being built
+
 - v1.3.13
 - Runtime generated files that appear in a games root folder are now rescued and sent to the profiles root folder (the root folder separator)
 - Added a right click option to the overwrite separator to display a log of files that entered the overwrite folder
@@ -7,7 +44,7 @@
 - The quick auto clean wizards now display dirty plugins.
 
 - v1.3.12
-## Additions
+### Additions
 - Added a wizard for Creation kit
 - Added a Tales of Two Wastelands installer and setup wizard
 - Added update checking for bg3 mods installed via mod.io (Api key is set in the wizard menu for bg3)
@@ -21,7 +58,7 @@
 - Added a warning if a .fomod file contains a C# script that we can't run
 - Added a select/deselect all option to the downloads panel as well as being able to shift+click mods in the panel
 - Added some missing required top level folders for Morrowind
-## Bug Fixes
+### Bug Fixes
 - Fixed memory leak issues related to the Nexus browser and collection windows
 - Potential fix for users who get ssl cert errors when using proton tools
 - Fixed an issue where root folder routing would take 1-2 seconds to calculate, Causing ui slowdowns with large modlists (It's now instant)
@@ -32,7 +69,7 @@
 - Fixed non loose lua files being routed incorrectly for Re engine games
 - Fixed not being able to move mods to the last position in a separator with reverse priority sorting
 - Removed the automated dtkit patch on deploy/restore from Darktide
-## Changes
+### Changes
 - Tweaked mod installer to work with Nexus's new mod filename format
 - Running an application via the Run exe button will now open the applications wizard tool if it has one
 - Moved the fonts folder to ./local/share instead of being created in the home folder

@@ -243,7 +243,7 @@ def _extract(
         if file_compressed:
             if len(block) < 4:
                 raise BsaExtractError(f"compressed file too small for {rel}")
-            _orig = struct.unpack_from("<I", block, 0)[0]
+            # 4-byte original-size prefix precedes the compressed stream.
             body = block[4:]
             if version == 105:
                 data = lz4.frame.decompress(body)

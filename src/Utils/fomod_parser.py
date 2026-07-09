@@ -14,6 +14,29 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+def resolve_path_ci(base: str, rel: str) -> Optional[str]:
+    """
+    Walk each component of *rel* under *base* using case-insensitive
+    matching so that Windows-style FOMOD paths (e.g. 'Fomod\\Screens\\x.jpg')
+    resolve correctly on a case-sensitive Linux filesystem.
+    Returns the real absolute path, or None if not found.
+    """
+    current = str(base)
+    for part in rel.replace("\\", "/").split("/"):
+        if not part:
+            continue
+        try:
+            entries = os.listdir(current)
+        except OSError:
+            return None
+        entries_lower = {e.lower(): e for e in entries}
+        match = entries_lower.get(part.lower())
+        if match is None:
+            return None
+        current = os.path.join(current, match)
+    return current if os.path.isfile(current) else None
+
+
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -195,9 +218,15 @@ def _parse_files(files_el: ET.Element) -> list[FileInstall]:
             destination = child.get("destination")
             is_folder = (tag == "folder")
             # Empty/absent `destination` has DIFFERENT meaning per element type:
-            #   <file>   → preserve the source's relative path (so a
-            #              <file source="meshes/x.nif" destination=""/> lands at
-            #              meshes/x.nif, not flattened to the root).
+            #   <file>   → install the file to the destination ROOT under its
+            #              basename (so <file source="main file\X.esp"
+            #              destination=""/> lands at X.esp, NOT nested under
+            #              main file/). FOMOD authors who want a subpath give an
+            #              explicit destination; an empty one means "root". This
+            #              is what MO2's installerFomod does — earlier we wrongly
+            #              preserved the full source path, which buried CACO's
+            #              main .esp/.bsa under a "main file/" folder so the game
+            #              never saw the plugin.
             #   <folder> → copy the folder's *contents* to the destination root,
             #              stripping the source wrapper (so
             #              <folder source="Base" destination=""/> puts Base/SKSE/…
@@ -205,7 +234,7 @@ def _parse_files(files_el: ET.Element) -> list[FileInstall]:
             #              "no dst_rel → dest_root" path does the stripping.
             # MO2 treats absent and empty identically within each element type.
             if not is_folder and (destination is None or destination == ""):
-                destination = source
+                destination = os.path.basename(source.replace("\\", "/"))
             elif destination is None:
                 destination = ""
             result.append(FileInstall(

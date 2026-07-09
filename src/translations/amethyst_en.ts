@@ -1,0 +1,7722 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="en" sourcelanguage="en">
+<context>
+    <name>AddGameView</name>
+    <message>
+        <source>Select a game to add</source>
+        <translation>Select a game to add</translation>
+    </message>
+    <message>
+        <source>Show only installed</source>
+        <translation>Show only installed</translation>
+    </message>
+    <message>
+        <source>Search by name…</source>
+        <translation>Search by name…</translation>
+    </message>
+    <message>
+        <source>Installed</source>
+        <translation>Installed</translation>
+    </message>
+    <message>
+        <source>Not Installed</source>
+        <translation>Not Installed</translation>
+    </message>
+</context>
+<context>
+    <name>BG3ImportView</name>
+    <message>
+        <source>Step 1: Select a BG3 Mod Manager order file</source>
+        <translation>Step 1: Select a BG3 Mod Manager order file</translation>
+    </message>
+    <message>
+        <source>Choose a modlist.json (or an exported saved-order .json) from BG3 Mod Manager.
+Mods are matched to your installed mods by UUID.</source>
+        <translation>Choose a modlist.json (or an exported saved-order .json) from BG3 Mod Manager.
+Mods are matched to your installed mods by UUID.</translation>
+    </message>
+    <message>
+        <source>No file selected.</source>
+        <translation>No file selected.</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Preview →</source>
+        <translation>Preview →</translation>
+    </message>
+    <message>
+        <source>Selected: {0}</source>
+        <translation>Selected: {0}</translation>
+    </message>
+    <message>
+        <source>Step 2: Review changes</source>
+        <translation>Step 2: Review changes</translation>
+    </message>
+    <message>
+        <source>← Back</source>
+        <translation>← Back</translation>
+    </message>
+    <message>
+        <source>Apply Order</source>
+        <translation>Apply Order</translation>
+    </message>
+    <message>
+        <source>Reading order and scanning installed mods…</source>
+        <translation>Reading order and scanning installed mods…</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
+        <source>Load order applied</source>
+        <translation>Load order applied</translation>
+    </message>
+    <message>
+        <source>The modlist has been reordered to match the BG3MM order.
+Deploy to push the new load order to the game.</source>
+        <translation>The modlist has been reordered to match the BG3MM order.
+Deploy to push the new load order to the game.</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
+    <name>BackupRestoreView</name>
+    <message>
+        <source>Restore backup — {0}</source>
+        <translation>Restore backup — {0}</translation>
+    </message>
+    <message>
+        <source>Select a backup to restore the modlist and plugins for this profile.</source>
+        <translation>Select a backup to restore the modlist and plugins for this profile.</translation>
+    </message>
+    <message>
+        <source>No backups yet. Backups are created when you deploy.</source>
+        <translation>No backups yet. Backups are created when you deploy.</translation>
+    </message>
+    <message>
+        <source>New backup</source>
+        <translation>New backup</translation>
+    </message>
+    <message>
+        <source>Rename</source>
+        <translation>Rename</translation>
+    </message>
+    <message>
+        <source>Keep</source>
+        <translation>Keep</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>Restore</translation>
+    </message>
+    <message>
+        <source>Kept</source>
+        <translation>Kept</translation>
+    </message>
+    <message>
+        <source>{0} mods ({1} enabled)</source>
+        <translation>{0} mods ({1} enabled)</translation>
+    </message>
+    <message>
+        <source>{0} plugins</source>
+        <translation>{0} plugins</translation>
+    </message>
+    <message>
+        <source>{0} separators</source>
+        <translation>{0} separators</translation>
+    </message>
+    <message>
+        <source>Unkeep</source>
+        <translation>Unkeep</translation>
+    </message>
+    <message>
+        <source>Rename backup</source>
+        <translation>Rename backup</translation>
+    </message>
+    <message>
+        <source>Enter a name for this backup (leave blank to use the date).</source>
+        <translation>Enter a name for this backup (leave blank to use the date).</translation>
+    </message>
+</context>
+<context>
+    <name>BainPickerView</name>
+    <message>
+        <source>{0} — BAIN package — choose sub-packages to install</source>
+        <translation>{0} — BAIN package — choose sub-packages to install</translation>
+    </message>
+    <message>
+        <source>BAIN package — choose sub-packages to install</source>
+        <translation>BAIN package — choose sub-packages to install</translation>
+    </message>
+    <message>
+        <source>Sub-packages ({0}) — tick to install · green = files used · red = fully overridden by a later package</source>
+        <translation>Sub-packages ({0}) — tick to install · green = files used · red = fully overridden by a later package</translation>
+    </message>
+    <message>
+        <source>Package readme</source>
+        <translation>Package readme</translation>
+    </message>
+    <message>
+        <source>Select All</source>
+        <translation>Select All</translation>
+    </message>
+    <message>
+        <source>Select None</source>
+        <translation>Select None</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>Use this package — turn off the later packages overriding its files</source>
+        <translation>Use this package — turn off the later packages overriding its files</translation>
+    </message>
+</context>
+<context>
+    <name>BethiniView</name>
+    <message>
+        <source>'{0}' was not found.</source>
+        <translation>'{0}' was not found.</translation>
+    </message>
+    <message>
+        <source>Preparing BethINI Pie's Wine prefix…</source>
+        <translation>Preparing BethINI Pie's Wine prefix…</translation>
+    </message>
+</context>
+<context>
+    <name>BodySlideView</name>
+    <message>
+        <source>Step 1: Deploy Modlist</source>
+        <translation>Step 1: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>{0} must be run from the deployed Data folder.
+
+Deploy your modlist first, then click Run.</source>
+        <translation>{0} must be run from the deployed Data folder.
+
+Deploy your modlist first, then click Run.</translation>
+    </message>
+    <message>
+        <source>Output mod name:</source>
+        <translation>Output mod name:</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+    <message>
+        <source>Launching {0}…</source>
+        <translation>Launching {0}…</translation>
+    </message>
+    <message>
+        <source>{0} was not found in the deployed Data folder.
+
+Deploy your modlist first, then reopen this wizard.</source>
+        <translation>{0} was not found in the deployed Data folder.
+
+Deploy your modlist first, then reopen this wizard.</translation>
+    </message>
+</context>
+<context>
+    <name>BsaPackOverlay</name>
+    <message>
+        <source>Pack {0}</source>
+        <translation>Pack {0}</translation>
+    </message>
+    <message>
+        <source>⚠  {0} already exists in this mod and will be overwritten.</source>
+        <translation>⚠  {0} already exists in this mod and will be overwritten.</translation>
+    </message>
+    <message>
+        <source>Delete loose files after packing</source>
+        <translation>Delete loose files after packing</translation>
+    </message>
+    <message>
+        <source>Files that get packed will be removed from the mod folder. Files outside the packable filter (plugins, readmes, .bik videos) and files you've disabled in the Mod Files tab are left alone.</source>
+        <translation>Files that get packed will be removed from the mod folder. Files outside the packable filter (plugins, readmes, .bik videos) and files you've disabled in the Mod Files tab are left alone.</translation>
+    </message>
+    <message>
+        <source>Separate textures archive</source>
+        <translation>Separate textures archive</translation>
+    </message>
+    <message>
+        <source>Writes textures to a sibling “… - Textures.bsa” instead of bundling them with the main archive. Optional for Skyrim / FNV / Oblivion; mostly useful for very large texture packs.</source>
+        <translation>Writes textures to a sibling “… - Textures.bsa” instead of bundling them with the main archive. Optional for Skyrim / FNV / Oblivion; mostly useful for very large texture packs.</translation>
+    </message>
+    <message>
+        <source>Keep winning conflict files loose</source>
+        <translation>Keep winning conflict files loose</translation>
+    </message>
+    <message>
+        <source>Files this mod currently wins as loose are left out of the archive so deploy still picks them. Files this mod already loses, or that have no conflict, are packed normally.</source>
+        <translation>Files this mod currently wins as loose are left out of the archive so deploy still picks them. Files this mod already loses, or that have no conflict, are packed normally.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Pack</source>
+        <translation>Pack</translation>
+    </message>
+</context>
+<context>
+    <name>BsaPreview</name>
+    <message>
+        <source>(archive is empty or unreadable)</source>
+        <translation>(archive is empty or unreadable)</translation>
+    </message>
+</context>
+<context>
+    <name>BsaUnpackOverlay</name>
+    <message>
+        <source>Unpack {0} — {1}</source>
+        <translation>Unpack {0} — {1}</translation>
+    </message>
+    <message>
+        <source>No archive files in this mod folder.</source>
+        <translation>No archive files in this mod folder.</translation>
+    </message>
+    <message>
+        <source>Unpacking extracts every archive under the selected plugin into this mod's folder, deletes those archives, removes the plugin if it was a generated stub, and re-enables the unpacked files in the Mod Files tab.</source>
+        <translation>Unpacking extracts every archive under the selected plugin into this mod's folder, deletes those archives, removes the plugin if it was a generated stub, and re-enables the unpacked files in the Mod Files tab.</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>  • {0}</source>
+        <translation>  • {0}</translation>
+    </message>
+    <message>
+        <source>Unpack</source>
+        <translation>Unpack</translation>
+    </message>
+</context>
+<context>
+    <name>BundleOptionsView</name>
+    <message>
+        <source>Bundle Options — {0}</source>
+        <translation>Bundle Options — {0}</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Select one</source>
+        <translation>Select one</translation>
+    </message>
+    <message>
+        <source>Optional — any</source>
+        <translation>Optional — any</translation>
+    </message>
+    <message>
+        <source>Move up</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>Move down</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <source>(overridden)</source>
+        <translation>(overridden)</translation>
+    </message>
+</context>
+<context>
+    <name>CacheManagerOverlay</name>
+    <message>
+        <source>Total: calculating…</source>
+        <translation>Total: calculating…</translation>
+    </message>
+    <message>
+        <source>Manage Download Caches</source>
+        <translation>Manage Download Caches</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Location: {0}</source>
+        <translation>Location: {0}</translation>
+    </message>
+    <message>
+        <source>No per-game caches found.</source>
+        <translation>No per-game caches found.</translation>
+    </message>
+    <message>
+        <source>Total: {0}</source>
+        <translation>Total: {0}</translation>
+    </message>
+    <message>
+        <source>Nothing selected.</source>
+        <translation>Nothing selected.</translation>
+    </message>
+    <message>
+        <source>
+  • …and {0} more</source>
+        <translation>
+  • …and {0} more</translation>
+    </message>
+    <message>
+        <source>Clear {0} across {1} item(s)?
+
+{2}
+
+Archives will be re-downloaded as needed.</source>
+        <translation>Clear {0} across {1} item(s)?
+
+{2}
+
+Archives will be re-downloaded as needed.</translation>
+    </message>
+    <message>
+        <source>Clear {0} Cache(s)</source>
+        <translation>Clear {0} Cache(s)</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Cache is empty.</source>
+        <translation>Cache is empty.</translation>
+    </message>
+    <message>
+        <source>Clear {0} of cached downloads across every game?
+
+Location: {1}
+
+The md5 cache is preserved. Archives will be re-downloaded as needed.</source>
+        <translation>Clear {0} of cached downloads across every game?
+
+Location: {1}
+
+The md5 cache is preserved. Archives will be re-downloaded as needed.</translation>
+    </message>
+    <message>
+        <source>Clear All Download Caches</source>
+        <translation>Clear All Download Caches</translation>
+    </message>
+    <message>
+        <source>Clearing…</source>
+        <translation>Clearing…</translation>
+    </message>
+    <message>
+        <source>Cleared {0}; {1} failed.</source>
+        <translation>Cleared {0}; {1} failed.</translation>
+    </message>
+    <message>
+        <source>Cleared 1 cache.</source>
+        <translation>Cleared 1 cache.</translation>
+    </message>
+    <message>
+        <source>Cleared {0} caches.</source>
+        <translation>Cleared {0} caches.</translation>
+    </message>
+</context>
+<context>
+    <name>ChangeVersionView</name>
+    <message>
+        <source>Change Version — {0}</source>
+        <translation>Change Version — {0}</translation>
+    </message>
+    <message>
+        <source>Ignore Update</source>
+        <translation>Ignore Update</translation>
+    </message>
+    <message>
+        <source>Stop flagging this mod as having an update until a newer version than the current latest appears.</source>
+        <translation>Stop flagging this mod as having an update until a newer version than the current latest appears.</translation>
+    </message>
+    <message>
+        <source>Loading files…</source>
+        <translation>Loading files…</translation>
+    </message>
+    <message>
+        <source>Could not load files: {0}</source>
+        <translation>Could not load files: {0}</translation>
+    </message>
+    <message>
+        <source>No files found.</source>
+        <translation>No files found.</translation>
+    </message>
+    <message>
+        <source>View</source>
+        <translation>View</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+</context>
+<context>
+    <name>CollectionCard</name>
+    <message>
+        <source>by {0}</source>
+        <translation>by {0}</translation>
+    </message>
+    <message>
+        <source>♥ {0}    ↓ {1}    {2} mods</source>
+        <translation>♥ {0}    ↓ {1}    {2} mods</translation>
+    </message>
+    <message>
+        <source>View</source>
+        <translation>View</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+</context>
+<context>
+    <name>CollectionDetailView</name>
+    <message>
+        <source>Total size: {0}  |  {1} mods</source>
+        <translation>Total size: {0}  |  {1} mods</translation>
+    </message>
+    <message>
+        <source>by {0}</source>
+        <translation>by {0}</translation>
+    </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Loading…</translation>
+    </message>
+    <message>
+        <source>Off-site mods</source>
+        <translation>Off-site mods</translation>
+    </message>
+    <message>
+        <source>Optional mods</source>
+        <translation>Optional mods</translation>
+    </message>
+    <message>
+        <source>Select all</source>
+        <translation>Select all</translation>
+    </message>
+    <message>
+        <source>Deselect all</source>
+        <translation>Deselect all</translation>
+    </message>
+    <message>
+        <source>Install collection</source>
+        <translation>Install collection</translation>
+    </message>
+    <message>
+        <source>View on Nexus</source>
+        <translation>View on Nexus</translation>
+    </message>
+    <message>
+        <source>Could not load collection.</source>
+        <translation>Could not load collection.</translation>
+    </message>
+    <message>
+        <source>Could not load.</source>
+        <translation>Could not load.</translation>
+    </message>
+    <message>
+        <source>Resume Install</source>
+        <translation>Resume Install</translation>
+    </message>
+    <message>
+        <source>Update Collection</source>
+        <translation>Update Collection</translation>
+    </message>
+    <message>
+        <source>No optional mods.</source>
+        <translation>No optional mods.</translation>
+    </message>
+    <message>
+        <source>Off-site mods ({0}) — download manually:</source>
+        <translation>Off-site mods ({0}) — download manually:</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation>Open</translation>
+    </message>
+</context>
+<context>
+    <name>CollectionInstallOverlay</name>
+    <message>
+        <source>Preparing…</source>
+        <translation>Preparing…</translation>
+    </message>
+    <message>
+        <source>Downloading</source>
+        <translation>Downloading</translation>
+    </message>
+    <message>
+        <source>Installing / Extracting</source>
+        <translation>Installing / Extracting</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>Pause</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Pausing…</source>
+        <translation>Pausing…</translation>
+    </message>
+    <message>
+        <source>Downloading…</source>
+        <translation>Downloading…</translation>
+    </message>
+    <message>
+        <source>+ {0} more downloading…</source>
+        <translation>+ {0} more downloading…</translation>
+    </message>
+</context>
+<context>
+    <name>CollectionManualOverlay</name>
+    <message>
+        <source>Manual Download Required</source>
+        <translation>Manual Download Required</translation>
+    </message>
+    <message>
+        <source>Non-premium users must download each mod manually.</source>
+        <translation>Non-premium users must download each mod manually.</translation>
+    </message>
+    <message>
+        <source>Profile: {0}</source>
+        <translation>Profile: {0}</translation>
+    </message>
+    <message>
+        <source>Preparing…</source>
+        <translation>Preparing…</translation>
+    </message>
+    <message>
+        <source>Open Download Page</source>
+        <translation>Open Download Page</translation>
+    </message>
+    <message>
+        <source>Open next 5</source>
+        <translation>Open next 5</translation>
+    </message>
+    <message>
+        <source>Select File…</source>
+        <translation>Select File…</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Auto open next mod</source>
+        <translation>Auto open next mod</translation>
+    </message>
+    <message>
+        <source>0 of {0} mods installed</source>
+        <translation>0 of {0} mods installed</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>Pause</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Pausing…</source>
+        <translation>Pausing…</translation>
+    </message>
+    <message>
+        <source>Optional</source>
+        <translation>Optional</translation>
+    </message>
+    <message>
+        <source>Required</source>
+        <translation>Required</translation>
+    </message>
+    <message>
+        <source>Expected file: {0}</source>
+        <translation>Expected file: {0}</translation>
+    </message>
+    <message>
+        <source>Mod {0}/{1} — download this file, then it will be auto-detected…</source>
+        <translation>Mod {0}/{1} — download this file, then it will be auto-detected…</translation>
+    </message>
+    <message>
+        <source>Open next {0}</source>
+        <translation>Open next {0}</translation>
+    </message>
+    <message>
+        <source>{0} of {1} mods installed</source>
+        <translation>{0} of {1} mods installed</translation>
+    </message>
+    <message>
+        <source>Installing {0}…</source>
+        <translation>Installing {0}…</translation>
+    </message>
+</context>
+<context>
+    <name>CollectionsBrowserView</name>
+    <message>
+        <source>Collections</source>
+        <translation>Collections</translation>
+    </message>
+    <message>
+        <source>Open on Nexus</source>
+        <translation>Open on Nexus</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>Collections appended to this profile</source>
+        <translation>Collections appended to this profile</translation>
+    </message>
+    <message>
+        <source>Search collections…</source>
+        <translation>Search collections…</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>Search</translation>
+    </message>
+    <message>
+        <source>◂ Prev</source>
+        <translation>◂ Prev</translation>
+    </message>
+    <message>
+        <source>Next ▸</source>
+        <translation>Next ▸</translation>
+    </message>
+    <message>
+        <source>Page</source>
+        <translation>Page</translation>
+    </message>
+    <message>
+        <source>No Nexus domain for this game.</source>
+        <translation>No Nexus domain for this game.</translation>
+    </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Loading…</translation>
+    </message>
+</context>
+<context>
+    <name>ColorPickerOverlay</name>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+</context>
+<context>
+    <name>ConfigureGameView</name>
+    <message>
+        <source>{0} Game — {1}</source>
+        <translation>{0} Game — {1}</translation>
+    </message>
+    <message>
+        <source>Settings saved to profile: {0} (this profile only)</source>
+        <translation>Settings saved to profile: {0} (this profile only)</translation>
+    </message>
+    <message>
+        <source>Editing shared settings (default profile)</source>
+        <translation>Editing shared settings (default profile)</translation>
+    </message>
+    <message>
+        <source>Use Shared Settings</source>
+        <translation>Use Shared Settings</translation>
+    </message>
+    <message>
+        <source>This profile has its own saved paths/options. Remove them so it follows the shared (default profile) settings again.</source>
+        <translation>This profile has its own saved paths/options. Remove them so it follows the shared (default profile) settings again.</translation>
+    </message>
+    <message>
+        <source>Remove Instance</source>
+        <translation>Remove Instance</translation>
+    </message>
+    <message>
+        <source>Clean Game Folder</source>
+        <translation>Clean Game Folder</translation>
+    </message>
+    <message>
+        <source>Reset Locations</source>
+        <translation>Reset Locations</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Game Installation Folder</source>
+        <translation>Game Installation Folder</translation>
+    </message>
+    <message>
+        <source>Scanning Steam libraries…</source>
+        <translation>Scanning Steam libraries…</translation>
+    </message>
+    <message>
+        <source>Browse manually…</source>
+        <translation>Browse manually…</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation>Open</translation>
+    </message>
+    <message>
+        <source>Scan</source>
+        <translation>Scan</translation>
+    </message>
+    <message>
+        <source>Proton Prefix (compatdata/pfx)</source>
+        <translation>Proton Prefix (compatdata/pfx)</translation>
+    </message>
+    <message>
+        <source>Scanning for prefix…</source>
+        <translation>Scanning for prefix…</translation>
+    </message>
+    <message>
+        <source>No launcher ID — prefix not applicable.</source>
+        <translation>No launcher ID — prefix not applicable.</translation>
+    </message>
+    <message>
+        <source>Mod Staging Folder</source>
+        <translation>Mod Staging Folder</translation>
+    </message>
+    <message>
+        <source>Default location will be used.</source>
+        <translation>Default location will be used.</translation>
+    </message>
+    <message>
+        <source>Reset to default</source>
+        <translation>Reset to default</translation>
+    </message>
+    <message>
+        <source>Options</source>
+        <translation>Options</translation>
+    </message>
+    <message>
+        <source>Deploy Method</source>
+        <translation>Deploy Method</translation>
+    </message>
+    <message>
+        <source>Symlink (Recommended)</source>
+        <translation>Symlink (Recommended)</translation>
+    </message>
+    <message>
+        <source>Symlink</source>
+        <translation>Symlink</translation>
+    </message>
+    <message>
+        <source>Hardlink (Recommended)</source>
+        <translation>Hardlink (Recommended)</translation>
+    </message>
+    <message>
+        <source>Hardlink</source>
+        <translation>Hardlink</translation>
+    </message>
+    <message>
+        <source>Game Patch Version</source>
+        <translation>Game Patch Version</translation>
+    </message>
+    <message>
+        <source>Plugins file name</source>
+        <translation>Plugins file name</translation>
+    </message>
+    <message>
+        <source>Custom staging folder configured.</source>
+        <translation>Custom staging folder configured.</translation>
+    </message>
+    <message>
+        <source>Cannot reset to shared settings while mods are deployed. Restore the game first.</source>
+        <translation>Cannot reset to shared settings while mods are deployed. Restore the game first.</translation>
+    </message>
+    <message>
+        <source>Use Shared Settings?</source>
+        <translation>Use Shared Settings?</translation>
+    </message>
+    <message>
+        <source>Remove this profile's own paths and options so it follows the shared (default profile) settings again?
+
+The default profile's settings are not affected.</source>
+        <translation>Remove this profile's own paths and options so it follows the shared (default profile) settings again?
+
+The default profile's settings are not affected.</translation>
+    </message>
+    <message>
+        <source>Reset</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>Profile now follows the shared (default profile) settings.</source>
+        <translation>Profile now follows the shared (default profile) settings.</translation>
+    </message>
+    <message>
+        <source>Settings saved.</source>
+        <translation>Settings saved.</translation>
+    </message>
+    <message>
+        <source>Custom staging folder selected.</source>
+        <translation>Custom staging folder selected.</translation>
+    </message>
+    <message>
+        <source>Not found automatically. Browse manually to locate the game folder.</source>
+        <translation>Not found automatically. Browse manually to locate the game folder.</translation>
+    </message>
+    <message>
+        <source>No executable name configured for this game.</source>
+        <translation>No executable name configured for this game.</translation>
+    </message>
+    <message>
+        <source>Scanning all drives…</source>
+        <translation>Scanning all drives…</translation>
+    </message>
+    <message>
+        <source>Found via drive scan.</source>
+        <translation>Found via drive scan.</translation>
+    </message>
+    <message>
+        <source>Game executable not found on any drive.</source>
+        <translation>Game executable not found on any drive.</translation>
+    </message>
+    <message>
+        <source>Scanning for Proton prefix…</source>
+        <translation>Scanning for Proton prefix…</translation>
+    </message>
+    <message>
+        <source>Prefix not found automatically. Not needed if game is Linux native.</source>
+        <translation>Prefix not found automatically. Not needed if game is Linux native.</translation>
+    </message>
+    <message>
+        <source>Set the game installation folder first.</source>
+        <translation>Set the game installation folder first.</translation>
+    </message>
+    <message>
+        <source>This path is not visible inside the Flatpak sandbox. Grant access in Flatseal or run: {0}</source>
+        <translation>This path is not visible inside the Flatpak sandbox. Grant access in Flatseal or run: {0}</translation>
+    </message>
+    <message>
+        <source>Cannot change the game/prefix path while mods are deployed. Restore the game first.</source>
+        <translation>Cannot change the game/prefix path while mods are deployed. Restore the game first.</translation>
+    </message>
+    <message>
+        <source>Cannot use hardlinks: the staging folder and {0} are on different drives or filesystems. Switch to Symlink instead.</source>
+        <translation>Cannot use hardlinks: the staging folder and {0} are on different drives or filesystems. Switch to Symlink instead.</translation>
+    </message>
+    <message>
+        <source>Checking existing staging files…</source>
+        <translation>Checking existing staging files…</translation>
+    </message>
+    <message>
+        <source>Moving staging files…</source>
+        <translation>Moving staging files…</translation>
+    </message>
+    <message>
+        <source>Removing instance…</source>
+        <translation>Removing instance…</translation>
+    </message>
+    <message>
+        <source>Cleaning game folder…</source>
+        <translation>Cleaning game folder…</translation>
+    </message>
+    <message>
+        <source>Clean failed: {0}</source>
+        <translation>Clean failed: {0}</translation>
+    </message>
+    <message>
+        <source>Clean complete — {0} deployed file(s) removed.</source>
+        <translation>Clean complete — {0} deployed file(s) removed.</translation>
+    </message>
+</context>
+<context>
+    <name>ContinueOverlay</name>
+    <message>
+        <source>Continue Collection Install</source>
+        <translation>Continue Collection Install</translation>
+    </message>
+    <message>
+        <source>This collection is already installed in profile '{0}'.</source>
+        <translation>This collection is already installed in profile '{0}'.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Continue Install</source>
+        <translation>Continue Install</translation>
+    </message>
+</context>
+<context>
+    <name>CreationKitView</name>
+    <message>
+        <source>Step 3: Deploy Modlist</source>
+        <translation>Step 3: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Step 1: Locate Creation Kit</source>
+        <translation>Step 1: Locate Creation Kit</translation>
+    </message>
+    <message>
+        <source>{0} was not found in the game folder.
+
+The Creation Kit is installed through Steam:
+Skyrim Special Edition → ⚙ → Manage → Creation Kit.
+
+Install it, then reopen this wizard.</source>
+        <translation>{0} was not found in the game folder.
+
+The Creation Kit is installed through Steam:
+Skyrim Special Edition → ⚙ → Manage → Creation Kit.
+
+Install it, then reopen this wizard.</translation>
+    </message>
+    <message>
+        <source>Found {0} in the game folder.</source>
+        <translation>Found {0} in the game folder.</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Step 2: Creation Kit Platform Extended</source>
+        <translation>Step 2: Creation Kit Platform Extended</translation>
+    </message>
+    <message>
+        <source>Update CKPE</source>
+        <translation>Update CKPE</translation>
+    </message>
+    <message>
+        <source>Install CKPE</source>
+        <translation>Install CKPE</translation>
+    </message>
+    <message>
+        <source>Step 4: Run Creation Kit</source>
+        <translation>Step 4: Run Creation Kit</translation>
+    </message>
+    <message>
+        <source>Note: on a brand-new prefix the first launch may open the plain Creation Kit without Creation Kit Platform Extended (CKPE). If you need CKPE, close the Creation Kit and run the wizard again — CKPE loads on the second launch once the prefix is initialised.
+
+The Creation Kit can also occasionally crash on startup under Proton (a known Wine timing issue). If it closes immediately, just relaunch.</source>
+        <translation>Note: on a brand-new prefix the first launch may open the plain Creation Kit without Creation Kit Platform Extended (CKPE). If you need CKPE, close the Creation Kit and run the wizard again — CKPE loads on the second launch once the prefix is initialised.
+
+The Creation Kit can also occasionally crash on startup under Proton (a known Wine timing issue). If it closes immediately, just relaunch.</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Contacting GitHub…</source>
+        <translation>Contacting GitHub…</translation>
+    </message>
+    <message>
+        <source>{0} was not found.</source>
+        <translation>{0} was not found.</translation>
+    </message>
+    <message>
+        <source>Launching Creation Kit…</source>
+        <translation>Launching Creation Kit…</translation>
+    </message>
+</context>
+<context>
+    <name>CustomGameView</name>
+    <message>
+        <source>Standard</source>
+        <translation>Standard</translation>
+    </message>
+    <message>
+        <source>Mods install into a single sub-folder (e.g. Data/, BepInEx/plugins/). Same as Bethesda games and BepInEx.</source>
+        <translation>Mods install into a single sub-folder (e.g. Data/, BepInEx/plugins/). Same as Bethesda games and BepInEx.</translation>
+    </message>
+    <message>
+        <source>Root</source>
+        <translation>Root</translation>
+    </message>
+    <message>
+        <source>Mods deploy directly to the game's root folder. Same as The Witcher 3 and Cyberpunk 2077.</source>
+        <translation>Mods deploy directly to the game's root folder. Same as The Witcher 3 and Cyberpunk 2077.</translation>
+    </message>
+    <message>
+        <source>UE5</source>
+        <translation>UE5</translation>
+    </message>
+    <message>
+        <source>Unreal Engine 5 — pak files → Content/Paks/~mods/, UE4SS/lua → Binaries/Win64/, DLLs → Binaries/Win64/. Same routing as Hogwarts Legacy / Oblivion Remastered.</source>
+        <translation>Unreal Engine 5 — pak files → Content/Paks/~mods/, UE4SS/lua → Binaries/Win64/, DLLs → Binaries/Win64/. Same routing as Hogwarts Legacy / Oblivion Remastered.</translation>
+    </message>
+    <message>
+        <source>Most uppercase</source>
+        <translation>Most uppercase</translation>
+    </message>
+    <message>
+        <source>Most lowercase</source>
+        <translation>Most lowercase</translation>
+    </message>
+    <message>
+        <source>Lowercase everything</source>
+        <translation>Lowercase everything</translation>
+    </message>
+    <message>
+        <source>Uppercase everything</source>
+        <translation>Uppercase everything</translation>
+    </message>
+    <message>
+        <source>Strip Prefixes</source>
+        <translation>Strip Prefixes</translation>
+    </message>
+    <message>
+        <source>Comma-separated top-level folder names to strip from mod files during filemap building (case-insensitive). e.g. Data, data</source>
+        <translation>Comma-separated top-level folder names to strip from mod files during filemap building (case-insensitive). e.g. Data, data</translation>
+    </message>
+    <message>
+        <source>Prepend Prefix</source>
+        <translation>Prepend Prefix</translation>
+    </message>
+    <message>
+        <source>Path segment prepended to every installed file. e.g. 'mods' so files land at mods/&lt;ModName&gt;/…</source>
+        <translation>Path segment prepended to every installed file. e.g. 'mods' so files land at mods/&lt;ModName&gt;/…</translation>
+    </message>
+    <message>
+        <source>Required Top-Level Folders</source>
+        <translation>Required Top-Level Folders</translation>
+    </message>
+    <message>
+        <source>Comma-separated folder names a mod must contain at its root. If none match, the user is prompted to set a data directory.</source>
+        <translation>Comma-separated folder names a mod must contain at its root. If none match, the user is prompted to set a data directory.</translation>
+    </message>
+    <message>
+        <source>Required File Types</source>
+        <translation>Required File Types</translation>
+    </message>
+    <message>
+        <source>Comma-separated file extensions a mod must contain at its root. e.g. .esp, .esm — works standalone or as a fallback after Required Top-Level Folders.</source>
+        <translation>Comma-separated file extensions a mod must contain at its root. e.g. .esp, .esm — works standalone or as a fallback after Required Top-Level Folders.</translation>
+    </message>
+    <message>
+        <source>Strip Prefixes (post-install)</source>
+        <translation>Strip Prefixes (post-install)</translation>
+    </message>
+    <message>
+        <source>Like Strip Prefixes but applied after Required Top-Level Folders validation. e.g. reframework</source>
+        <translation>Like Strip Prefixes but applied after Required Top-Level Folders validation. e.g. reframework</translation>
+    </message>
+    <message>
+        <source>Conflict Ignore Filenames</source>
+        <translation>Conflict Ignore Filenames</translation>
+    </message>
+    <message>
+        <source>Comma-separated filenames excluded from conflict detection. Supports glob patterns: *.&lt;ext&gt; matches any file with that extension, &lt;name&gt;.* matches that name with any extension. e.g. modinfo.ini, manifest.json, *.txt, LICENCE.*</source>
+        <translation>Comma-separated filenames excluded from conflict detection. Supports glob patterns: *.&lt;ext&gt; matches any file with that extension, &lt;name&gt;.* matches that name with any extension. e.g. modinfo.ini, manifest.json, *.txt, LICENCE.*</translation>
+    </message>
+    <message>
+        <source>Auto Strip Until Required</source>
+        <translation>Auto Strip Until Required</translation>
+    </message>
+    <message>
+        <source>When enabled and Required Top-Level Folders is set, strip leading path segments automatically instead of prompting the user.</source>
+        <translation>When enabled and Required Top-Level Folders is set, strip leading path segments automatically instead of prompting the user.</translation>
+    </message>
+    <message>
+        <source>Install As-Is If No Match</source>
+        <translation>Install As-Is If No Match</translation>
+    </message>
+    <message>
+        <source>When enabled, if both Required Top-Level Folders and Required File Types checks fail, the mod is installed as-is without showing the prefix dialog.</source>
+        <translation>When enabled, if both Required Top-Level Folders and Required File Types checks fail, the mod is installed as-is without showing the prefix dialog.</translation>
+    </message>
+    <message>
+        <source>Restore Before Deploy</source>
+        <translation>Restore Before Deploy</translation>
+    </message>
+    <message>
+        <source>When enabled (default), the manager runs Restore before every Deploy to clean the game state first. Disable only if the game's deploy cycle handles its own cleanup internally.</source>
+        <translation>When enabled (default), the manager runs Restore before every Deploy to clean the game state first. Disable only if the game's deploy cycle handles its own cleanup internally.</translation>
+    </message>
+    <message>
+        <source>Normalize Folder Case</source>
+        <translation>Normalize Folder Case</translation>
+    </message>
+    <message>
+        <source>When enabled (default), folder names that differ only in case across mods are unified to a single casing. Disable for Linux-native games where folder casing is significant.</source>
+        <translation>When enabled (default), folder names that differ only in case across mods are unified to a single casing. Disable for Linux-native games where folder casing is significant.</translation>
+    </message>
+    <message>
+        <source>Edit Custom Game</source>
+        <translation>Edit Custom Game</translation>
+    </message>
+    <message>
+        <source>Define Custom Game</source>
+        <translation>Define Custom Game</translation>
+    </message>
+    <message>
+        <source>Game Name</source>
+        <translation>Game Name</translation>
+    </message>
+    <message>
+        <source>The display name shown in the game selector (must be unique).</source>
+        <translation>The display name shown in the game selector (must be unique).</translation>
+    </message>
+    <message>
+        <source>e.g. My Favourite Game</source>
+        <translation>e.g. My Favourite Game</translation>
+    </message>
+    <message>
+        <source>Executable Filename</source>
+        <translation>Executable Filename</translation>
+    </message>
+    <message>
+        <source>The .exe location from the game's root folder. e.g. bin/bg3.exe for BG3 or SkyrimSELauncher.exe for Skyrim SE</source>
+        <translation>The .exe location from the game's root folder. e.g. bin/bg3.exe for BG3 or SkyrimSELauncher.exe for Skyrim SE</translation>
+    </message>
+    <message>
+        <source>e.g. MyGame.exe</source>
+        <translation>e.g. MyGame.exe</translation>
+    </message>
+    <message>
+        <source>Deploy Method</source>
+        <translation>Deploy Method</translation>
+    </message>
+    <message>
+        <source>Mod Sub-folder</source>
+        <translation>Mod Sub-folder</translation>
+    </message>
+    <message>
+        <source>Steam App ID  (optional)</source>
+        <translation>Steam App ID  (optional)</translation>
+    </message>
+    <message>
+        <source>Used to auto-detect the Proton prefix. Leave empty if not on Steam.</source>
+        <translation>Used to auto-detect the Proton prefix. Leave empty if not on Steam.</translation>
+    </message>
+    <message>
+        <source>e.g. 377160</source>
+        <translation>e.g. 377160</translation>
+    </message>
+    <message>
+        <source>Nexus Mods Domain  (optional)</source>
+        <translation>Nexus Mods Domain  (optional)</translation>
+    </message>
+    <message>
+        <source>The game's slug on nexusmods.com. e.g. 'skyrimspecialedition'.</source>
+        <translation>The game's slug on nexusmods.com. e.g. 'skyrimspecialedition'.</translation>
+    </message>
+    <message>
+        <source>e.g. myfavouritegame</source>
+        <translation>e.g. myfavouritegame</translation>
+    </message>
+    <message>
+        <source>Banner Image URL  (optional)</source>
+        <translation>Banner Image URL  (optional)</translation>
+    </message>
+    <message>
+        <source>A direct URL to a PNG/JPG image shown in the game picker card. The image is downloaded once and cached locally.</source>
+        <translation>A direct URL to a PNG/JPG image shown in the game picker card. The image is downloaded once and cached locally.</translation>
+    </message>
+    <message>
+        <source>https://example.com/banner.jpg</source>
+        <translation>https://example.com/banner.jpg</translation>
+    </message>
+    <message>
+        <source>Advanced Options  (optional)</source>
+        <translation>Advanced Options  (optional)</translation>
+    </message>
+    <message>
+        <source>Used to change the folder structure of an installed mod to match what is required by the manager.</source>
+        <translation>Used to change the folder structure of an installed mod to match what is required by the manager.</translation>
+    </message>
+    <message>
+        <source>Enable</source>
+        <translation>Enable</translation>
+    </message>
+    <message>
+        <source>Filemap Casing</source>
+        <translation>Filemap Casing</translation>
+    </message>
+    <message>
+        <source>How to pick canonical folder casing when mods disagree. Only used when Normalize Folder Case is enabled.</source>
+        <translation>How to pick canonical folder casing when mods disagree. Only used when Normalize Folder Case is enabled.</translation>
+    </message>
+    <message>
+        <source>Wine DLL Overrides</source>
+        <translation>Wine DLL Overrides</translation>
+    </message>
+    <message>
+        <source>One override per line: dll_name=load_order  e.g. winhttp=native,builtin</source>
+        <translation>One override per line: dll_name=load_order  e.g. winhttp=native,builtin</translation>
+    </message>
+    <message>
+        <source>Custom Routing Rules</source>
+        <translation>Custom Routing Rules</translation>
+    </message>
+    <message>
+        <source>Route specific files to alternate destinations during deploy. Each rule maps files (by extension, folder or filename) to a game-root-relative directory. For extensions, append (.ext, .ext) to also route same-stem siblings (e.g. .asi (.ini) sends Foo.ini alongside Foo.asi). Flatten drops subfolders below the matched folder. To Prefix routes relative to the Proton/Wine prefix root instead of the game install root.</source>
+        <translation>Route specific files to alternate destinations during deploy. Each rule maps files (by extension, folder or filename) to a game-root-relative directory. For extensions, append (.ext, .ext) to also route same-stem siblings (e.g. .asi (.ini) sends Foo.ini alongside Foo.asi). Flatten drops subfolders below the matched folder. To Prefix routes relative to the Proton/Wine prefix root instead of the game install root.</translation>
+    </message>
+    <message>
+        <source>+ Add Rule</source>
+        <translation>+ Add Rule</translation>
+    </message>
+    <message>
+        <source>Destination</source>
+        <translation>Destination</translation>
+    </message>
+    <message>
+        <source>File/folder</source>
+        <translation>File/folder</translation>
+    </message>
+    <message>
+        <source>Restore Whitelist</source>
+        <translation>Restore Whitelist</translation>
+    </message>
+    <message>
+        <source>Protect runtime-generated files from being moved out of the game folder on restore. Each rule anchors at a path relative to the game root (empty = the game root) and matches folder names (protecting the folder's whole contents), filenames, or extensions directly at that path. Matching is case-insensitive and anchored — the same name at any other path needs its own rule. Folder and filename values accept wildcards (e.g. ego_dlc* or *.log).</source>
+        <translation>Protect runtime-generated files from being moved out of the game folder on restore. Each rule anchors at a path relative to the game root (empty = the game root) and matches folder names (protecting the folder's whole contents), filenames, or extensions directly at that path. Matching is case-insensitive and anchored — the same name at any other path needs its own rule. Folder and filename values accept wildcards (e.g. ego_dlc* or *.log).</translation>
+    </message>
+    <message>
+        <source>Path in game root</source>
+        <translation>Path in game root</translation>
+    </message>
+    <message>
+        <source>Framework Detection</source>
+        <translation>Framework Detection</translation>
+    </message>
+    <message>
+        <source>Display a status banner in the Plugins tab when a framework is installed. Enter the framework name on the left and its file path relative to the game root on the right.</source>
+        <translation>Display a status banner in the Plugins tab when a framework is installed. Enter the framework name on the left and its file path relative to the game root on the right.</translation>
+    </message>
+    <message>
+        <source>+ Add Framework</source>
+        <translation>+ Add Framework</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>Save Game</source>
+        <translation>Save Game</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Game Sub-folder  (optional)</source>
+        <translation>Game Sub-folder  (optional)</translation>
+    </message>
+    <message>
+        <source>Location of the folder from root where deployed mods are sent to. e.g. Phoenix for Hogwarts Legacy.</source>
+        <translation>Location of the folder from root where deployed mods are sent to. e.g. Phoenix for Hogwarts Legacy.</translation>
+    </message>
+    <message>
+        <source>e.g. OblivionRemastered</source>
+        <translation>e.g. OblivionRemastered</translation>
+    </message>
+    <message>
+        <source>Path relative to the game root where mod files are installed. e.g. 'Data' for Bethesda games, 'BepInEx/plugins' for BepInEx. Leave empty to target the game root directly.</source>
+        <translation>Path relative to the game root where mod files are installed. e.g. 'Data' for Bethesda games, 'BepInEx/plugins' for BepInEx. Leave empty to target the game root directly.</translation>
+    </message>
+    <message>
+        <source>e.g. Data   (leave empty for game root)</source>
+        <translation>e.g. Data   (leave empty for game root)</translation>
+    </message>
+    <message>
+        <source>Move up</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>Move down</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <source>extensions</source>
+        <translation>extensions</translation>
+    </message>
+    <message>
+        <source>folders</source>
+        <translation>folders</translation>
+    </message>
+    <message>
+        <source>filenames</source>
+        <translation>filenames</translation>
+    </message>
+    <message>
+        <source>File/Folder</source>
+        <translation>File/Folder</translation>
+    </message>
+    <message>
+        <source>Loose only</source>
+        <translation>Loose only</translation>
+    </message>
+    <message>
+        <source>Flatten</source>
+        <translation>Flatten</translation>
+    </message>
+    <message>
+        <source>Include Siblings</source>
+        <translation>Include Siblings</translation>
+    </message>
+    <message>
+        <source>To Prefix</source>
+        <translation>To Prefix</translation>
+    </message>
+    <message>
+        <source>Remove rule</source>
+        <translation>Remove rule</translation>
+    </message>
+    <message>
+        <source>e.g. output/extensions</source>
+        <translation>e.g. output/extensions</translation>
+    </message>
+    <message>
+        <source>e.g. Script Extender</source>
+        <translation>e.g. Script Extender</translation>
+    </message>
+    <message>
+        <source>e.g. skse64_loader.exe</source>
+        <translation>e.g. skse64_loader.exe</translation>
+    </message>
+    <message>
+        <source>Remove framework</source>
+        <translation>Remove framework</translation>
+    </message>
+</context>
+<context>
+    <name>DataModel</name>
+    <message>
+        <source>Path</source>
+        <translation>Path</translation>
+    </message>
+    <message>
+        <source>Winning Mod</source>
+        <translation>Winning Mod</translation>
+    </message>
+</context>
+<context>
+    <name>DataView</name>
+    <message>
+        <source>Deployed files</source>
+        <translation>Deployed files</translation>
+    </message>
+    <message>
+        <source>Deployed files - {0} files in {1} mods</source>
+        <translation>Deployed files - {0} files in {1} mods</translation>
+    </message>
+</context>
+<context>
+    <name>DetachableTabWidget</name>
+    <message>
+        <source>Pin to Modlist Panel</source>
+        <translation>Pin to Modlist Panel</translation>
+    </message>
+    <message>
+        <source>Pin to Plugins Panel</source>
+        <translation>Pin to Plugins Panel</translation>
+    </message>
+    <message>
+        <source>Pin to Full Screen</source>
+        <translation>Pin to Full Screen</translation>
+    </message>
+    <message>
+        <source>Drop to redock</source>
+        <translation>Drop to redock</translation>
+    </message>
+</context>
+<context>
+    <name>DllOverridesView</name>
+    <message>
+        <source>Wine DLL Overrides — {0}</source>
+        <translation>Wine DLL Overrides — {0}</translation>
+    </message>
+    <message>
+        <source>DLL name (e.g. winhttp)</source>
+        <translation>DLL name (e.g. winhttp)</translation>
+    </message>
+    <message>
+        <source>+ Add</source>
+        <translation>+ Add</translation>
+    </message>
+    <message>
+        <source>New DLLs default to native,builtin</source>
+        <translation>New DLLs default to native,builtin</translation>
+    </message>
+    <message>
+        <source>Save &amp; Apply</source>
+        <translation>Save &amp; Apply</translation>
+    </message>
+    <message>
+        <source>No DLL overrides configured.</source>
+        <translation>No DLL overrides configured.</translation>
+    </message>
+    <message>
+        <source>Remove '{0}'</source>
+        <translation>Remove '{0}'</translation>
+    </message>
+    <message>
+        <source>Invalid DLL name.</source>
+        <translation>Invalid DLL name.</translation>
+    </message>
+    <message>
+        <source>'{0}' is already in the list.</source>
+        <translation>'{0}' is already in the list.</translation>
+    </message>
+    <message>
+        <source>Failed to save overrides: {0}</source>
+        <translation>Failed to save overrides: {0}</translation>
+    </message>
+    <message>
+        <source>Overrides saved (no prefix to apply to).</source>
+        <translation>Overrides saved (no prefix to apply to).</translation>
+    </message>
+    <message>
+        <source>Applied {0} override(s) to the prefix.</source>
+        <translation>Applied {0} override(s) to the prefix.</translation>
+    </message>
+    <message>
+        <source>Failed to apply overrides to the prefix.</source>
+        <translation>Failed to apply overrides to the prefix.</translation>
+    </message>
+</context>
+<context>
+    <name>DownloadLocationsOverlay</name>
+    <message>
+        <source>Download locations</source>
+        <translation>Download locations</translation>
+    </message>
+    <message>
+        <source>Folders scanned for mod archives in the Downloads tab.</source>
+        <translation>Folders scanned for mod archives in the Downloads tab.</translation>
+    </message>
+    <message>
+        <source>Scan this game's download cache</source>
+        <translation>Scan this game's download cache</translation>
+    </message>
+    <message>
+        <source>Additional folders:</source>
+        <translation>Additional folders:</translation>
+    </message>
+    <message>
+        <source>Add folder…</source>
+        <translation>Add folder…</translation>
+    </message>
+    <message>
+        <source>Remove selected</source>
+        <translation>Remove selected</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Scan default Downloads folder ({0})</source>
+        <translation>Scan default Downloads folder ({0})</translation>
+    </message>
+</context>
+<context>
+    <name>DtkitPatchView</name>
+    <message>
+        <source>Step 1: Deploy mods</source>
+        <translation>Step 1: Deploy mods</translation>
+    </message>
+    <message>
+        <source>dtkit-patch.exe ships with the Darktide Mod Loader and runs under Proton, so it always matches your installed version.
+
+Your mods are deployed first so the patcher and the bundle database are present in the game folder.</source>
+        <translation>dtkit-patch.exe ships with the Darktide Mod Loader and runs under Proton, so it always matches your installed version.
+
+Your mods are deployed first so the patcher and the bundle database are present in the game folder.</translation>
+    </message>
+    <message>
+        <source>Step 2: Toggle bundle patch</source>
+        <translation>Step 2: Toggle bundle patch</translation>
+    </message>
+    <message>
+        <source>Patcher:
+{0}
+
+Game folder (cwd):
+{1}
+
+Toggle flips the patch on or off (same as the Mod Loader's toggle_darktide_mods.bat). Patch to enable mods; toggle again to disable. Re-run after every game update.</source>
+        <translation>Patcher:
+{0}
+
+Game folder (cwd):
+{1}
+
+Toggle flips the patch on or off (same as the Mod Loader's toggle_darktide_mods.bat). Patch to enable mods; toggle again to disable. Re-run after every game update.</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Toggle Patch</source>
+        <translation>Toggle Patch</translation>
+    </message>
+    <message>
+        <source>Deploy finished, but tools/dtkit-patch.exe was not found in the game folder.
+Make sure the Darktide Mod Loader mod is enabled.</source>
+        <translation>Deploy finished, but tools/dtkit-patch.exe was not found in the game folder.
+Make sure the Darktide Mod Loader mod is enabled.</translation>
+    </message>
+    <message>
+        <source>Running dtkit-patch — toggle…</source>
+        <translation>Running dtkit-patch — toggle…</translation>
+    </message>
+    <message>
+        <source>Done. The bundle patch state was toggled.
+Launch the game to verify mods load (toggle again to disable).</source>
+        <translation>Done. The bundle patch state was toggled.
+Launch the game to verify mods load (toggle again to disable).</translation>
+    </message>
+    <message>
+        <source>dtkit-patch did not complete successfully.
+Check the output above and the log.</source>
+        <translation>dtkit-patch did not complete successfully.
+Check the output above and the log.</translation>
+    </message>
+</context>
+<context>
+    <name>DynDOLODView</name>
+    <message>
+        <source>{0} — {1}</source>
+        <translation>{0} — {1}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Step 1: Download DynDOLOD</source>
+        <translation>Step 1: Download DynDOLOD</translation>
+    </message>
+    <message>
+        <source>Click the button below to open the DynDOLOD page on Nexus Mods.
+
+Download the archive manually (do NOT use the Mod Manager download button), then click Next.</source>
+        <translation>Click the button below to open the DynDOLOD page on Nexus Mods.
+
+Download the archive manually (do NOT use the Mod Manager download button), then click Next.</translation>
+    </message>
+    <message>
+        <source>Open Download Page</source>
+        <translation>Open Download Page</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Step 1: Download {0}</source>
+        <translation>Step 1: Download {0}</translation>
+    </message>
+    <message>
+        <source>Step 2: Locate the Archive</source>
+        <translation>Step 2: Locate the Archive</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Try Again</source>
+        <translation>Try Again</translation>
+    </message>
+    <message>
+        <source>Found: {0}</source>
+        <translation>Found: {0}</translation>
+    </message>
+    <message>
+        <source>DynDOLOD archive not found in Downloads.
+Make sure you downloaded it, then press Try Again,
+or use Browse to select it manually.</source>
+        <translation>DynDOLOD archive not found in Downloads.
+Make sure you downloaded it, then press Try Again,
+or use Browse to select it manually.</translation>
+    </message>
+    <message>
+        <source>Selected: {0}</source>
+        <translation>Selected: {0}</translation>
+    </message>
+    <message>
+        <source>Step 3: Extract DynDOLOD</source>
+        <translation>Step 3: Extract DynDOLOD</translation>
+    </message>
+    <message>
+        <source>Step 4: Deploy Modlist</source>
+        <translation>Step 4: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Before deploying, please delete any output from a previous
+{0} run (the '{1}' mod in your mod list).
+
+Once you have done this, click Deploy.</source>
+        <translation>Before deploying, please delete any output from a previous
+{0} run (the '{1}' mod in your mod list).
+
+Once you have done this, click Deploy.</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+    <message>
+        <source>Deploy is unavailable here.</source>
+        <translation>Deploy is unavailable here.</translation>
+    </message>
+    <message>
+        <source>Deploying…</source>
+        <translation>Deploying…</translation>
+    </message>
+    <message>
+        <source>Deploy complete.</source>
+        <translation>Deploy complete.</translation>
+    </message>
+    <message>
+        <source>Deploy failed — see log.</source>
+        <translation>Deploy failed — see log.</translation>
+    </message>
+    <message>
+        <source>Could not start deploy — see log.</source>
+        <translation>Could not start deploy — see log.</translation>
+    </message>
+    <message>
+        <source>{0} was not found.
+Please restart the wizard and install {1} first.</source>
+        <translation>{0} was not found.
+Please restart the wizard and install {1} first.</translation>
+    </message>
+    <message>
+        <source>Step 6: Run {0}</source>
+        <translation>Step 6: Run {0}</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>{0} was not found.</source>
+        <translation>{0} was not found.</translation>
+    </message>
+    <message>
+        <source>Launching {0}…</source>
+        <translation>Launching {0}…</translation>
+    </message>
+    <message>
+        <source>{0} is running.
+Close it when you are done, then click Done.</source>
+        <translation>{0} is running.
+Close it when you are done, then click Done.</translation>
+    </message>
+    <message>
+        <source>Fetching latest release from GitHub…</source>
+        <translation>Fetching latest release from GitHub…</translation>
+    </message>
+    <message>
+        <source>Searching Downloads folder…</source>
+        <translation>Searching Downloads folder…</translation>
+    </message>
+    <message>
+        <source>Extracting…</source>
+        <translation>Extracting…</translation>
+    </message>
+</context>
+<context>
+    <name>ESLifierView</name>
+    <message>
+        <source>Step 1: Install ESLifier</source>
+        <translation>Step 1: Install ESLifier</translation>
+    </message>
+    <message>
+        <source>ESLifier will be downloaded from GitHub and installed into this
+game's Applications folder.
+
+Click Install to begin.</source>
+        <translation>ESLifier will be downloaded from GitHub and installed into this
+game's Applications folder.
+
+Click Install to begin.</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>Step 3: Run ESLifier</source>
+        <translation>Step 3: Run ESLifier</translation>
+    </message>
+    <message>
+        <source>ESLifier runs in MO2 mode, reading your load order directly from
+the mod staging folder, so no deploy is required.
+
+When ESLifier finishes, it writes its output as the
+'{0}' mod, which will appear in your mod list.</source>
+        <translation>ESLifier runs in MO2 mode, reading your load order directly from
+the mod staging folder, so no deploy is required.
+
+When ESLifier finishes, it writes its output as the
+'{0}' mod, which will appear in your mod list.</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Launching ESLifier…</source>
+        <translation>Launching ESLifier…</translation>
+    </message>
+    <message>
+        <source>{0} was not found.</source>
+        <translation>{0} was not found.</translation>
+    </message>
+</context>
+<context>
+    <name>EngineFixesView</name>
+    <message>
+        <source>Editing values from {0}. Save writes the managed mod '{1}'.</source>
+        <translation>Editing values from {0}. Save writes the managed mod '{1}'.</translation>
+    </message>
+    <message>
+        <source>[{0}]</source>
+        <translation>[{0}]</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Reset to defaults</source>
+        <translation>Reset to defaults</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>true</source>
+        <translation>true</translation>
+    </message>
+    <message>
+        <source>false</source>
+        <translation>false</translation>
+    </message>
+    <message>
+        <source>Form reset to built-in defaults (not yet saved).</source>
+        <translation>Form reset to built-in defaults (not yet saved).</translation>
+    </message>
+    <message>
+        <source>Save failed: {0}</source>
+        <translation>Save failed: {0}</translation>
+    </message>
+    <message>
+        <source>Saved to {0}/{1}.</source>
+        <translation>Saved to {0}/{1}.</translation>
+    </message>
+</context>
+<context>
+    <name>ExeSettingsView</name>
+    <message>
+        <source>Install Java into prefix</source>
+        <translation>Install Java into prefix</translation>
+    </message>
+    <message>
+        <source>Configure: {0}</source>
+        <translation>Configure: {0}</translation>
+    </message>
+    <message>
+        <source>Host (system java)</source>
+        <translation>Host (system java)</translation>
+    </message>
+    <message>
+        <source>Proton prefix (Windows Java)</source>
+        <translation>Proton prefix (Windows Java)</translation>
+    </message>
+    <message>
+        <source>Insert game path</source>
+        <translation>Insert game path</translation>
+    </message>
+    <message>
+        <source>Insert mod path ▼</source>
+        <translation>Insert mod path ▼</translation>
+    </message>
+    <message>
+        <source>e.g. PROTON_ENABLE_WAYLAND=0 gamemoderun %command%</source>
+        <translation>e.g. PROTON_ENABLE_WAYLAND=0 gamemoderun %command%</translation>
+    </message>
+    <message>
+        <source>Remove EXE</source>
+        <translation>Remove EXE</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>(no mods found)</source>
+        <translation>(no mods found)</translation>
+    </message>
+    <message>
+        <source>Installing Java …</source>
+        <translation>Installing Java …</translation>
+    </message>
+</context>
+<context>
+    <name>ExportProfileView</name>
+    <message>
+        <source>Export Profile</source>
+        <translation>Export Profile</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Search mods…</source>
+        <translation>Search mods…</translation>
+    </message>
+    <message>
+        <source>Only mods without a File ID</source>
+        <translation>Only mods without a File ID</translation>
+    </message>
+    <message>
+        <source>Save settings</source>
+        <translation>Save settings</translation>
+    </message>
+    <message>
+        <source>Load settings</source>
+        <translation>Load settings</translation>
+    </message>
+    <message>
+        <source>Export…</source>
+        <translation>Export…</translation>
+    </message>
+    <message>
+        <source>Nothing to save.</source>
+        <translation>Nothing to save.</translation>
+    </message>
+    <message>
+        <source>No active profile.</source>
+        <translation>No active profile.</translation>
+    </message>
+    <message>
+        <source>Settings saved: {0}</source>
+        <translation>Settings saved: {0}</translation>
+    </message>
+    <message>
+        <source>Save failed: {0}</source>
+        <translation>Save failed: {0}</translation>
+    </message>
+    <message>
+        <source>No saved settings found.</source>
+        <translation>No saved settings found.</translation>
+    </message>
+    <message>
+        <source>Settings loaded.</source>
+        <translation>Settings loaded.</translation>
+    </message>
+    <message>
+        <source>Load failed: {0}</source>
+        <translation>Load failed: {0}</translation>
+    </message>
+    <message>
+        <source>No mods to export.</source>
+        <translation>No mods to export.</translation>
+    </message>
+    <message>
+        <source>{0} Nexus {1} {2} missing a File ID and must be set before exporting.</source>
+        <translation>{0} Nexus {1} {2} missing a File ID and must be set before exporting.</translation>
+    </message>
+    <message>
+        <source>Exported to {0}</source>
+        <translation>Exported to {0}</translation>
+    </message>
+    <message>
+        <source>Export failed: {0}</source>
+        <translation>Export failed: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>FalloutDowngradeView</name>
+    <message>
+        <source>Extracting archive to game folder…</source>
+        <translation>Extracting archive to game folder…</translation>
+    </message>
+</context>
+<context>
+    <name>FavouriteWizardsOverlay</name>
+    <message>
+        <source>Favourite Wizard Tools</source>
+        <translation>Favourite Wizard Tools</translation>
+    </message>
+    <message>
+        <source>Checked tools appear at the top of the Wizard menu for quick access.</source>
+        <translation>Checked tools appear at the top of the Wizard menu for quick access.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+</context>
+<context>
+    <name>FilterSidePanel</name>
+    <message>
+        <source>By status</source>
+        <translation>By status</translation>
+    </message>
+    <message>
+        <source>By category</source>
+        <translation>By category</translation>
+    </message>
+    <message>
+        <source>By file type</source>
+        <translation>By file type</translation>
+    </message>
+    <message>
+        <source>By conflict</source>
+        <translation>By conflict</translation>
+    </message>
+    <message>
+        <source>By location</source>
+        <translation>By location</translation>
+    </message>
+    <message>
+        <source>By source</source>
+        <translation>By source</translation>
+    </message>
+    <message>
+        <source>Filters</source>
+        <translation>Filters</translation>
+    </message>
+    <message>
+        <source>Disabled mods</source>
+        <translation>Disabled mods</translation>
+    </message>
+    <message>
+        <source>Enabled mods</source>
+        <translation>Enabled mods</translation>
+    </message>
+    <message>
+        <source>Hide separators</source>
+        <translation>Hide separators</translation>
+    </message>
+    <message>
+        <source>Winning conflicts</source>
+        <translation>Winning conflicts</translation>
+    </message>
+    <message>
+        <source>Losing conflicts</source>
+        <translation>Losing conflicts</translation>
+    </message>
+    <message>
+        <source>Winning &amp; losing conflicts</source>
+        <translation>Winning &amp; losing conflicts</translation>
+    </message>
+    <message>
+        <source>Fully conflicted mods</source>
+        <translation>Fully conflicted mods</translation>
+    </message>
+    <message>
+        <source>Missing requirements</source>
+        <translation>Missing requirements</translation>
+    </message>
+    <message>
+        <source>Mods with disabled plugins</source>
+        <translation>Mods with disabled plugins</translation>
+    </message>
+    <message>
+        <source>Mods with plugins</source>
+        <translation>Mods with plugins</translation>
+    </message>
+    <message>
+        <source>Mods modified in Mod Files tab</source>
+        <translation>Mods modified in Mod Files tab</translation>
+    </message>
+    <message>
+        <source>Mods with updates</source>
+        <translation>Mods with updates</translation>
+    </message>
+    <message>
+        <source>Mods with notes</source>
+        <translation>Mods with notes</translation>
+    </message>
+    <message>
+        <source>FOMOD mods</source>
+        <translation>FOMOD mods</translation>
+    </message>
+    <message>
+        <source>BAIN mods</source>
+        <translation>BAIN mods</translation>
+    </message>
+    <message>
+        <source>Mods with BSA archives</source>
+        <translation>Mods with BSA archives</translation>
+    </message>
+    <message>
+        <source>Mods with BA2 archives</source>
+        <translation>Mods with BA2 archives</translation>
+    </message>
+    <message>
+        <source>PGPatcher mods</source>
+        <translation>PGPatcher mods</translation>
+    </message>
+    <message>
+        <source>Enabled plugins</source>
+        <translation>Enabled plugins</translation>
+    </message>
+    <message>
+        <source>Disabled plugins</source>
+        <translation>Disabled plugins</translation>
+    </message>
+    <message>
+        <source>ESL-flagged (light)</source>
+        <translation>ESL-flagged (light)</translation>
+    </message>
+    <message>
+        <source>Not ESL-flagged</source>
+        <translation>Not ESL-flagged</translation>
+    </message>
+    <message>
+        <source>Extension .esl</source>
+        <translation>Extension .esl</translation>
+    </message>
+    <message>
+        <source>Extension .esm</source>
+        <translation>Extension .esm</translation>
+    </message>
+    <message>
+        <source>Extension .esp</source>
+        <translation>Extension .esp</translation>
+    </message>
+    <message>
+        <source>Missing masters</source>
+        <translation>Missing masters</translation>
+    </message>
+    <message>
+        <source>Dirty (needs cleaning)</source>
+        <translation>Dirty (needs cleaning)</translation>
+    </message>
+    <message>
+        <source>Managed by userlist</source>
+        <translation>Managed by userlist</translation>
+    </message>
+    <message>
+        <source>Show only installed</source>
+        <translation>Show only installed</translation>
+    </message>
+    <message>
+        <source>Show only not installed</source>
+        <translation>Show only not installed</translation>
+    </message>
+    <message>
+        <source>Clear all</source>
+        <translation>Clear all</translation>
+    </message>
+    <message>
+        <source>Not available for this game / not yet wired</source>
+        <translation>Not available for this game / not yet wired</translation>
+    </message>
+    <message>
+        <source>(none)</source>
+        <translation>(none)</translation>
+    </message>
+</context>
+<context>
+    <name>Fnv4GbView</name>
+    <message>
+        <source>Fallout New Vegas 4GB Patch</source>
+        <translation>Fallout New Vegas 4GB Patch</translation>
+    </message>
+    <message>
+        <source>Patches FalloutNV.exe so the game can use 4 GB of memory
+and loads NVSE automatically at startup.
+
+Under Proton this mostly silences in-game warnings from mods
+that check for the patch, but it is safe and recommended.
+
+The original exe is kept as {0}.</source>
+        <translation>Patches FalloutNV.exe so the game can use 4 GB of memory
+and loads NVSE automatically at startup.
+
+Under Proton this mostly silences in-game warnings from mods
+that check for the patch, but it is safe and recommended.
+
+The original exe is kept as {0}.</translation>
+    </message>
+    <message>
+        <source>Restore Backup</source>
+        <translation>Restore Backup</translation>
+    </message>
+    <message>
+        <source>Apply 4GB Patch</source>
+        <translation>Apply 4GB Patch</translation>
+    </message>
+    <message>
+        <source>Game path is not configured.</source>
+        <translation>Game path is not configured.</translation>
+    </message>
+    <message>
+        <source>Checking {0}…</source>
+        <translation>Checking {0}…</translation>
+    </message>
+    <message>
+        <source>Patching {0}…</source>
+        <translation>Patching {0}…</translation>
+    </message>
+    <message>
+        <source>Restoring original {0}…</source>
+        <translation>Restoring original {0}…</translation>
+    </message>
+</context>
+<context>
+    <name>FomodWizardView</name>
+    <message>
+        <source>Reset Selections</source>
+        <translation>Reset Selections</translation>
+    </message>
+    <message>
+        <source>Forget the saved selections for this mod and restart the wizard with its defaults</source>
+        <translation>Forget the saved selections for this mod and restart the wizard with its defaults</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Back</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Next</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Step {0} of {1}</source>
+        <translation>Step {0} of {1}</translation>
+    </message>
+    <message>
+        <source>Finish</source>
+        <translation>Finish</translation>
+    </message>
+    <message>
+        <source>Click to view full size</source>
+        <translation>Click to view full size</translation>
+    </message>
+    <message>
+        <source>No image</source>
+        <translation>No image</translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation>Image</translation>
+    </message>
+</context>
+<context>
+    <name>GpakView</name>
+    <message>
+        <source>GPAK unpack / repack</source>
+        <translation>GPAK unpack / repack</translation>
+    </message>
+    <message>
+        <source>Game path is not set or invalid.</source>
+        <translation>Game path is not set or invalid.</translation>
+    </message>
+    <message>
+        <source>Game root: {0}</source>
+        <translation>Game root: {0}</translation>
+    </message>
+    <message>
+        <source>Unpack resources.gpak</source>
+        <translation>Unpack resources.gpak</translation>
+    </message>
+    <message>
+        <source>Repack Unpacked folder</source>
+        <translation>Repack Unpacked folder</translation>
+    </message>
+    <message>
+        <source>Log:</source>
+        <translation>Log:</translation>
+    </message>
+</context>
+<context>
+    <name>GroupBar</name>
+    <message>
+        <source>Group:</source>
+        <translation>Group:</translation>
+    </message>
+</context>
+<context>
+    <name>ImagePreview</name>
+    <message>
+        <source>Scroll to zoom · drag to pan · double-click to fit</source>
+        <translation>Scroll to zoom · drag to pan · double-click to fit</translation>
+    </message>
+</context>
+<context>
+    <name>ImageView</name>
+    <message>
+        <source>Scroll to zoom · drag to pan · double-click to fit</source>
+        <translation>Scroll to zoom · drag to pan · double-click to fit</translation>
+    </message>
+</context>
+<context>
+    <name>InstallNamePatternsView</name>
+    <message>
+        <source>Install-name rules</source>
+        <translation>Install-name rules</translation>
+    </message>
+    <message>
+        <source>Rules are applied in order to a downloaded archive's filename (without extension) to work out the mod name. The built-in rules for the known Nexus / mod.io download formats are shown below and can be edited or reset to their defaults; add your own to adapt to a new format without waiting for an update. Each rule runs a regular-expression search/replace; use \1, \2 … to keep captured groups.</source>
+        <translation>Rules are applied in order to a downloaded archive's filename (without extension) to work out the mod name. The built-in rules for the known Nexus / mod.io download formats are shown below and can be edited or reset to their defaults; add your own to adapt to a new format without waiting for an update. Each rule runs a regular-expression search/replace; use \1, \2 … to keep captured groups.</translation>
+    </message>
+    <message>
+        <source>Rules</source>
+        <translation>Rules</translation>
+    </message>
+    <message>
+        <source>Built-in rules</source>
+        <translation>Built-in rules</translation>
+    </message>
+    <message>
+        <source>Custom rules</source>
+        <translation>Custom rules</translation>
+    </message>
+    <message>
+        <source>No rules yet — add one below.</source>
+        <translation>No rules yet — add one below.</translation>
+    </message>
+    <message>
+        <source>Add rule</source>
+        <translation>Add rule</translation>
+    </message>
+    <message>
+        <source>Restore defaults</source>
+        <translation>Restore defaults</translation>
+    </message>
+    <message>
+        <source>Reset the built-in rules to their defaults and re-add any that were removed. Your own custom rules are kept.</source>
+        <translation>Reset the built-in rules to their defaults and re-add any that were removed. Your own custom rules are kept.</translation>
+    </message>
+    <message>
+        <source>Test</source>
+        <translation>Test</translation>
+    </message>
+    <message>
+        <source>Paste a downloaded filename to see the resulting mod name.</source>
+        <translation>Paste a downloaded filename to see the resulting mod name.</translation>
+    </message>
+    <message>
+        <source>Failed to save rules: {0}</source>
+        <translation>Failed to save rules: {0}</translation>
+    </message>
+    <message>
+        <source>Result: {0}   (a rule has an invalid regex — skipped)</source>
+        <translation>Result: {0}   (a rule has an invalid regex — skipped)</translation>
+    </message>
+    <message>
+        <source>Result: {0}</source>
+        <translation>Result: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>LauncherSettingsOverlay</name>
+    <message>
+        <source>Launch settings — {0}</source>
+        <translation>Launch settings — {0}</translation>
+    </message>
+    <message>
+        <source>Launch via</source>
+        <translation>Launch via</translation>
+    </message>
+    <message>
+        <source>Auto detects Steam/Heroic ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</source>
+        <translation>Auto detects Steam/Heroic ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</translation>
+    </message>
+    <message>
+        <source>Deploy mods before launching</source>
+        <translation>Deploy mods before launching</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+</context>
+<context>
+    <name>ListPickerOverlay</name>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>MSCLoaderView</name>
+    <message>
+        <source>Step 4: Create MSCFolder.txt</source>
+        <translation>Step 4: Create MSCFolder.txt</translation>
+    </message>
+    <message>
+        <source>Writing MSCFolder.txt…</source>
+        <translation>Writing MSCFolder.txt…</translation>
+    </message>
+</context>
+<context>
+    <name>MainWindow</name>
+    <message>
+        <source>Amethyst Mod Manager - v{0}</source>
+        <translation>Amethyst Mod Manager - v{0}</translation>
+    </message>
+    <message>
+        <source>Amethyst Mod Manager</source>
+        <translation>Amethyst Mod Manager</translation>
+    </message>
+    <message>
+        <source>Mods</source>
+        <translation>Mods</translation>
+    </message>
+    <message>
+        <source>Add game</source>
+        <translation>Add game</translation>
+    </message>
+    <message>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>Saved</source>
+        <translation>Saved</translation>
+    </message>
+    <message>
+        <source>Expand all</source>
+        <translation>Expand all</translation>
+    </message>
+    <message>
+        <source>Enable all</source>
+        <translation>Enable all</translation>
+    </message>
+    <message>
+        <source>Check Updates</source>
+        <translation>Check Updates</translation>
+    </message>
+    <message>
+        <source>Filters</source>
+        <translation>Filters</translation>
+    </message>
+    <message>
+        <source>Restore backup</source>
+        <translation>Restore backup</translation>
+    </message>
+    <message>
+        <source>Refresh Modlist</source>
+        <translation>Refresh Modlist</translation>
+    </message>
+    <message>
+        <source>Sort Plugins</source>
+        <translation>Sort Plugins</translation>
+    </message>
+    <message>
+        <source>Groups</source>
+        <translation>Groups</translation>
+    </message>
+    <message>
+        <source>Plugin Rules</source>
+        <translation>Plugin Rules</translation>
+    </message>
+    <message>
+        <source>Search plugins…</source>
+        <translation>Search plugins…</translation>
+    </message>
+    <message>
+        <source>Pack BSA</source>
+        <translation>Pack BSA</translation>
+    </message>
+    <message>
+        <source>Unpack BSA</source>
+        <translation>Unpack BSA</translation>
+    </message>
+    <message>
+        <source>⊞ Expand all</source>
+        <translation>⊞ Expand all</translation>
+    </message>
+    <message>
+        <source>⊟ Collapse all</source>
+        <translation>⊟ Collapse all</translation>
+    </message>
+    <message>
+        <source>Install Selected</source>
+        <translation>Install Selected</translation>
+    </message>
+    <message>
+        <source>Move Selected</source>
+        <translation>Move Selected</translation>
+    </message>
+    <message>
+        <source>Remove Selected</source>
+        <translation>Remove Selected</translation>
+    </message>
+    <message>
+        <source>Locations</source>
+        <translation>Locations</translation>
+    </message>
+    <message>
+        <source>Search downloads…</source>
+        <translation>Search downloads…</translation>
+    </message>
+    <message>
+        <source>{0} ({1})</source>
+        <translation>{0} ({1})</translation>
+    </message>
+    <message>
+        <source>Removed {0} archive(s)</source>
+        <translation>Removed {0} archive(s)</translation>
+    </message>
+    <message>
+        <source>Cannot use that folder: {0}</source>
+        <translation>Cannot use that folder: {0}</translation>
+    </message>
+    <message>
+        <source>Moved {0} archive(s)</source>
+        <translation>Moved {0} archive(s)</translation>
+    </message>
+    <message>
+        <source>Find in files:</source>
+        <translation>Find in files:</translation>
+    </message>
+    <message>
+        <source>Text to search for…</source>
+        <translation>Text to search for…</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>Search</translation>
+    </message>
+    <message>
+        <source>Search Content</source>
+        <translation>Search Content</translation>
+    </message>
+    <message>
+        <source>Content: "{0}"</source>
+        <translation>Content: "{0}"</translation>
+    </message>
+    <message>
+        <source>Clear Content</source>
+        <translation>Clear Content</translation>
+    </message>
+    <message>
+        <source>Add game…</source>
+        <translation>Add game…</translation>
+    </message>
+    <message>
+        <source>Configure game…</source>
+        <translation>Configure game…</translation>
+    </message>
+    <message>
+        <source>Define custom game…</source>
+        <translation>Define custom game…</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation>Open</translation>
+    </message>
+    <message>
+        <source>Game folder</source>
+        <translation>Game folder</translation>
+    </message>
+    <message>
+        <source>Prefix folder</source>
+        <translation>Prefix folder</translation>
+    </message>
+    <message>
+        <source>My Games folder</source>
+        <translation>My Games folder</translation>
+    </message>
+    <message>
+        <source>AppData folder</source>
+        <translation>AppData folder</translation>
+    </message>
+    <message>
+        <source>Staging folder</source>
+        <translation>Staging folder</translation>
+    </message>
+    <message>
+        <source>Profile folder</source>
+        <translation>Profile folder</translation>
+    </message>
+    <message>
+        <source>.config folder</source>
+        <translation>.config folder</translation>
+    </message>
+    <message>
+        <source>Profile: </source>
+        <translation>Profile: </translation>
+    </message>
+    <message>
+        <source>Add new profile…</source>
+        <translation>Add new profile…</translation>
+    </message>
+    <message>
+        <source>Profile settings…</source>
+        <translation>Profile settings…</translation>
+    </message>
+    <message>
+        <source>Export profile…</source>
+        <translation>Export profile…</translation>
+    </message>
+    <message>
+        <source>Import profile…</source>
+        <translation>Import profile…</translation>
+    </message>
+    <message>
+        <source>Install Mod</source>
+        <translation>Install Mod</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>Restore</translation>
+    </message>
+    <message>
+        <source>Proton</source>
+        <translation>Proton</translation>
+    </message>
+    <message>
+        <source>Run winecfg</source>
+        <translation>Run winecfg</translation>
+    </message>
+    <message>
+        <source>Run winetricks</source>
+        <translation>Run winetricks</translation>
+    </message>
+    <message>
+        <source>Run an .exe in this prefix…</source>
+        <translation>Run an .exe in this prefix…</translation>
+    </message>
+    <message>
+        <source>Open wine registry</source>
+        <translation>Open wine registry</translation>
+    </message>
+    <message>
+        <source>Wine DLL overrides</source>
+        <translation>Wine DLL overrides</translation>
+    </message>
+    <message>
+        <source>Install VC++ Redistributable</source>
+        <translation>Install VC++ Redistributable</translation>
+    </message>
+    <message>
+        <source>Install d3dcompiler_47</source>
+        <translation>Install d3dcompiler_47</translation>
+    </message>
+    <message>
+        <source>.NET runtime</source>
+        <translation>.NET runtime</translation>
+    </message>
+    <message>
+        <source>.NET {0}</source>
+        <translation>.NET {0}</translation>
+    </message>
+    <message>
+        <source>Wizard</source>
+        <translation>Wizard</translation>
+    </message>
+    <message>
+        <source>Nexus</source>
+        <translation>Nexus</translation>
+    </message>
+    <message>
+        <source>Open Nexus Mods</source>
+        <translation>Open Nexus Mods</translation>
+    </message>
+    <message>
+        <source>Open game on nexus</source>
+        <translation>Open game on nexus</translation>
+    </message>
+    <message>
+        <source>Login to Nexus</source>
+        <translation>Login to Nexus</translation>
+    </message>
+    <message>
+        <source>Login via SSO</source>
+        <translation>Login via SSO</translation>
+    </message>
+    <message>
+        <source>Paste login code…</source>
+        <translation>Paste login code…</translation>
+    </message>
+    <message>
+        <source>Clear credentials</source>
+        <translation>Clear credentials</translation>
+    </message>
+    <message>
+        <source>Collections</source>
+        <translation>Collections</translation>
+    </message>
+    <message>
+        <source>Browse collections…</source>
+        <translation>Browse collections…</translation>
+    </message>
+    <message>
+        <source>Open current collection</source>
+        <translation>Open current collection</translation>
+    </message>
+    <message>
+        <source>Reset load order</source>
+        <translation>Reset load order</translation>
+    </message>
+    <message>
+        <source>Define custom game</source>
+        <translation>Define custom game</translation>
+    </message>
+    <message>
+        <source>Restart to change language?</source>
+        <translation>Restart to change language?</translation>
+    </message>
+    <message>
+        <source>The language change takes effect after a restart. Restart now?</source>
+        <translation>The language change takes effect after a restart. Restart now?</translation>
+    </message>
+    <message>
+        <source>Restart now</source>
+        <translation>Restart now</translation>
+    </message>
+    <message>
+        <source>Install-name Rules</source>
+        <translation>Install-name Rules</translation>
+    </message>
+    <message>
+        <source>Theme Editor</source>
+        <translation>Theme Editor</translation>
+    </message>
+    <message>
+        <source>Search mods… (try !update, !fomod, !.dds)</source>
+        <translation>Search mods… (try !update, !fomod, !.dds)</translation>
+    </message>
+    <message>
+        <source>Search files… (try !.dds)</source>
+        <translation>Search files… (try !.dds)</translation>
+    </message>
+    <message>
+        <source>Edit custom game…</source>
+        <translation>Edit custom game…</translation>
+    </message>
+    <message>
+        <source>Edit custom game</source>
+        <translation>Edit custom game</translation>
+    </message>
+    <message>
+        <source>Restart to change UI scale?</source>
+        <translation>Restart to change UI scale?</translation>
+    </message>
+    <message>
+        <source>The UI scale change takes effect after a restart. Restart now?</source>
+        <translation>The UI scale change takes effect after a restart. Restart now?</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <source>Restart to change theme?</source>
+        <translation>Restart to change theme?</translation>
+    </message>
+    <message>
+        <source>The theme change takes effect after a restart. Restart now?</source>
+        <translation>The theme change takes effect after a restart. Restart now?</translation>
+    </message>
+    <message>
+        <source>Syncing language files…</source>
+        <translation>Syncing language files…</translation>
+    </message>
+    <message>
+        <source>Language files updated — restart to apply.</source>
+        <translation>Language files updated — restart to apply.</translation>
+    </message>
+    <message>
+        <source>Welcome</source>
+        <translation>Welcome</translation>
+    </message>
+    <message>
+        <source>Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.</source>
+        <translation>Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO.</translation>
+    </message>
+    <message>
+        <source>Received a malformed NXM link.</source>
+        <translation>Received a malformed NXM link.</translation>
+    </message>
+    <message>
+        <source>Downloading mod from Nexus…</source>
+        <translation>Downloading mod from Nexus…</translation>
+    </message>
+    <message>
+        <source>Nexus download failed — {0}</source>
+        <translation>Nexus download failed — {0}</translation>
+    </message>
+    <message>
+        <source>Downloaded — no game selected; see Downloads tab.</source>
+        <translation>Downloaded — no game selected; see Downloads tab.</translation>
+    </message>
+    <message>
+        <source>No configured game for Nexus domain '{0}'.</source>
+        <translation>No configured game for Nexus domain '{0}'.</translation>
+    </message>
+    <message>
+        <source>Collections aren't supported for '{0}'.</source>
+        <translation>Collections aren't supported for '{0}'.</translation>
+    </message>
+    <message>
+        <source>No configured game selected.</source>
+        <translation>No configured game selected.</translation>
+    </message>
+    <message>
+        <source>'{0}' has no Nexus Mods page.</source>
+        <translation>'{0}' has no Nexus Mods page.</translation>
+    </message>
+    <message>
+        <source>A deploy or removal is already running — try again when it finishes.</source>
+        <translation>A deploy or removal is already running — try again when it finishes.</translation>
+    </message>
+    <message>
+        <source>A collection install is running — try again when it finishes.</source>
+        <translation>A collection install is running — try again when it finishes.</translation>
+    </message>
+    <message>
+        <source>Remove '{0}' and its {1} mod(s) from this profile?
+
+Their files are deleted from the staging folder — this cannot be undone.</source>
+        <translation>Remove '{0}' and its {1} mod(s) from this profile?
+
+Their files are deleted from the staging folder — this cannot be undone.</translation>
+    </message>
+    <message>
+        <source>No installed mods from '{0}' were found in this profile.
+
+Remove the appended-collection entry?</source>
+        <translation>No installed mods from '{0}' were found in this profile.
+
+Remove the appended-collection entry?</translation>
+    </message>
+    <message>
+        <source>Remove appended collection</source>
+        <translation>Remove appended collection</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>Removed appended collection '{0}'.</source>
+        <translation>Removed appended collection '{0}'.</translation>
+    </message>
+    <message>
+        <source>Could not remove '{0}' — see the log.</source>
+        <translation>Could not remove '{0}' — see the log.</translation>
+    </message>
+    <message>
+        <source>The active profile isn't a collection profile.</source>
+        <translation>The active profile isn't a collection profile.</translation>
+    </message>
+    <message>
+        <source>Couldn't read the collection from this profile.</source>
+        <translation>Couldn't read the collection from this profile.</translation>
+    </message>
+    <message>
+        <source>A collection install is already running.</source>
+        <translation>A collection install is already running.</translation>
+    </message>
+    <message>
+        <source>Log in first: Nexus ▸ Login to Nexus.</source>
+        <translation>Log in first: Nexus ▸ Login to Nexus.</translation>
+    </message>
+    <message>
+        <source>This collection has no installable mods.</source>
+        <translation>This collection has no installable mods.</translation>
+    </message>
+    <message>
+        <source>Checking Nexus account…</source>
+        <translation>Checking Nexus account…</translation>
+    </message>
+    <message>
+        <source>Collection install cancelled.</source>
+        <translation>Collection install cancelled.</translation>
+    </message>
+    <message>
+        <source>Could not find the paused profile.</source>
+        <translation>Could not find the paused profile.</translation>
+    </message>
+    <message>
+        <source>Could not find the installed collection profile.</source>
+        <translation>Could not find the installed collection profile.</translation>
+    </message>
+    <message>
+        <source>Switch to profile '{0}' first, then Update.</source>
+        <translation>Switch to profile '{0}' first, then Update.</translation>
+    </message>
+    <message>
+        <source>Could not compute update diff: {0}</source>
+        <translation>Could not compute update diff: {0}</translation>
+    </message>
+    <message>
+        <source>Collection update cancelled.</source>
+        <translation>Collection update cancelled.</translation>
+    </message>
+    <message>
+        <source>Update failed during removal: {0}</source>
+        <translation>Update failed during removal: {0}</translation>
+    </message>
+    <message>
+        <source>Could not create profile: {0}</source>
+        <translation>Could not create profile: {0}</translation>
+    </message>
+    <message>
+        <source>Profile '{0}' not found.</source>
+        <translation>Profile '{0}' not found.</translation>
+    </message>
+    <message>
+        <source>Install: {0}</source>
+        <translation>Install: {0}</translation>
+    </message>
+    <message>
+        <source>Nexus Premium not detected — manual download mode.</source>
+        <translation>Nexus Premium not detected — manual download mode.</translation>
+    </message>
+    <message>
+        <source>Install paused — {0} mod(s) installed.</source>
+        <translation>Install paused — {0} mod(s) installed.</translation>
+    </message>
+    <message>
+        <source>A load-order reset is already running.</source>
+        <translation>A load-order reset is already running.</translation>
+    </message>
+    <message>
+        <source>Resetting collection load order…</source>
+        <translation>Resetting collection load order…</translation>
+    </message>
+    <message>
+        <source>Load order reset failed: {0}</source>
+        <translation>Load order reset failed: {0}</translation>
+    </message>
+    <message>
+        <source>Nexus login is unavailable in this build.</source>
+        <translation>Nexus login is unavailable in this build.</translation>
+    </message>
+    <message>
+        <source>A Nexus login is already in progress.</source>
+        <translation>A Nexus login is already in progress.</translation>
+    </message>
+    <message>
+        <source>Opening browser to log in to Nexus Mods…</source>
+        <translation>Opening browser to log in to Nexus Mods…</translation>
+    </message>
+    <message>
+        <source>Start 'Login via SSO' first, then paste the code.</source>
+        <translation>Start 'Login via SSO' first, then paste the code.</translation>
+    </message>
+    <message>
+        <source>The login session has ended — start 'Login via SSO' again.</source>
+        <translation>The login session has ended — start 'Login via SSO' again.</translation>
+    </message>
+    <message>
+        <source>Nexus credentials cleared.</source>
+        <translation>Nexus credentials cleared.</translation>
+    </message>
+    <message>
+        <source>NXM handler unregistered.</source>
+        <translation>NXM handler unregistered.</translation>
+    </message>
+    <message>
+        <source>NXM handler registered.</source>
+        <translation>NXM handler registered.</translation>
+    </message>
+    <message>
+        <source>Failed to register — xdg-mime not found?</source>
+        <translation>Failed to register — xdg-mime not found?</translation>
+    </message>
+    <message>
+        <source>NXM handler error: {0}</source>
+        <translation>NXM handler error: {0}</translation>
+    </message>
+    <message>
+        <source>Nexus login failed: {0}</source>
+        <translation>Nexus login failed: {0}</translation>
+    </message>
+    <message>
+        <source>Logged in to Nexus Mods.</source>
+        <translation>Logged in to Nexus Mods.</translation>
+    </message>
+    <message>
+        <source>An update check is already running.</source>
+        <translation>An update check is already running.</translation>
+    </message>
+    <message>
+        <source>Log in to Nexus (Nexus ▸ Login) or set a mod.io API key (mod.io API Key tool) to check for updates.</source>
+        <translation>Log in to Nexus (Nexus ▸ Login) or set a mod.io API key (mod.io API Key tool) to check for updates.</translation>
+    </message>
+    <message>
+        <source>No mod staging folder for this profile.</source>
+        <translation>No mod staging folder for this profile.</translation>
+    </message>
+    <message>
+        <source>Checking…</source>
+        <translation>Checking…</translation>
+    </message>
+    <message>
+        <source>Checking for updates ({0})…</source>
+        <translation>Checking for updates ({0})…</translation>
+    </message>
+    <message>
+        <source>Update check failed — see the log.</source>
+        <translation>Update check failed — see the log.</translation>
+    </message>
+    <message>
+        <source>All mods are up to date.</source>
+        <translation>All mods are up to date.</translation>
+    </message>
+    <message>
+        <source>An install is already in progress.</source>
+        <translation>An install is already in progress.</translation>
+    </message>
+    <message>
+        <source>No install archive found for the selected mod(s).</source>
+        <translation>No install archive found for the selected mod(s).</translation>
+    </message>
+    <message>
+        <source>Reinstalling {0} mod(s); {1} skipped (no archive found).</source>
+        <translation>Reinstalling {0} mod(s); {1} skipped (no archive found).</translation>
+    </message>
+    <message>
+        <source>A Quick Update is already running.</source>
+        <translation>A Quick Update is already running.</translation>
+    </message>
+    <message>
+        <source>No mods with a pending update to quick-update.</source>
+        <translation>No mods with a pending update to quick-update.</translation>
+    </message>
+    <message>
+        <source>Quick Update — checking {0} mod(s)…</source>
+        <translation>Quick Update — checking {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Quick Update — downloading {0} mod(s)…</source>
+        <translation>Quick Update — downloading {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Downloading {0} mod(s)…</source>
+        <translation>Downloading {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Quick Update</source>
+        <translation>Quick Update</translation>
+    </message>
+    <message>
+        <source>Quick Update: updated {0} mod(s)</source>
+        <translation>Quick Update: updated {0} mod(s)</translation>
+    </message>
+    <message>
+        <source>Quick Update: nothing to update.</source>
+        <translation>Quick Update: nothing to update.</translation>
+    </message>
+    <message>
+        <source>No profile selected.</source>
+        <translation>No profile selected.</translation>
+    </message>
+    <message>
+        <source>'{0}' isn't a Nexus mod.</source>
+        <translation>'{0}' isn't a Nexus mod.</translation>
+    </message>
+    <message>
+        <source>Change Version</source>
+        <translation>Change Version</translation>
+    </message>
+    <message>
+        <source>'{0}' has no bundle configuration.</source>
+        <translation>'{0}' has no bundle configuration.</translation>
+    </message>
+    <message>
+        <source>Bundle: {0}</source>
+        <translation>Bundle: {0}</translation>
+    </message>
+    <message>
+        <source>Could not update bundle: {0}</source>
+        <translation>Could not update bundle: {0}</translation>
+    </message>
+    <message>
+        <source>Updated bundle: {0}</source>
+        <translation>Updated bundle: {0}</translation>
+    </message>
+    <message>
+        <source>Separator Settings</source>
+        <translation>Separator Settings</translation>
+    </message>
+    <message>
+        <source>No missing requirements.</source>
+        <translation>No missing requirements.</translation>
+    </message>
+    <message>
+        <source>Missing Requirements</source>
+        <translation>Missing Requirements</translation>
+    </message>
+    <message>
+        <source>Conflicts: {0}</source>
+        <translation>Conflicts: {0}</translation>
+    </message>
+    <message>
+        <source>Endorsing {0} mod(s)…</source>
+        <translation>Endorsing {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Abstaining from {0} mod(s)…</source>
+        <translation>Abstaining from {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Endorsed {0} mod(s).</source>
+        <translation>Endorsed {0} mod(s).</translation>
+    </message>
+    <message>
+        <source>Abstained from {0} mod(s).</source>
+        <translation>Abstained from {0} mod(s).</translation>
+    </message>
+    <message>
+        <source>No mods were updated (already in that state or no Nexus id).</source>
+        <translation>No mods were updated (already in that state or no Nexus id).</translation>
+    </message>
+    <message>
+        <source>Could not resolve target profile: {0}</source>
+        <translation>Could not resolve target profile: {0}</translation>
+    </message>
+    <message>
+        <source>Copy cancelled.</source>
+        <translation>Copy cancelled.</translation>
+    </message>
+    <message>
+        <source>All selected mods already exist there.</source>
+        <translation>All selected mods already exist there.</translation>
+    </message>
+    <message>
+        <source>A copy/move is already in progress.</source>
+        <translation>A copy/move is already in progress.</translation>
+    </message>
+    <message>
+        <source>Moving</source>
+        <translation>Moving</translation>
+    </message>
+    <message>
+        <source>Copying</source>
+        <translation>Copying</translation>
+    </message>
+    <message>
+        <source>Moving {0} mod(s) to '{1}'…</source>
+        <translation>Moving {0} mod(s) to '{1}'…</translation>
+    </message>
+    <message>
+        <source>Copying {0} mod(s) to '{1}'…</source>
+        <translation>Copying {0} mod(s) to '{1}'…</translation>
+    </message>
+    <message>
+        <source>Moved {0}/{1} mod(s) to '{2}'.</source>
+        <translation>Moved {0}/{1} mod(s) to '{2}'.</translation>
+    </message>
+    <message>
+        <source>Copied {0}/{1} mod(s) to '{2}'.</source>
+        <translation>Copied {0}/{1} mod(s) to '{2}'.</translation>
+    </message>
+    <message>
+        <source>Downloading {0}…</source>
+        <translation>Downloading {0}…</translation>
+    </message>
+    <message>
+        <source>Downloading…</source>
+        <translation>Downloading…</translation>
+    </message>
+    <message>
+        <source>Downloading {0} files ({1} remaining)…</source>
+        <translation>Downloading {0} files ({1} remaining)…</translation>
+    </message>
+    <message>
+        <source>Nexus Download</source>
+        <translation>Nexus Download</translation>
+    </message>
+    <message>
+        <source>Log in to Nexus first.</source>
+        <translation>Log in to Nexus first.</translation>
+    </message>
+    <message>
+        <source>That requirement has no Nexus mod page.</source>
+        <translation>That requirement has no Nexus mod page.</translation>
+    </message>
+    <message>
+        <source>No downloadable files for that mod.</source>
+        <translation>No downloadable files for that mod.</translation>
+    </message>
+    <message>
+        <source>{0} game — {1}</source>
+        <translation>{0} game — {1}</translation>
+    </message>
+    <message>
+        <source>{0} game</source>
+        <translation>{0} game</translation>
+    </message>
+    <message>
+        <source>No game selected.</source>
+        <translation>No game selected.</translation>
+    </message>
+    <message>
+        <source>Export Profile</source>
+        <translation>Export Profile</translation>
+    </message>
+    <message>
+        <source>Could not read manifest: {0}</source>
+        <translation>Could not read manifest: {0}</translation>
+    </message>
+    <message>
+        <source>That file doesn't look like an Amethyst manifest.</source>
+        <translation>That file doesn't look like an Amethyst manifest.</translation>
+    </message>
+    <message>
+        <source>This profile targets '{0}', but the selected game is '{1}'. Switch games first, then import.</source>
+        <translation>This profile targets '{0}', but the selected game is '{1}'. Switch games first, then import.</translation>
+    </message>
+    <message>
+        <source>Import: {0}</source>
+        <translation>Import: {0}</translation>
+    </message>
+    <message>
+        <source>Could not build share code.</source>
+        <translation>Could not build share code.</translation>
+    </message>
+    <message>
+        <source>No active profile to export.</source>
+        <translation>No active profile to export.</translation>
+    </message>
+    <message>
+        <source>No mods with a Nexus mod + file ID to share.</source>
+        <translation>No mods with a Nexus mod + file ID to share.</translation>
+    </message>
+    <message>
+        <source>Could not read code: {0}</source>
+        <translation>Could not read code: {0}</translation>
+    </message>
+    <message>
+        <source>Profile Settings</source>
+        <translation>Profile Settings</translation>
+    </message>
+    <message>
+        <source>Profile '{0}' already exists.</source>
+        <translation>Profile '{0}' already exists.</translation>
+    </message>
+    <message>
+        <source>Profile '{0}' created</source>
+        <translation>Profile '{0}' created</translation>
+    </message>
+    <message>
+        <source>▶  Play</source>
+        <translation>▶  Play</translation>
+    </message>
+    <message>
+        <source>▶  Run</source>
+        <translation>▶  Run</translation>
+    </message>
+    <message>
+        <source>Executable not found: {0}</source>
+        <translation>Executable not found: {0}</translation>
+    </message>
+    <message>
+        <source>Configure: {0}</source>
+        <translation>Configure: {0}</translation>
+    </message>
+    <message>
+        <source>'{0}' does not support deployment.</source>
+        <translation>'{0}' does not support deployment.</translation>
+    </message>
+    <message>
+        <source>Deploying {0}…</source>
+        <translation>Deploying {0}…</translation>
+    </message>
+    <message>
+        <source>A deploy is in progress — try again shortly.</source>
+        <translation>A deploy is in progress — try again shortly.</translation>
+    </message>
+    <message>
+        <source>Restoring {0}…</source>
+        <translation>Restoring {0}…</translation>
+    </message>
+    <message>
+        <source>Game</source>
+        <translation>Game</translation>
+    </message>
+    <message>
+        <source>{0} Deployed</source>
+        <translation>{0} Deployed</translation>
+    </message>
+    <message>
+        <source>{0} Restored</source>
+        <translation>{0} Restored</translation>
+    </message>
+    <message>
+        <source>Deploy failed — see log.</source>
+        <translation>Deploy failed — see log.</translation>
+    </message>
+    <message>
+        <source>Restore failed — see log.</source>
+        <translation>Restore failed — see log.</translation>
+    </message>
+    <message>
+        <source>{0} is not configured for this game.</source>
+        <translation>{0} is not configured for this game.</translation>
+    </message>
+    <message>
+        <source>{0} not found ({1}).</source>
+        <translation>{0} not found ({1}).</translation>
+    </message>
+    <message>
+        <source>Profile INI files folder</source>
+        <translation>Profile INI files folder</translation>
+    </message>
+    <message>
+        <source>Profile saves folder</source>
+        <translation>Profile saves folder</translation>
+    </message>
+    <message>
+        <source>Remove current profile…</source>
+        <translation>Remove current profile…</translation>
+    </message>
+    <message>
+        <source>Quick configure</source>
+        <translation>Quick configure</translation>
+    </message>
+    <message>
+        <source>Export code…</source>
+        <translation>Export code…</translation>
+    </message>
+    <message>
+        <source>Import code…</source>
+        <translation>Import code…</translation>
+    </message>
+    <message>
+        <source>Cannot change the deploy method while mods are deployed. Restore first.</source>
+        <translation>Cannot change the deploy method while mods are deployed. Restore first.</translation>
+    </message>
+    <message>
+        <source>Could not change {0}.</source>
+        <translation>Could not change {0}.</translation>
+    </message>
+    <message>
+        <source>Setting saved.</source>
+        <translation>Setting saved.</translation>
+    </message>
+    <message>
+        <source>Launching winetricks…</source>
+        <translation>Launching winetricks…</translation>
+    </message>
+    <message>
+        <source>A Proton installer is already running.</source>
+        <translation>A Proton installer is already running.</translation>
+    </message>
+    <message>
+        <source>{0}…</source>
+        <translation>{0}…</translation>
+    </message>
+    <message>
+        <source>{0} — done.</source>
+        <translation>{0} — done.</translation>
+    </message>
+    <message>
+        <source>{0} — failed (see log).</source>
+        <translation>{0} — failed (see log).</translation>
+    </message>
+    <message>
+        <source>No game selected</source>
+        <translation>No game selected</translation>
+    </message>
+    <message>
+        <source>No wizard tools for this game</source>
+        <translation>No wizard tools for this game</translation>
+    </message>
+    <message>
+        <source>★ Favourites</source>
+        <translation>★ Favourites</translation>
+    </message>
+    <message>
+        <source>Add Favourites…</source>
+        <translation>Add Favourites…</translation>
+    </message>
+    <message>
+        <source>Choose which wizard tools appear at the top of this menu for quick access.</source>
+        <translation>Choose which wizard tools appear at the top of this menu for quick access.</translation>
+    </message>
+    <message>
+        <source>Manage Prefixes…</source>
+        <translation>Manage Prefixes…</translation>
+    </message>
+    <message>
+        <source>Browse every wizard-tool Wine prefix and delete them to reclaim disk space.</source>
+        <translation>Browse every wizard-tool Wine prefix and delete them to reclaim disk space.</translation>
+    </message>
+    <message>
+        <source>Manage Prefixes</source>
+        <translation>Manage Prefixes</translation>
+    </message>
+    <message>
+        <source>No active profile.</source>
+        <translation>No active profile.</translation>
+    </message>
+    <message>
+        <source>Installing {0} mod(s)…</source>
+        <translation>Installing {0} mod(s)…</translation>
+    </message>
+    <message>
+        <source>Installing {0}…</source>
+        <translation>Installing {0}…</translation>
+    </message>
+    <message>
+        <source>Cyber Engine Tweaks requires Hardlink mode</source>
+        <translation>Cyber Engine Tweaks requires Hardlink mode</translation>
+    </message>
+    <message>
+        <source>Deploy anyway</source>
+        <translation>Deploy anyway</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Install cancelled: {0}</source>
+        <translation>Install cancelled: {0}</translation>
+    </message>
+    <message>
+        <source>Replace failed: {0}</source>
+        <translation>Replace failed: {0}</translation>
+    </message>
+    <message>
+        <source>Rename failed: {0}</source>
+        <translation>Rename failed: {0}</translation>
+    </message>
+    <message>
+        <source>Renamed to '{0}'.</source>
+        <translation>Renamed to '{0}'.</translation>
+    </message>
+    <message>
+        <source>Installed {0}</source>
+        <translation>Installed {0}</translation>
+    </message>
+    <message>
+        <source>Installed {0} mods</source>
+        <translation>Installed {0} mods</translation>
+    </message>
+    <message>
+        <source>Installed {0} of {1} mods — see log for failures.</source>
+        <translation>Installed {0} of {1} mods — see log for failures.</translation>
+    </message>
+    <message>
+        <source>Install failed — see log.</source>
+        <translation>Install failed — see log.</translation>
+    </message>
+    <message>
+        <source>Pack {0}</source>
+        <translation>Pack {0}</translation>
+    </message>
+    <message>
+        <source>Unpack {0}</source>
+        <translation>Unpack {0}</translation>
+    </message>
+    <message>
+        <source>An archive operation is already running.</source>
+        <translation>An archive operation is already running.</translation>
+    </message>
+    <message>
+        <source>Mod folder not found.</source>
+        <translation>Mod folder not found.</translation>
+    </message>
+    <message>
+        <source>Profile is deployed — run Restore first, then pack the {0}.</source>
+        <translation>Profile is deployed — run Restore first, then pack the {0}.</translation>
+    </message>
+    <message>
+        <source>Packing {0}…</source>
+        <translation>Packing {0}…</translation>
+    </message>
+    <message>
+        <source>Profile is deployed — run Restore first, then unpack.</source>
+        <translation>Profile is deployed — run Restore first, then unpack.</translation>
+    </message>
+    <message>
+        <source>Unpacking {0} archive(s)…</source>
+        <translation>Unpacking {0} archive(s)…</translation>
+    </message>
+    <message>
+        <source>Cancelled.</source>
+        <translation>Cancelled.</translation>
+    </message>
+    <message>
+        <source>{0} failed: {1}</source>
+        <translation>{0} failed: {1}</translation>
+    </message>
+    <message>
+        <source>Packed {0}{1}{2}</source>
+        <translation>Packed {0}{1}{2}</translation>
+    </message>
+    <message>
+        <source>Unpacked {0} file(s) from {1} archive(s)</source>
+        <translation>Unpacked {0} file(s) from {1} archive(s)</translation>
+    </message>
+    <message>
+        <source>All mods enabled</source>
+        <translation>All mods enabled</translation>
+    </message>
+    <message>
+        <source>All mods disabled</source>
+        <translation>All mods disabled</translation>
+    </message>
+    <message>
+        <source>Collapse all</source>
+        <translation>Collapse all</translation>
+    </message>
+    <message>
+        <source>Disable all</source>
+        <translation>Disable all</translation>
+    </message>
+    <message>
+        <source>Modlist refreshed</source>
+        <translation>Modlist refreshed</translation>
+    </message>
+    <message>
+        <source>Updates</source>
+        <translation>Updates</translation>
+    </message>
+    <message>
+        <source>Winning conflicts</source>
+        <translation>Winning conflicts</translation>
+    </message>
+    <message>
+        <source>Losing conflicts</source>
+        <translation>Losing conflicts</translation>
+    </message>
+    <message>
+        <source>Winning &amp; losing</source>
+        <translation>Winning &amp; losing</translation>
+    </message>
+    <message>
+        <source>Fully conflicted</source>
+        <translation>Fully conflicted</translation>
+    </message>
+    <message>
+        <source>FOMOD installs</source>
+        <translation>FOMOD installs</translation>
+    </message>
+    <message>
+        <source>BAIN installs</source>
+        <translation>BAIN installs</translation>
+    </message>
+    <message>
+        <source>Missing requirements</source>
+        <translation>Missing requirements</translation>
+    </message>
+    <message>
+        <source>Has notes</source>
+        <translation>Has notes</translation>
+    </message>
+    <message>
+        <source>Has plugins</source>
+        <translation>Has plugins</translation>
+    </message>
+    <message>
+        <source>Has BSA/BA2 archives</source>
+        <translation>Has BSA/BA2 archives</translation>
+    </message>
+    <message>
+        <source>PGPatcher textures</source>
+        <translation>PGPatcher textures</translation>
+    </message>
+    <message>
+        <source>Enabled / disabled</source>
+        <translation>Enabled / disabled</translation>
+    </message>
+    <message>
+        <source>By file type</source>
+        <translation>By file type</translation>
+    </message>
+    <message>
+        <source>By category</source>
+        <translation>By category</translation>
+    </message>
+    <message>
+        <source>Filter the modlist with search tags (combine them, and with text):</source>
+        <translation>Filter the modlist with search tags (combine them, and with text):</translation>
+    </message>
+    <message>
+        <source>Mods with BA2 archives</source>
+        <translation>Mods with BA2 archives</translation>
+    </message>
+    <message>
+        <source>Mods with BSA archives</source>
+        <translation>Mods with BSA archives</translation>
+    </message>
+    <message>
+        <source>{0} enabled of {1} mods</source>
+        <translation>{0} enabled of {1} mods</translation>
+    </message>
+    <message>
+        <source>{0} plugins ({1} ESL, {2} non-ESL)</source>
+        <translation>{0} plugins ({1} ESL, {2} non-ESL)</translation>
+    </message>
+    <message>
+        <source>Plugins</source>
+        <translation>Plugins</translation>
+    </message>
+    <message>
+        <source>No active profile — cannot configure groups.</source>
+        <translation>No active profile — cannot configure groups.</translation>
+    </message>
+    <message>
+        <source>install</source>
+        <translation>install</translation>
+    </message>
+    <message>
+        <source>deploy</source>
+        <translation>deploy</translation>
+    </message>
+    <message>
+        <source>Install queued — {0} will install after the current {1} finishes.</source>
+        <translation>Install queued — {0} will install after the current {1} finishes.</translation>
+    </message>
+    <message>
+        <source>Cyber Engine Tweaks is enabled, but cyber_engine_tweaks.asi will be symlinked.
+
+CET will not load from a symlinked asi. This happens when the deploy mode is Symlink, or when it is Hardlink but the game folder and mod staging folder are on different drives (hardlinks fall back to symlinks across drives).
+
+Use Hardlink mode with both folders on the same drive for CET to work.
+
+Deploy anyway?</source>
+        <translation>Cyber Engine Tweaks is enabled, but cyber_engine_tweaks.asi will be symlinked.
+
+CET will not load from a symlinked asi. This happens when the deploy mode is Symlink, or when it is Hardlink but the game folder and mod staging folder are on different drives (hardlinks fall back to symlinks across drives).
+
+Use Hardlink mode with both folders on the same drive for CET to work.
+
+Deploy anyway?</translation>
+    </message>
+    <message>
+        <source>LOOT Groups</source>
+        <translation>LOOT Groups</translation>
+    </message>
+    <message>
+        <source>No active profile — cannot configure plugin rules.</source>
+        <translation>No active profile — cannot configure plugin rules.</translation>
+    </message>
+    <message>
+        <source>LOOT Plugin Rules</source>
+        <translation>LOOT Plugin Rules</translation>
+    </message>
+    <message>
+        <source>{0} has no userlist rules to display.</source>
+        <translation>{0} has no userlist rules to display.</translation>
+    </message>
+    <message>
+        <source>Plugin Cycle</source>
+        <translation>Plugin Cycle</translation>
+    </message>
+    <message>
+        <source>userlist.yaml not found — cannot flip rule.</source>
+        <translation>userlist.yaml not found — cannot flip rule.</translation>
+    </message>
+    <message>
+        <source>Rule {0} '{1}' {2} not found in userlist.yaml.</source>
+        <translation>Rule {0} '{1}' {2} not found in userlist.yaml.</translation>
+    </message>
+    <message>
+        <source>Flipped: {0} now '{1}' {2}</source>
+        <translation>Flipped: {0} now '{1}' {2}</translation>
+    </message>
+    <message>
+        <source>No active profile — cannot edit userlist.</source>
+        <translation>No active profile — cannot edit userlist.</translation>
+    </message>
+    <message>
+        <source>No active profile — cannot assign group.</source>
+        <translation>No active profile — cannot assign group.</translation>
+    </message>
+    <message>
+        <source>Removed from userlist: {0} plugin(s)</source>
+        <translation>Removed from userlist: {0} plugin(s)</translation>
+    </message>
+    <message>
+        <source>LOOT library not available — cannot sort.</source>
+        <translation>LOOT library not available — cannot sort.</translation>
+    </message>
+    <message>
+        <source>LOOT sorting isn't supported for this game.</source>
+        <translation>LOOT sorting isn't supported for this game.</translation>
+    </message>
+    <message>
+        <source>No plugins to sort.</source>
+        <translation>No plugins to sort.</translation>
+    </message>
+    <message>
+        <source>A sort is already running.</source>
+        <translation>A sort is already running.</translation>
+    </message>
+    <message>
+        <source>Running LOOT on {0} plugins…</source>
+        <translation>Running LOOT on {0} plugins…</translation>
+    </message>
+    <message>
+        <source>LOOT sort failed — see log.</source>
+        <translation>LOOT sort failed — see log.</translation>
+    </message>
+    <message>
+        <source>Failed to write load order: {0}</source>
+        <translation>Failed to write load order: {0}</translation>
+    </message>
+    <message>
+        <source>Load order is already sorted.</source>
+        <translation>Load order is already sorted.</translation>
+    </message>
+    <message>
+        <source>Sorted — 1 plugin moved.</source>
+        <translation>Sorted — 1 plugin moved.</translation>
+    </message>
+    <message>
+        <source>Sorted — {0} plugins moved.</source>
+        <translation>Sorted — {0} plugins moved.</translation>
+    </message>
+    <message>
+        <source>+ Add custom EXE…</source>
+        <translation>+ Add custom EXE…</translation>
+    </message>
+    <message>
+        <source>Open application folder</source>
+        <translation>Open application folder</translation>
+    </message>
+    <message>
+        <source>Mod Files</source>
+        <translation>Mod Files</translation>
+    </message>
+    <message>
+        <source>Text Files</source>
+        <translation>Text Files</translation>
+    </message>
+    <message>
+        <source>Data</source>
+        <translation>Data</translation>
+    </message>
+    <message>
+        <source>Downloads</source>
+        <translation>Downloads</translation>
+    </message>
+    <message>
+        <source>Log</source>
+        <translation>Log</translation>
+    </message>
+    <message>
+        <source>● Errors</source>
+        <translation>● Errors</translation>
+    </message>
+    <message>
+        <source>● Warnings</source>
+        <translation>● Warnings</translation>
+    </message>
+    <message>
+        <source>Open as tab</source>
+        <translation>Open as tab</translation>
+    </message>
+    <message>
+        <source>Clear Log</source>
+        <translation>Clear Log</translation>
+    </message>
+    <message>
+        <source>Open Log Folder</source>
+        <translation>Open Log Folder</translation>
+    </message>
+    <message>
+        <source>Changelog</source>
+        <translation>Changelog</translation>
+    </message>
+    <message>
+        <source>Github</source>
+        <translation>Github</translation>
+    </message>
+    <message>
+        <source>Ko-Fi</source>
+        <translation>Ko-Fi</translation>
+    </message>
+    <message>
+        <source>♥ Endorse AMM</source>
+        <translation>♥ Endorse AMM</translation>
+    </message>
+    <message>
+        <source>Could not read the changelog:
+{0}</source>
+        <translation>Could not read the changelog:
+{0}</translation>
+    </message>
+    <message>
+        <source>Changelog file not found.</source>
+        <translation>Changelog file not found.</translation>
+    </message>
+    <message>
+        <source>Log in first (Nexus ▸ Login) — opening the AMM page so you can endorse it there.</source>
+        <translation>Log in first (Nexus ▸ Login) — opening the AMM page so you can endorse it there.</translation>
+    </message>
+    <message>
+        <source>Endorse AMM failed — {0}</source>
+        <translation>Endorse AMM failed — {0}</translation>
+    </message>
+    <message>
+        <source>Thank you for endorsing!</source>
+        <translation>Thank you for endorsing!</translation>
+    </message>
+    <message>
+        <source>You've already endorsed — thank you!</source>
+        <translation>You've already endorsed — thank you!</translation>
+    </message>
+    <message>
+        <source>Nexus only lets you endorse the app after you've downloaded it at least once. Opening the AMM page — please download it there first, then endorse.</source>
+        <translation>Nexus only lets you endorse the app after you've downloaded it at least once. Opening the AMM page — please download it there first, then endorse.</translation>
+    </message>
+    <message>
+        <source>Endorse AMM: {0}</source>
+        <translation>Endorse AMM: {0}</translation>
+    </message>
+    <message>
+        <source>Endorsing Amethyst Mod Manager…</source>
+        <translation>Endorsing Amethyst Mod Manager…</translation>
+    </message>
+</context>
+<context>
+    <name>MissingReqsView</name>
+    <message>
+        <source>Missing requirements — {0}</source>
+        <translation>Missing requirements — {0}</translation>
+    </message>
+    <message>
+        <source>Ignore requirements</source>
+        <translation>Ignore requirements</translation>
+    </message>
+    <message>
+        <source>Stop flagging the selected mod(s) for missing requirements.</source>
+        <translation>Stop flagging the selected mod(s) for missing requirements.</translation>
+    </message>
+    <message>
+        <source>Loading requirements…</source>
+        <translation>Loading requirements…</translation>
+    </message>
+    <message>
+        <source>Could not load requirements: {0}</source>
+        <translation>Could not load requirements: {0}</translation>
+    </message>
+    <message>
+        <source>No missing requirements found.</source>
+        <translation>No missing requirements found.</translation>
+    </message>
+</context>
+<context>
+    <name>ModExistsOverlay</name>
+    <message>
+        <source>Mod Already Exists</source>
+        <translation>Mod Already Exists</translation>
+    </message>
+    <message>
+        <source>New mod name…</source>
+        <translation>New mod name…</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Rename…</source>
+        <translation>Rename…</translation>
+    </message>
+    <message>
+        <source>Replace All</source>
+        <translation>Replace All</translation>
+    </message>
+</context>
+<context>
+    <name>ModFilesView</name>
+    <message>
+        <source>(no mod selected)</source>
+        <translation>(no mod selected)</translation>
+    </message>
+</context>
+<context>
+    <name>ModListMenu</name>
+    <message>
+        <source>Abstain from Endorsement</source>
+        <translation>Abstain from Endorsement</translation>
+    </message>
+    <message>
+        <source>Abstain selected ({0})</source>
+        <translation>Abstain selected ({0})</translation>
+    </message>
+    <message>
+        <source>Add note</source>
+        <translation>Add note</translation>
+    </message>
+    <message>
+        <source>Add note ({0})</source>
+        <translation>Add note ({0})</translation>
+    </message>
+    <message>
+        <source>Add separator above</source>
+        <translation>Add separator above</translation>
+    </message>
+    <message>
+        <source>Add separator below</source>
+        <translation>Add separator below</translation>
+    </message>
+    <message>
+        <source>Bundle options…</source>
+        <translation>Bundle options…</translation>
+    </message>
+    <message>
+        <source>Change Version</source>
+        <translation>Change Version</translation>
+    </message>
+    <message>
+        <source>Check Updates</source>
+        <translation>Check Updates</translation>
+    </message>
+    <message>
+        <source>Check Updates ({0})</source>
+        <translation>Check Updates ({0})</translation>
+    </message>
+    <message>
+        <source>Copy to profile</source>
+        <translation>Copy to profile</translation>
+    </message>
+    <message>
+        <source>Copy to profile ({0})</source>
+        <translation>Copy to profile ({0})</translation>
+    </message>
+    <message>
+        <source>Create empty mod below</source>
+        <translation>Create empty mod below</translation>
+    </message>
+    <message>
+        <source>Disable Root Folder install</source>
+        <translation>Disable Root Folder install</translation>
+    </message>
+    <message>
+        <source>Disable Root Folder install ({0})</source>
+        <translation>Disable Root Folder install ({0})</translation>
+    </message>
+    <message>
+        <source>Disable selected ({0})</source>
+        <translation>Disable selected ({0})</translation>
+    </message>
+    <message>
+        <source>Edit note</source>
+        <translation>Edit note</translation>
+    </message>
+    <message>
+        <source>Enable Root Folder install</source>
+        <translation>Enable Root Folder install</translation>
+    </message>
+    <message>
+        <source>Enable Root Folder install ({0})</source>
+        <translation>Enable Root Folder install ({0})</translation>
+    </message>
+    <message>
+        <source>Enable selected ({0})</source>
+        <translation>Enable selected ({0})</translation>
+    </message>
+    <message>
+        <source>Endorse Mod</source>
+        <translation>Endorse Mod</translation>
+    </message>
+    <message>
+        <source>Endorse selected ({0})</source>
+        <translation>Endorse selected ({0})</translation>
+    </message>
+    <message>
+        <source>Lock Separator</source>
+        <translation>Lock Separator</translation>
+    </message>
+    <message>
+        <source>Lock Separators</source>
+        <translation>Lock Separators</translation>
+    </message>
+    <message>
+        <source>Log</source>
+        <translation>Log</translation>
+    </message>
+    <message>
+        <source>Missing Requirements</source>
+        <translation>Missing Requirements</translation>
+    </message>
+    <message>
+        <source>Missing Requirements ({0})</source>
+        <translation>Missing Requirements ({0})</translation>
+    </message>
+    <message>
+        <source>Move to profile</source>
+        <translation>Move to profile</translation>
+    </message>
+    <message>
+        <source>Move to profile ({0})</source>
+        <translation>Move to profile ({0})</translation>
+    </message>
+    <message>
+        <source>Move to separator</source>
+        <translation>Move to separator</translation>
+    </message>
+    <message>
+        <source>Move to separator ({0})</source>
+        <translation>Move to separator ({0})</translation>
+    </message>
+    <message>
+        <source>Open folder</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <source>Open on Nexus</source>
+        <translation>Open on Nexus</translation>
+    </message>
+    <message>
+        <source>Open on Nexus ({0})</source>
+        <translation>Open on Nexus ({0})</translation>
+    </message>
+    <message>
+        <source>Open on mod.io</source>
+        <translation>Open on mod.io</translation>
+    </message>
+    <message>
+        <source>Quick Update</source>
+        <translation>Quick Update</translation>
+    </message>
+    <message>
+        <source>Quick Update ({0})</source>
+        <translation>Quick Update ({0})</translation>
+    </message>
+    <message>
+        <source>Reinstall ({0})</source>
+        <translation>Reinstall ({0})</translation>
+    </message>
+    <message>
+        <source>Reinstall Mod</source>
+        <translation>Reinstall Mod</translation>
+    </message>
+    <message>
+        <source>Remove mod</source>
+        <translation>Remove mod</translation>
+    </message>
+    <message>
+        <source>Remove mod ({0})</source>
+        <translation>Remove mod ({0})</translation>
+    </message>
+    <message>
+        <source>Remove note ({0})</source>
+        <translation>Remove note ({0})</translation>
+    </message>
+    <message>
+        <source>Remove separator</source>
+        <translation>Remove separator</translation>
+    </message>
+    <message>
+        <source>Remove separators ({0})</source>
+        <translation>Remove separators ({0})</translation>
+    </message>
+    <message>
+        <source>Rename mod</source>
+        <translation>Rename mod</translation>
+    </message>
+    <message>
+        <source>Rename separator</source>
+        <translation>Rename separator</translation>
+    </message>
+    <message>
+        <source>Separator settings…</source>
+        <translation>Separator settings…</translation>
+    </message>
+    <message>
+        <source>Set priority…</source>
+        <translation>Set priority…</translation>
+    </message>
+    <message>
+        <source>Show Conflicts</source>
+        <translation>Show Conflicts</translation>
+    </message>
+    <message>
+        <source>Sort Alphabetically ({0})</source>
+        <translation>Sort Alphabetically ({0})</translation>
+    </message>
+    <message>
+        <source>Unlock Separator</source>
+        <translation>Unlock Separator</translation>
+    </message>
+    <message>
+        <source>Unlock Separators</source>
+        <translation>Unlock Separators</translation>
+    </message>
+    <message>
+        <source>{0} ({1})</source>
+        <translation>{0} ({1})</translation>
+    </message>
+</context>
+<context>
+    <name>ModListModel</name>
+    <message>
+        <source>Mod Name</source>
+        <translation>Mod Name</translation>
+    </message>
+    <message>
+        <source>Category</source>
+        <translation>Category</translation>
+    </message>
+    <message>
+        <source>Flags</source>
+        <translation>Flags</translation>
+    </message>
+    <message>
+        <source>Conflicts</source>
+        <translation>Conflicts</translation>
+    </message>
+    <message>
+        <source>Installed</source>
+        <translation>Installed</translation>
+    </message>
+    <message>
+        <source>Version</source>
+        <translation>Version</translation>
+    </message>
+    <message>
+        <source>Priority</source>
+        <translation>Priority</translation>
+    </message>
+    <message>
+        <source>Size</source>
+        <translation>Size</translation>
+    </message>
+</context>
+<context>
+    <name>ModListView</name>
+    <message>
+        <source>Show / hide columns</source>
+        <translation>Show / hide columns</translation>
+    </message>
+</context>
+<context>
+    <name>ModLoaderInstallerView</name>
+    <message>
+        <source>Step 3: Extract to Game Folder</source>
+        <translation>Step 3: Extract to Game Folder</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Extracting archive to game folder…</source>
+        <translation>Extracting archive to game folder…</translation>
+    </message>
+    <message>
+        <source>Launching {0} via Proton…</source>
+        <translation>Launching {0} via Proton…</translation>
+    </message>
+</context>
+<context>
+    <name>ModeOverlay</name>
+    <message>
+        <source>Install Collection</source>
+        <translation>Install Collection</translation>
+    </message>
+    <message>
+        <source>How would you like to install this collection?</source>
+        <translation>How would you like to install this collection?</translation>
+    </message>
+    <message>
+        <source>Create a new profile</source>
+        <translation>Create a new profile</translation>
+    </message>
+    <message>
+        <source>This collection requires a new profile and cannot be appended to an existing one.</source>
+        <translation>This collection requires a new profile and cannot be appended to an existing one.</translation>
+    </message>
+    <message>
+        <source>Append to existing profile</source>
+        <translation>Append to existing profile</translation>
+    </message>
+    <message>
+        <source>Overwrite existing mods</source>
+        <translation>Overwrite existing mods</translation>
+    </message>
+    <message>
+        <source>Skip already installed mods</source>
+        <translation>Skip already installed mods</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+</context>
+<context>
+    <name>ModioSettingsView</name>
+    <message>
+        <source>mod.io API Key</source>
+        <translation>mod.io API Key</translation>
+    </message>
+    <message>
+        <source>Paste your mod.io read-only API key to enable update checks
+for Baldur's Gate 3 mods installed manually from mod.io.
+
+The key is read-only and stored securely (system keyring,
+or an encrypted file when no keyring is available).</source>
+        <translation>Paste your mod.io read-only API key to enable update checks
+for Baldur's Gate 3 mods installed manually from mod.io.
+
+The key is read-only and stored securely (system keyring,
+or an encrypted file when no keyring is available).</translation>
+    </message>
+    <message>
+        <source>Get my API key (mod.io)</source>
+        <translation>Get my API key (mod.io)</translation>
+    </message>
+    <message>
+        <source>mod.io API key</source>
+        <translation>mod.io API key</translation>
+    </message>
+    <message>
+        <source>Clear key</source>
+        <translation>Clear key</translation>
+    </message>
+    <message>
+        <source>Test &amp;&amp; Save</source>
+        <translation>Test &amp;&amp; Save</translation>
+    </message>
+</context>
+<context>
+    <name>MoveDownloadsOverlay</name>
+    <message>
+        <source>Move {0} archive(s) to…</source>
+        <translation>Move {0} archive(s) to…</translation>
+    </message>
+    <message>
+        <source>Choose a configured download location.</source>
+        <translation>Choose a configured download location.</translation>
+    </message>
+    <message>
+        <source>No configured download locations.</source>
+        <translation>No configured download locations.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>NewProfileBar</name>
+    <message>
+        <source>New profile:</source>
+        <translation>New profile:</translation>
+    </message>
+    <message>
+        <source>Profile name</source>
+        <translation>Profile name</translation>
+    </message>
+    <message>
+        <source>Use Profile Specific Mods</source>
+        <translation>Use Profile Specific Mods</translation>
+    </message>
+    <message>
+        <source>Profiles with this setting use their own mods folders</source>
+        <translation>Profiles with this setting use their own mods folders</translation>
+    </message>
+    <message>
+        <source>Create</source>
+        <translation>Create</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>NexusBrowserView</name>
+    <message>
+        <source>☰ Categories</source>
+        <translation>☰ Categories</translation>
+    </message>
+    <message>
+        <source>Show adult</source>
+        <translation>Show adult</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>Categories</source>
+        <translation>Categories</translation>
+    </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Loading…</translation>
+    </message>
+    <message>
+        <source>Search mods…</source>
+        <translation>Search mods…</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>Search</translation>
+    </message>
+    <message>
+        <source>◂ Prev</source>
+        <translation>◂ Prev</translation>
+    </message>
+    <message>
+        <source>Next ▸</source>
+        <translation>Next ▸</translation>
+    </message>
+    <message>
+        <source>Page</source>
+        <translation>Page</translation>
+    </message>
+    <message>
+        <source>No categories</source>
+        <translation>No categories</translation>
+    </message>
+    <message>
+        <source>No Nexus domain for this game.</source>
+        <translation>No Nexus domain for this game.</translation>
+    </message>
+    <message>
+        <source>Open on Nexus</source>
+        <translation>Open on Nexus</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>Untrack</source>
+        <translation>Untrack</translation>
+    </message>
+    <message>
+        <source>Abstain</source>
+        <translation>Abstain</translation>
+    </message>
+</context>
+<context>
+    <name>NexusFileChooser</name>
+    <message>
+        <source>'{0}' has multiple main files.</source>
+        <translation>'{0}' has multiple main files.</translation>
+    </message>
+    <message>
+        <source>Select which file to install:</source>
+        <translation>Select which file to install:</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+</context>
+<context>
+    <name>NexusFooterLabel</name>
+    <message>
+        <source>{0} @ NexusMods</source>
+        <translation>{0} @ NexusMods</translation>
+    </message>
+    <message>
+        <source>NexusMods</source>
+        <translation>NexusMods</translation>
+    </message>
+    <message>
+        <source>Not logged in</source>
+        <translation>Not logged in</translation>
+    </message>
+    <message>
+        <source>Nexus API rate limits — no data yet.
+Values appear after the first API request.</source>
+        <translation>Nexus API rate limits — no data yet.
+Values appear after the first API request.</translation>
+    </message>
+    <message>
+        <source>Remaining API requests:
+Hourly: {0}
+Daily: {1}</source>
+        <translation>Remaining API requests:
+Hourly: {0}
+Daily: {1}</translation>
+    </message>
+</context>
+<context>
+    <name>NexusModCard</name>
+    <message>
+        <source>by {0}</source>
+        <translation>by {0}</translation>
+    </message>
+    <message>
+        <source>View</source>
+        <translation>View</translation>
+    </message>
+    <message>
+        <source>Reinstall</source>
+        <translation>Reinstall</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+</context>
+<context>
+    <name>NoteEditorOverlay</name>
+    <message>
+        <source>Note — {0}</source>
+        <translation>Note — {0}</translation>
+    </message>
+    <message>
+        <source>Remove note</source>
+        <translation>Remove note</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+</context>
+<context>
+    <name>OnboardingView</name>
+    <message>
+        <source>Welcome to Amethyst Mod Manager</source>
+        <translation>Welcome to Amethyst Mod Manager</translation>
+    </message>
+    <message>
+        <source>Step 1 of {0}</source>
+        <translation>Step 1 of {0}</translation>
+    </message>
+    <message>
+        <source>← Back</source>
+        <translation>← Back</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>See the wiki for guides on how to use the Manager</source>
+        <translation>See the wiki for guides on how to use the Manager</translation>
+    </message>
+    <message>
+        <source>Language:</source>
+        <translation>Language:</translation>
+    </message>
+    <message>
+        <source>Sync language files</source>
+        <translation>Sync language files</translation>
+    </message>
+    <message>
+        <source>Open Wiki</source>
+        <translation>Open Wiki</translation>
+    </message>
+    <message>
+        <source>Connect to Nexus Mods</source>
+        <translation>Connect to Nexus Mods</translation>
+    </message>
+    <message>
+        <source>Logging in lets you browse and download mods directly within the app.
+You can skip this and connect later from the Nexus button in the toolbar.</source>
+        <translation>Logging in lets you browse and download mods directly within the app.
+You can skip this and connect later from the Nexus button in the toolbar.</translation>
+    </message>
+    <message>
+        <source>Log in via Nexus Mods</source>
+        <translation>Log in via Nexus Mods</translation>
+    </message>
+    <message>
+        <source>Waiting for browser...</source>
+        <translation>Waiting for browser...</translation>
+    </message>
+    <message>
+        <source>Default Mod Staging Folder</source>
+        <translation>Default Mod Staging Folder</translation>
+    </message>
+    <message>
+        <source>Default: {0}</source>
+        <translation>Default: {0}</translation>
+    </message>
+    <message>
+        <source>Leave blank to use the default</source>
+        <translation>Leave blank to use the default</translation>
+    </message>
+    <message>
+        <source>When set, new games will use &lt;this&gt;/&lt;game name&gt; as their
+mod staging folder. You can change this later in Settings.</source>
+        <translation>When set, new games will use &lt;this&gt;/&lt;game name&gt; as their
+mod staging folder. You can change this later in Settings.</translation>
+    </message>
+    <message>
+        <source>Download Cache Folder</source>
+        <translation>Download Cache Folder</translation>
+    </message>
+    <message>
+        <source>Where downloaded mod archives are stored.
+Each game gets its own subfolder.</source>
+        <translation>Where downloaded mod archives are stored.
+Each game gets its own subfolder.</translation>
+    </message>
+    <message>
+        <source>Add Your First Game</source>
+        <translation>Add Your First Game</translation>
+    </message>
+    <message>
+        <source>Select a game to manage.</source>
+        <translation>Select a game to manage.</translation>
+    </message>
+    <message>
+        <source>Add a Game</source>
+        <translation>Add a Game</translation>
+    </message>
+    <message>
+        <source>Browse</source>
+        <translation>Browse</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>Step {0} of {1}</source>
+        <translation>Step {0} of {1}</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+</context>
+<context>
+    <name>OverwriteLogOverlay</name>
+    <message>
+        <source>Files swept into Overwrite (newest restore first)</source>
+        <translation>Files swept into Overwrite (newest restore first)</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>PGPatcherView</name>
+    <message>
+        <source>Step 1: Download PGPatcher</source>
+        <translation>Step 1: Download PGPatcher</translation>
+    </message>
+    <message>
+        <source>Step 3: Install Dependencies</source>
+        <translation>Step 3: Install Dependencies</translation>
+    </message>
+    <message>
+        <source>Step 4: Apply PGPatcher Config</source>
+        <translation>Step 4: Apply PGPatcher Config</translation>
+    </message>
+    <message>
+        <source>Step 5: Deploy Modlist</source>
+        <translation>Step 5: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Before deploying, please delete any output from a previous
+PGPatcher run (the 'PGPatcher_output' mod in your mod list / staging folder).
+
+Once you have done this, click Deploy.</source>
+        <translation>Before deploying, please delete any output from a previous
+PGPatcher run (the 'PGPatcher_output' mod in your mod list / staging folder).
+
+Once you have done this, click Deploy.</translation>
+    </message>
+    <message>
+        <source>Per-mod conflict resolution (MO2 parity)</source>
+        <translation>Per-mod conflict resolution (MO2 parity)</translation>
+    </message>
+    <message>
+        <source>Builds a synthetic MO2 instance so PGPatcher attributes
+conflicts per-mod, matching a real MO2 setup. Experimental.</source>
+        <translation>Builds a synthetic MO2 instance so PGPatcher attributes
+conflicts per-mod, matching a real MO2 setup. Experimental.</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+    <message>
+        <source>Checking d3dcompiler_47…</source>
+        <translation>Checking d3dcompiler_47…</translation>
+    </message>
+    <message>
+        <source>Applying config…</source>
+        <translation>Applying config…</translation>
+    </message>
+    <message>
+        <source>Launching PGPatcher…</source>
+        <translation>Launching PGPatcher…</translation>
+    </message>
+    <message>
+        <source>Building MO2 instance…</source>
+        <translation>Building MO2 instance…</translation>
+    </message>
+    <message>
+        <source>{0} was not found.</source>
+        <translation>{0} was not found.</translation>
+    </message>
+</context>
+<context>
+    <name>PandoraView</name>
+    <message>
+        <source>Run Pandora — {0}</source>
+        <translation>Run Pandora — {0}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Step 1: Deploy Modlist</source>
+        <translation>Step 1: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Before deploying, please delete any output from a previous
+Pandora run (the 'Pandora_output' mod in your mod list).
+
+Once you have done this, click Deploy.</source>
+        <translation>Before deploying, please delete any output from a previous
+Pandora run (the 'Pandora_output' mod in your mod list).
+
+Once you have done this, click Deploy.</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+    <message>
+        <source>Deploy complete.</source>
+        <translation>Deploy complete.</translation>
+    </message>
+    <message>
+        <source>Deploy failed — see log.</source>
+        <translation>Deploy failed — see log.</translation>
+    </message>
+    <message>
+        <source>Could not start deploy — see log.</source>
+        <translation>Could not start deploy — see log.</translation>
+    </message>
+    <message>
+        <source>Step 2: Choose Proton Version</source>
+        <translation>Step 2: Choose Proton Version</translation>
+    </message>
+    <message>
+        <source>'{0}' was not found in your mod staging folder.
+
+Install Pandora Behaviour Engine+ as a mod, then reopen this wizard.</source>
+        <translation>'{0}' was not found in your mod staging folder.
+
+Install Pandora Behaviour Engine+ as a mod, then reopen this wizard.</translation>
+    </message>
+    <message>
+        <source>Step 3: Install Dependencies</source>
+        <translation>Step 3: Install Dependencies</translation>
+    </message>
+    <message>
+        <source>Checking .NET 10…</source>
+        <translation>Checking .NET 10…</translation>
+    </message>
+    <message>
+        <source>Step 4: Run Pandora</source>
+        <translation>Step 4: Run Pandora</translation>
+    </message>
+    <message>
+        <source>Launching Pandora…</source>
+        <translation>Launching Pandora…</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Pandora is running.
+Close it when you are done, then click Done.</source>
+        <translation>Pandora is running.
+Close it when you are done, then click Done.</translation>
+    </message>
+</context>
+<context>
+    <name>PluginAuditView</name>
+    <message>
+        <source>Scan Load Order</source>
+        <translation>Scan Load Order</translation>
+    </message>
+    <message>
+        <source>Audits your active load order to find patched plugins that can be safely disabled (their patches still apply at runtime), and flags those blocked by new records or by other plugins depending on them.</source>
+        <translation>Audits your active load order to find patched plugins that can be safely disabled (their patches still apply at runtime), and flags those blocked by new records or by other plugins depending on them.</translation>
+    </message>
+    <message>
+        <source>Start Scan</source>
+        <translation>Start Scan</translation>
+    </message>
+    <message>
+        <source>Scanning…</source>
+        <translation>Scanning…</translation>
+    </message>
+    <message>
+        <source>No active plugins found.</source>
+        <translation>No active plugins found.</translation>
+    </message>
+    <message>
+        <source>Audit Results</source>
+        <translation>Audit Results</translation>
+    </message>
+    <message>
+        <source>← Re-Scan</source>
+        <translation>← Re-Scan</translation>
+    </message>
+    <message>
+        <source>Select All Safe</source>
+        <translation>Select All Safe</translation>
+    </message>
+    <message>
+        <source>Clean Orphaned INIs</source>
+        <translation>Clean Orphaned INIs</translation>
+    </message>
+    <message>
+        <source>Disable Selected</source>
+        <translation>Disable Selected</translation>
+    </message>
+    <message>
+        <source>Safe to disable</source>
+        <translation>Safe to disable</translation>
+    </message>
+    <message>
+        <source>Blocked</source>
+        <translation>Blocked</translation>
+    </message>
+    <message>
+        <source>Audit complete — {0} plugins, {1} safe to disable.</source>
+        <translation>Audit complete — {0} plugins, {1} safe to disable.</translation>
+    </message>
+    <message>
+        <source>No orphaned INIs to clean.</source>
+        <translation>No orphaned INIs to clean.</translation>
+    </message>
+    <message>
+        <source>Cleanup complete — deleted {0} of {1} INI(s) found.
+
+Re-scan to verify.</source>
+        <translation>Cleanup complete — deleted {0} of {1} INI(s) found.
+
+Re-scan to verify.</translation>
+    </message>
+    <message>
+        <source>No SkyGen INIs found to clean.</source>
+        <translation>No SkyGen INIs found to clean.</translation>
+    </message>
+    <message>
+        <source>Cleanup Complete</source>
+        <translation>Cleanup Complete</translation>
+    </message>
+    <message>
+        <source>Re-Scan to Verify</source>
+        <translation>Re-Scan to Verify</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>PluginCycleView</name>
+    <message>
+        <source>Plugins in cycle</source>
+        <translation>Plugins in cycle</translation>
+    </message>
+    <message>
+        <source>Rules between these plugins</source>
+        <translation>Rules between these plugins</translation>
+    </message>
+    <message>
+        <source>Userlist rules (1 plugin) — anchor: {0}</source>
+        <translation>Userlist rules (1 plugin) — anchor: {0}</translation>
+    </message>
+    <message>
+        <source>Userlist rules ({0} plugins) — anchor: {1}</source>
+        <translation>Userlist rules ({0} plugins) — anchor: {1}</translation>
+    </message>
+    <message>
+        <source>No rules between these plugins.</source>
+        <translation>No rules between these plugins.</translation>
+    </message>
+    <message>
+        <source>Flip rule</source>
+        <translation>Flip rule</translation>
+    </message>
+    <message>
+        <source>(group rule — edit via Groups overlay)</source>
+        <translation>(group rule — edit via Groups overlay)</translation>
+    </message>
+</context>
+<context>
+    <name>PluginGroupsView</name>
+    <message>
+        <source>LOOT Groups - Right click plugins to add them to groups</source>
+        <translation>LOOT Groups - Right click plugins to add them to groups</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Groups</source>
+        <translation>Groups</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Add</translation>
+    </message>
+    <message>
+        <source>Remove Selected</source>
+        <translation>Remove Selected</translation>
+    </message>
+    <message>
+        <source>Group Rules</source>
+        <translation>Group Rules</translation>
+    </message>
+    <message>
+        <source>Add rule:</source>
+        <translation>Add rule:</translation>
+    </message>
+    <message>
+        <source>Add Rule</source>
+        <translation>Add Rule</translation>
+    </message>
+    <message>
+        <source>No rules defined.</source>
+        <translation>No rules defined.</translation>
+    </message>
+</context>
+<context>
+    <name>PluginMenu</name>
+    <message>
+        <source> ({0} ineligible skipped)</source>
+        <translation> ({0} ineligible skipped)</translation>
+    </message>
+    <message>
+        <source>Add selected to group…</source>
+        <translation>Add selected to group…</translation>
+    </message>
+    <message>
+        <source>Add to group…</source>
+        <translation>Add to group…</translation>
+    </message>
+    <message>
+        <source>Add to userlist…</source>
+        <translation>Add to userlist…</translation>
+    </message>
+    <message>
+        <source>Disable plugin</source>
+        <translation>Disable plugin</translation>
+    </message>
+    <message>
+        <source>Disable selected ({0})</source>
+        <translation>Disable selected ({0})</translation>
+    </message>
+    <message>
+        <source>Disable {0} BOS/SP-patched (safe to disable)</source>
+        <translation>Disable {0} BOS/SP-patched (safe to disable)</translation>
+    </message>
+    <message>
+        <source>Disable — {0} patch replaces it</source>
+        <translation>Disable — {0} patch replaces it</translation>
+    </message>
+    <message>
+        <source>Enable plugin</source>
+        <translation>Enable plugin</translation>
+    </message>
+    <message>
+        <source>Enable selected ({0})</source>
+        <translation>Enable selected ({0})</translation>
+    </message>
+    <message>
+        <source>Mark as Light (ESL)</source>
+        <translation>Mark as Light (ESL)</translation>
+    </message>
+    <message>
+        <source>Mark as Light (ESL) — none eligible </source>
+        <translation>Mark as Light (ESL) — none eligible </translation>
+    </message>
+    <message>
+        <source>Mark selected as Light (ESL) ({0})</source>
+        <translation>Mark selected as Light (ESL) ({0})</translation>
+    </message>
+    <message>
+        <source>Not ESL-safe (per LOOT — compact in xEdit first)</source>
+        <translation>Not ESL-safe (per LOOT — compact in xEdit first)</translation>
+    </message>
+    <message>
+        <source>Remove ESL flag (un-light)</source>
+        <translation>Remove ESL flag (un-light)</translation>
+    </message>
+    <message>
+        <source>Remove ESL flag from selected ({0})</source>
+        <translation>Remove ESL flag from selected ({0})</translation>
+    </message>
+    <message>
+        <source>Remove from userlist</source>
+        <translation>Remove from userlist</translation>
+    </message>
+    <message>
+        <source>Remove selected from userlist</source>
+        <translation>Remove selected from userlist</translation>
+    </message>
+    <message>
+        <source>Show cycle…</source>
+        <translation>Show cycle…</translation>
+    </message>
+    <message>
+        <source>Show overlapping plugins…</source>
+        <translation>Show overlapping plugins…</translation>
+    </message>
+    <message>
+        <source>Show userlist rules…</source>
+        <translation>Show userlist rules…</translation>
+    </message>
+</context>
+<context>
+    <name>PluginModel</name>
+    <message>
+        <source>Plugin Name</source>
+        <translation>Plugin Name</translation>
+    </message>
+    <message>
+        <source>Flags</source>
+        <translation>Flags</translation>
+    </message>
+    <message>
+        <source>P</source>
+        <translation>P</translation>
+    </message>
+    <message>
+        <source>Index</source>
+        <translation>Index</translation>
+    </message>
+</context>
+<context>
+    <name>PluginRulesView</name>
+    <message>
+        <source>LOOT Plugin Rules - Select a plugin on the plugins panel</source>
+        <translation>LOOT Plugin Rules - Select a plugin on the plugins panel</translation>
+    </message>
+    <message>
+        <source>Plugins  —  drag onto rules pane</source>
+        <translation>Plugins  —  drag onto rules pane</translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation>Filter</translation>
+    </message>
+    <message>
+        <source>Rules for: {0}</source>
+        <translation>Rules for: {0}</translation>
+    </message>
+    <message>
+        <source>No plugin selected.
+Right-click a plugin and choose 'Plugin Rules'.</source>
+        <translation>No plugin selected.
+Right-click a plugin and choose 'Plugin Rules'.</translation>
+    </message>
+    <message>
+        <source>No rules yet.
+Drag a plugin from the left pane to add a rule.</source>
+        <translation>No rules yet.
+Drag a plugin from the left pane to add a rule.</translation>
+    </message>
+</context>
+<context>
+    <name>PluginView</name>
+    <message>
+        <source>Show / hide columns</source>
+        <translation>Show / hide columns</translation>
+    </message>
+</context>
+<context>
+    <name>PrefixManagerView</name>
+    <message>
+        <source>Manage Prefixes</source>
+        <translation>Manage Prefixes</translation>
+    </message>
+    <message>
+        <source>Wizard tools each run in their own Wine prefix (created next to the tool's exe or in the app config folder). Deleting one only reclaims disk space — it is recreated automatically the next time the tool runs.</source>
+        <translation>Wizard tools each run in their own Wine prefix (created next to the tool's exe or in the app config folder). Deleting one only reclaims disk space — it is recreated automatically the next time the tool runs.</translation>
+    </message>
+    <message>
+        <source>Scanning for prefixes…</source>
+        <translation>Scanning for prefixes…</translation>
+    </message>
+    <message>
+        <source>All</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>Delete Selected</source>
+        <translation>Delete Selected</translation>
+    </message>
+    <message>
+        <source>Delete All</source>
+        <translation>Delete All</translation>
+    </message>
+    <message>
+        <source>No tool prefixes found.</source>
+        <translation>No tool prefixes found.</translation>
+    </message>
+    <message>
+        <source>1 prefix found — calculating sizes…</source>
+        <translation>1 prefix found — calculating sizes…</translation>
+    </message>
+    <message>
+        <source>{0} prefixes found — calculating sizes…</source>
+        <translation>{0} prefixes found — calculating sizes…</translation>
+    </message>
+    <message>
+        <source>{0} — {1}</source>
+        <translation>{0} — {1}</translation>
+    </message>
+    <message>
+        <source>  (active)</source>
+        <translation>  (active)</translation>
+    </message>
+    <message>
+        <source>Total: {0}</source>
+        <translation>Total: {0}</translation>
+    </message>
+    <message>
+        <source>1 prefix found.</source>
+        <translation>1 prefix found.</translation>
+    </message>
+    <message>
+        <source>{0} prefixes found.</source>
+        <translation>{0} prefixes found.</translation>
+    </message>
+    <message>
+        <source>Deleting…</source>
+        <translation>Deleting…</translation>
+    </message>
+    <message>
+        <source>Deleted {0}; {1} problem(s) — see log.</source>
+        <translation>Deleted {0}; {1} problem(s) — see log.</translation>
+    </message>
+</context>
+<context>
+    <name>ProfileSettingsView</name>
+    <message>
+        <source>Profile Settings</source>
+        <translation>Profile Settings</translation>
+    </message>
+    <message>
+        <source>Rename</source>
+        <translation>Rename</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation>Open</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>Rename '{0}' to:</source>
+        <translation>Rename '{0}' to:</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>A deploy is in progress — try again shortly.</source>
+        <translation>A deploy is in progress — try again shortly.</translation>
+    </message>
+    <message>
+        <source>Profile '{0}' removed</source>
+        <translation>Profile '{0}' removed</translation>
+    </message>
+</context>
+<context>
+    <name>ProgressPopup</name>
+    <message>
+        <source>Deploying</source>
+        <translation>Deploying</translation>
+    </message>
+    <message>
+        <source>Working…</source>
+        <translation>Working…</translation>
+    </message>
+    <message>
+        <source>{0} / {1}</source>
+        <translation>{0} / {1}</translation>
+    </message>
+</context>
+<context>
+    <name>ProtonStepWidget</name>
+    <message>
+        <source>No Proton versions were found.
+
+Install a Proton version in Steam, then reopen this wizard.</source>
+        <translation>No Proton versions were found.
+
+Install a Proton version in Steam, then reopen this wizard.</translation>
+    </message>
+    <message>
+        <source>Use shared prefix</source>
+        <translation>Use shared prefix</translation>
+    </message>
+    <message>
+        <source>Reuse one prefix (per Proton version) shared by every wizard tool, kept in the app config folder instead of next to the exe.</source>
+        <translation>Reuse one prefix (per Proton version) shared by every wizard tool, kept in the app config folder instead of next to the exe.</translation>
+    </message>
+    <message>
+        <source>Use game prefix</source>
+        <translation>Use game prefix</translation>
+    </message>
+    <message>
+        <source>Run inside the game's own prefix. No new prefix is created and the Proton version follows the game's Steam setting.</source>
+        <translation>Run inside the game's own prefix. No new prefix is created and the Proton version follows the game's Steam setting.</translation>
+    </message>
+    <message>
+        <source>Delete Prefix</source>
+        <translation>Delete Prefix</translation>
+    </message>
+    <message>
+        <source>Environment Variables (optional)</source>
+        <translation>Environment Variables (optional)</translation>
+    </message>
+    <message>
+        <source>Space-separated KEY=VALUE pairs applied when the tool launches. Saved next to the exe and reapplied on every run.</source>
+        <translation>Space-separated KEY=VALUE pairs applied when the tool launches. Saved next to the exe and reapplied on every run.</translation>
+    </message>
+    <message>
+        <source>e.g. PROTON_USE_WINED3D=1 WINEDLLOVERRIDES=dinput8=n,b</source>
+        <translation>e.g. PROTON_USE_WINED3D=1 WINEDLLOVERRIDES=dinput8=n,b</translation>
+    </message>
+    <message>
+        <source>Continue</source>
+        <translation>Continue</translation>
+    </message>
+    <message>
+        <source>Using the game's existing prefix — Proton version follows the game's Steam setting and no new prefix is created.</source>
+        <translation>Using the game's existing prefix — Proton version follows the game's Steam setting and no new prefix is created.</translation>
+    </message>
+    <message>
+        <source>A prefix already exists for this version. Delete it if {0}
+has issues — it is recreated automatically on the next step.</source>
+        <translation>A prefix already exists for this version. Delete it if {0}
+has issues — it is recreated automatically on the next step.</translation>
+    </message>
+    <message>
+        <source>Confirm Delete</source>
+        <translation>Confirm Delete</translation>
+    </message>
+    <message>
+        <source>Click again to delete '{0}'.</source>
+        <translation>Click again to delete '{0}'.</translation>
+    </message>
+    <message>
+        <source>Deleting…</source>
+        <translation>Deleting…</translation>
+    </message>
+    <message>
+        <source>Deleting '{0}'…</source>
+        <translation>Deleting '{0}'…</translation>
+    </message>
+    <message>
+        <source>Prefix deleted — a fresh one is created on the next step.</source>
+        <translation>Prefix deleted — a fresh one is created on the next step.</translation>
+    </message>
+    <message>
+        <source>Could not delete prefix: {0}</source>
+        <translation>Could not delete prefix: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>RePakRestoreView</name>
+    <message>
+        <source>Repair PAK files — {0}</source>
+        <translation>Repair PAK files — {0}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Game path is not set or invalid.</source>
+        <translation>Game path is not set or invalid.</translation>
+    </message>
+    <message>
+        <source>If the game won't load (black screen) after removing mods, the PAK archives may still have invalidated entries. This restores the original PAK data from the failsafe manifest in the game root.</source>
+        <translation>If the game won't load (black screen) after removing mods, the PAK archives may still have invalidated entries. This restores the original PAK data from the failsafe manifest in the game root.</translation>
+    </message>
+    <message>
+        <source>Game root: {0}</source>
+        <translation>Game root: {0}</translation>
+    </message>
+    <message>
+        <source>No restore manifest ({0}) found in the game root. There is nothing to repair — either no PAK-patching mods were deployed, or the manifest was already consumed by a clean restore.
+
+If the game is still broken, verify the game files via Steam.</source>
+        <translation>No restore manifest ({0}) found in the game root. There is nothing to repair — either no PAK-patching mods were deployed, or the manifest was already consumed by a clean restore.
+
+If the game is still broken, verify the game files via Steam.</translation>
+    </message>
+    <message>
+        <source>{0} PAK file</source>
+        <translation>{0} PAK file</translation>
+    </message>
+    <message>
+        <source>{0} PAK files</source>
+        <translation>{0} PAK files</translation>
+    </message>
+    <message>
+        <source>{0} invalidated entry</source>
+        <translation>{0} invalidated entry</translation>
+    </message>
+    <message>
+        <source>{0} invalidated entries</source>
+        <translation>{0} invalidated entries</translation>
+    </message>
+    <message>
+        <source>Found a restore manifest covering {0} and {1}.</source>
+        <translation>Found a restore manifest covering {0} and {1}.</translation>
+    </message>
+    <message>
+        <source>Repair PAK files</source>
+        <translation>Repair PAK files</translation>
+    </message>
+    <message>
+        <source>Log:</source>
+        <translation>Log:</translation>
+    </message>
+</context>
+<context>
+    <name>ReShadeView</name>
+    <message>
+        <source>Install ReShade — {0}</source>
+        <translation>Install ReShade — {0}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Step 1: Rendering API &amp; Architecture</source>
+        <translation>Step 1: Rendering API &amp; Architecture</translation>
+    </message>
+    <message>
+        <source>Choose the graphics API this game uses and its executable architecture. If you're not sure, dxgi.dll / 64-bit works for most modern games.</source>
+        <translation>Choose the graphics API this game uses and its executable architecture. If you're not sure, dxgi.dll / 64-bit works for most modern games.</translation>
+    </message>
+    <message>
+        <source>Rendering API (DLL)</source>
+        <translation>Rendering API (DLL)</translation>
+    </message>
+    <message>
+        <source>Executable architecture</source>
+        <translation>Executable architecture</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Step 2: Select Shader Packs</source>
+        <translation>Step 2: Select Shader Packs</translation>
+    </message>
+    <message>
+        <source>The official ReShade shaders are always included. Select any additional packs to download:</source>
+        <translation>The official ReShade shaders are always included. Select any additional packs to download:</translation>
+    </message>
+    <message>
+        <source>Install from a preset (optional)</source>
+        <translation>Install from a preset (optional)</translation>
+    </message>
+    <message>
+        <source>Pick a ReShade preset (.ini) to install only the effects it uses. All packs are downloaded then trimmed to the preset.</source>
+        <translation>Pick a ReShade preset (.ini) to install only the effects it uses. All packs are downloaded then trimmed to the preset.</translation>
+    </message>
+    <message>
+        <source>No preset selected</source>
+        <translation>No preset selected</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>← Back</source>
+        <translation>← Back</translation>
+    </message>
+    <message>
+        <source>{0} (no effects found — using pack selection)</source>
+        <translation>{0} (no effects found — using pack selection)</translation>
+    </message>
+    <message>
+        <source>A preset is loaded — all packs will be downloaded and trimmed to it, so individual selection is disabled.</source>
+        <translation>A preset is loaded — all packs will be downloaded and trimmed to it, so individual selection is disabled.</translation>
+    </message>
+    <message>
+        <source>Step 3: Download ReShade</source>
+        <translation>Step 3: Download ReShade</translation>
+    </message>
+    <message>
+        <source>Fetching latest ReShade version…</source>
+        <translation>Fetching latest ReShade version…</translation>
+    </message>
+    <message>
+        <source>Retry ↺</source>
+        <translation>Retry ↺</translation>
+    </message>
+    <message>
+        <source>Step 4: Install d3dcompiler_47</source>
+        <translation>Step 4: Install d3dcompiler_47</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Install d3dcompiler_47</source>
+        <translation>Install d3dcompiler_47</translation>
+    </message>
+    <message>
+        <source>d3dcompiler_47 is already installed in this prefix.
+You can skip this step.</source>
+        <translation>d3dcompiler_47 is already installed in this prefix.
+You can skip this step.</translation>
+    </message>
+    <message>
+        <source>No Proton prefix or Steam ID is configured for this game — d3dcompiler_47 cannot be installed automatically. Install it manually via winecfg before running the game with ReShade.</source>
+        <translation>No Proton prefix or Steam ID is configured for this game — d3dcompiler_47 cannot be installed automatically. Install it manually via winecfg before running the game with ReShade.</translation>
+    </message>
+    <message>
+        <source>d3dcompiler_47 will be installed into the Proton prefix for this game (via protontricks if available, otherwise bundled winetricks).
+
+This may take up to a minute.</source>
+        <translation>d3dcompiler_47 will be installed into the Proton prefix for this game (via protontricks if available, otherwise bundled winetricks).
+
+This may take up to a minute.</translation>
+    </message>
+    <message>
+        <source>Installing…</source>
+        <translation>Installing…</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Retry</translation>
+    </message>
+    <message>
+        <source>Step 5: Install ReShade</source>
+        <translation>Step 5: Install ReShade</translation>
+    </message>
+    <message>
+        <source>Install destination</source>
+        <translation>Install destination</translation>
+    </message>
+    <message>
+        <source>Mod name</source>
+        <translation>Mod name</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>ReShade will be installed as  {0}
+and the Wine DLL override  {1}=native,builtin
+will be written to the Proton prefix.</source>
+        <translation>ReShade will be installed as  {0}
+and the Wine DLL override  {1}=native,builtin
+will be written to the Proton prefix.</translation>
+    </message>
+    <message>
+        <source>{0} - ReShade</source>
+        <translation>{0} - ReShade</translation>
+    </message>
+</context>
+<context>
+    <name>RegisterGamePathView</name>
+    <message>
+        <source>not configured</source>
+        <translation>not configured</translation>
+    </message>
+    <message>
+        <source>Registry key:  HKLM\Software\Bethesda Softworks\{0}
+Game path:     {1}
+Proton prefix: {2}</source>
+        <translation>Registry key:  HKLM\Software\Bethesda Softworks\{0}
+Game path:     {1}
+Proton prefix: {2}</translation>
+    </message>
+    <message>
+        <source>Write Registry Keys</source>
+        <translation>Write Registry Keys</translation>
+    </message>
+    <message>
+        <source>Game path is not configured — set it first.</source>
+        <translation>Game path is not configured — set it first.</translation>
+    </message>
+    <message>
+        <source>Proton prefix not found — launch the game once via Steam first.</source>
+        <translation>Proton prefix not found — launch the game once via Steam first.</translation>
+    </message>
+    <message>
+        <source>Writing …</source>
+        <translation>Writing …</translation>
+    </message>
+    <message>
+        <source>Done — Write Again</source>
+        <translation>Done — Write Again</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Retry</translation>
+    </message>
+</context>
+<context>
+    <name>RemovePreviousOverlay</name>
+    <message>
+        <source>Remove previous version?</source>
+        <translation>Remove previous version?</translation>
+    </message>
+    <message>
+        <source>'{0}' was installed as a new mod (different folder name) because it did not replace '{1}'.
+
+Remove the previous version '{2}'? The new mod will take its position in the modlist.
+
+Choose Keep if this is an optional/alternative variant rather than a replacement.</source>
+        <translation>'{0}' was installed as a new mod (different folder name) because it did not replace '{1}'.
+
+Remove the previous version '{2}'? The new mod will take its position in the modlist.
+
+Choose Keep if this is an optional/alternative variant rather than a replacement.</translation>
+    </message>
+    <message>
+        <source>Keep</source>
+        <translation>Keep</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+</context>
+<context>
+    <name>SDTView</name>
+    <message>
+        <source>Editing values from {0}. Save writes the managed mod '{1}'.</source>
+        <translation>Editing values from {0}. Save writes the managed mod '{1}'.</translation>
+    </message>
+    <message>
+        <source>[{0}]</source>
+        <translation>[{0}]</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Reset to defaults</source>
+        <translation>Reset to defaults</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>true</source>
+        <translation>true</translation>
+    </message>
+    <message>
+        <source>false</source>
+        <translation>false</translation>
+    </message>
+    <message>
+        <source>Form reset to built-in defaults (not yet saved).</source>
+        <translation>Form reset to built-in defaults (not yet saved).</translation>
+    </message>
+    <message>
+        <source>Save failed: {0}</source>
+        <translation>Save failed: {0}</translation>
+    </message>
+    <message>
+        <source>Saved to {0}/{1}.</source>
+        <translation>Saved to {0}/{1}.</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptExtenderView</name>
+    <message>
+        <source>Install Script Extender — {0}</source>
+        <translation>Install Script Extender — {0}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Install destination</source>
+        <translation>Install destination</translation>
+    </message>
+    <message>
+        <source>Choose a Version</source>
+        <translation>Choose a Version</translation>
+    </message>
+    <message>
+        <source>Multiple builds are available for this game — pick the one that matches your game version.</source>
+        <translation>Multiple builds are available for this game — pick the one that matches your game version.</translation>
+    </message>
+    <message>
+        <source>Select</source>
+        <translation>Select</translation>
+    </message>
+    <message>
+        <source>Download Script Extender</source>
+        <translation>Download Script Extender</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>This script extender must be downloaded manually. Click the button below to open the download page, save the archive to your Downloads folder, then click Next.</source>
+        <translation>This script extender must be downloaded manually. Click the button below to open the download page, save the archive to your Downloads folder, then click Next.</translation>
+    </message>
+    <message>
+        <source>Open Download Page</source>
+        <translation>Open Download Page</translation>
+    </message>
+    <message>
+        <source>Locate the Archive</source>
+        <translation>Locate the Archive</translation>
+    </message>
+    <message>
+        <source>Try Again</source>
+        <translation>Try Again</translation>
+    </message>
+    <message>
+        <source>Install Script Extender</source>
+        <translation>Install Script Extender</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptMergerView</name>
+    <message>
+        <source>Step 1: Deploy Modlist</source>
+        <translation>Step 1: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Step 6: Install .NET 8</source>
+        <translation>Step 6: Install .NET 8</translation>
+    </message>
+    <message>
+        <source>Checking .NET 8…</source>
+        <translation>Checking .NET 8…</translation>
+    </message>
+    <message>
+        <source>Existing Merges Use Missing Mods</source>
+        <translation>Existing Merges Use Missing Mods</translation>
+    </message>
+    <message>
+        <source>{0} existing merge(s) use mods that are not currently deployed (disabled or removed):
+
+{1}
+
+Script Merger cannot run safely in this state.
+
+Cancel and re-enable the listed mods to keep the merges, or delete the existing merges (removes the Merged_Mods mod) and re-create them in this run from the mods that are enabled.</source>
+        <translation>{0} existing merge(s) use mods that are not currently deployed (disabled or removed):
+
+{1}
+
+Script Merger cannot run safely in this state.
+
+Cancel and re-enable the listed mods to keep the merges, or delete the existing merges (removes the Merged_Mods mod) and re-create them in this run from the mods that are enabled.</translation>
+    </message>
+    <message>
+        <source>Delete Merges</source>
+        <translation>Delete Merges</translation>
+    </message>
+    <message>
+        <source>Launch cancelled — re-enable the merges' source mods, then reopen this wizard.</source>
+        <translation>Launch cancelled — re-enable the merges' source mods, then reopen this wizard.</translation>
+    </message>
+    <message>
+        <source>Launching WitcherScriptMerger…</source>
+        <translation>Launching WitcherScriptMerger…</translation>
+    </message>
+    <message>
+        <source>{0} was not found.
+Please restart the wizard and install Script Merger first.</source>
+        <translation>{0} was not found.
+Please restart the wizard and install Script Merger first.</translation>
+    </message>
+    <message>
+        <source>Restoring game files (rescuing merges)…</source>
+        <translation>Restoring game files (rescuing merges)…</translation>
+    </message>
+</context>
+<context>
+    <name>SelectorButton</name>
+    <message>
+        <source>{0}{1}</source>
+        <translation>{0}{1}</translation>
+    </message>
+    <message>
+        <source>{0}   ✓ deployed</source>
+        <translation>{0}   ✓ deployed</translation>
+    </message>
+</context>
+<context>
+    <name>SeparatorSettingsView</name>
+    <message>
+        <source>Separator Settings — {0}</source>
+        <translation>Separator Settings — {0}</translation>
+    </message>
+    <message>
+        <source>Separator Color</source>
+        <translation>Separator Color</translation>
+    </message>
+    <message>
+        <source>#rrggbb</source>
+        <translation>#rrggbb</translation>
+    </message>
+    <message>
+        <source>Choose colour…</source>
+        <translation>Choose colour…</translation>
+    </message>
+    <message>
+        <source>Reset to default</source>
+        <translation>Reset to default</translation>
+    </message>
+    <message>
+        <source>Custom background colour for this separator row. Reset uses the theme default.</source>
+        <translation>Custom background colour for this separator row. Reset uses the theme default.</translation>
+    </message>
+    <message>
+        <source>Deployment Location</source>
+        <translation>Deployment Location</translation>
+    </message>
+    <message>
+        <source>Browse</source>
+        <translation>Browse</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>Deploy this separator's mods here instead of the game directory.</source>
+        <translation>Deploy this separator's mods here instead of the game directory.</translation>
+    </message>
+    <message>
+        <source>Ignore deployment rules</source>
+        <translation>Ignore deployment rules</translation>
+    </message>
+    <message>
+        <source>Skip routing rules; deploy files as-is.</source>
+        <translation>Skip routing rules; deploy files as-is.</translation>
+    </message>
+    <message>
+        <source>File Transfer Method</source>
+        <translation>File Transfer Method</translation>
+    </message>
+    <message>
+        <source>Override the global deploy mode. Hardlink falls back to symlink if unsupported.</source>
+        <translation>Override the global deploy mode. Hardlink falls back to symlink if unsupported.</translation>
+    </message>
+    <message>
+        <source>Merge folders with target</source>
+        <translation>Merge folders with target</translation>
+    </message>
+    <message>
+        <source>Merge mod folders into existing ones instead of replacing them.</source>
+        <translation>Merge mod folders into existing ones instead of replacing them.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+</context>
+<context>
+    <name>SetPrefixOverlay</name>
+    <message>
+        <source>Mod: {0}</source>
+        <translation>Mod: {0}</translation>
+    </message>
+    <message>
+        <source>This mod has no recognised top-level folders.</source>
+        <translation>This mod has no recognised top-level folders.</translation>
+    </message>
+    <message>
+        <source>Expected one of:  {0}</source>
+        <translation>Expected one of:  {0}</translation>
+    </message>
+    <message>
+        <source>Install all files under this path (e.g. archive/pc/mod):</source>
+        <translation>Install all files under this path (e.g. archive/pc/mod):</translation>
+    </message>
+    <message>
+        <source>e.g. bin/x64</source>
+        <translation>e.g. bin/x64</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Install Anyway</source>
+        <translation>Install Anyway</translation>
+    </message>
+    <message>
+        <source>Install with Prefix</source>
+        <translation>Install with Prefix</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsView</name>
+    <message>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>Changes take effect after restart.</source>
+        <translation>Changes take effect after restart.</translation>
+    </message>
+    <message>
+        <source>Browse</source>
+        <translation>Browse</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>User Interface</source>
+        <translation>User Interface</translation>
+    </message>
+    <message>
+        <source>Language</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <source>Sync language files</source>
+        <translation>Sync language files</translation>
+    </message>
+    <message>
+        <source>Hide BSA conflicts</source>
+        <translation>Hide BSA conflicts</translation>
+    </message>
+    <message>
+        <source>Hide BSA/BA2 archive conflict flags (also skips that conflict scan for a small speed-up).</source>
+        <translation>Hide BSA/BA2 archive conflict flags (also skips that conflict scan for a small speed-up).</translation>
+    </message>
+    <message>
+        <source>Theme</source>
+        <translation>Theme</translation>
+    </message>
+    <message>
+        <source>Auto (match display)</source>
+        <translation>Auto (match display)</translation>
+    </message>
+    <message>
+        <source>UI Scale</source>
+        <translation>UI Scale</translation>
+    </message>
+    <message>
+        <source>Edit / Create Theme…</source>
+        <translation>Edit / Create Theme…</translation>
+    </message>
+    <message>
+        <source>Show mod description tooltips</source>
+        <translation>Show mod description tooltips</translation>
+    </message>
+    <message>
+        <source>Show a mod's Nexus description as a tooltip when you hover over its name in the mod list.</source>
+        <translation>Show a mod's Nexus description as a tooltip when you hover over its name in the mod list.</translation>
+    </message>
+    <message>
+        <source>Make the whole interface bigger or smaller. Changes take effect after a restart.</source>
+        <translation>Make the whole interface bigger or smaller. Changes take effect after a restart.</translation>
+    </message>
+    <message>
+        <source>Downloads &amp; Collections</source>
+        <translation>Downloads &amp; Collections</translation>
+    </message>
+    <message>
+        <source>Clear archive after install</source>
+        <translation>Clear archive after install</translation>
+    </message>
+    <message>
+        <source>Delete a mod's downloaded archive after it is extracted.</source>
+        <translation>Delete a mod's downloaded archive after it is extracted.</translation>
+    </message>
+    <message>
+        <source>Keep FOMOD archives</source>
+        <translation>Keep FOMOD archives</translation>
+    </message>
+    <message>
+        <source>Mods installed via a FOMOD installer keep their archive even when 'Clear archive after install' is on.</source>
+        <translation>Mods installed via a FOMOD installer keep their archive even when 'Clear archive after install' is on.</translation>
+    </message>
+    <message>
+        <source>Max concurrent downloads</source>
+        <translation>Max concurrent downloads</translation>
+    </message>
+    <message>
+        <source>Max extractions</source>
+        <translation>Max extractions</translation>
+    </message>
+    <message>
+        <source>Extractions are gated by available memory; the effective number may be lower than set.</source>
+        <translation>Extractions are gated by available memory; the effective number may be lower than set.</translation>
+    </message>
+    <message>
+        <source>Caches</source>
+        <translation>Caches</translation>
+    </message>
+    <message>
+        <source>Manage Caches…</source>
+        <translation>Manage Caches…</translation>
+    </message>
+    <message>
+        <source>General</source>
+        <translation>General</translation>
+    </message>
+    <message>
+        <source>Normalise folder casing</source>
+        <translation>Normalise folder casing</translation>
+    </message>
+    <message>
+        <source>Unify folder names to a single casing across mods. Disable on case-insensitive filesystems.</source>
+        <translation>Unify folder names to a single casing across mods. Disable on case-insensitive filesystems.</translation>
+    </message>
+    <message>
+        <source>Rename mod after install</source>
+        <translation>Rename mod after install</translation>
+    </message>
+    <message>
+        <source>Show a rename prompt after installing a mod.</source>
+        <translation>Show a rename prompt after installing a mod.</translation>
+    </message>
+    <message>
+        <source>Edit custom install-name rules…</source>
+        <translation>Edit custom install-name rules…</translation>
+    </message>
+    <message>
+        <source>Add your own regex search/replace rules to clean up mod names on install — useful when a download site changes its filename format.</source>
+        <translation>Add your own regex search/replace rules to clean up mod names on install — useful when a download site changes its filename format.</translation>
+    </message>
+    <message>
+        <source>Restore on close</source>
+        <translation>Restore on close</translation>
+    </message>
+    <message>
+        <source>Restore all deployed games to vanilla when the app is closed.</source>
+        <translation>Restore all deployed games to vanilla when the app is closed.</translation>
+    </message>
+    <message>
+        <source>Use pre-release versions</source>
+        <translation>Use pre-release versions</translation>
+    </message>
+    <message>
+        <source>Also offer beta and release-candidate app builds when checking for updates.</source>
+        <translation>Also offer beta and release-candidate app builds when checking for updates.</translation>
+    </message>
+    <message>
+        <source>Paths</source>
+        <translation>Paths</translation>
+    </message>
+    <message>
+        <source>Default Mod Staging Folder</source>
+        <translation>Default Mod Staging Folder</translation>
+    </message>
+    <message>
+        <source>When set, games added after this point stage mods here. Blank = default ({0}).</source>
+        <translation>When set, games added after this point stage mods here. Blank = default ({0}).</translation>
+    </message>
+    <message>
+        <source>Download Cache Folder</source>
+        <translation>Download Cache Folder</translation>
+    </message>
+    <message>
+        <source>Where downloaded mod archives are stored. Blank = default ({0}).</source>
+        <translation>Where downloaded mod archives are stored. Blank = default ({0}).</translation>
+    </message>
+    <message>
+        <source>Heroic Config Location</source>
+        <translation>Heroic Config Location</translation>
+    </message>
+    <message>
+        <source>Folder containing Heroic's config.json. Blank = auto-detect (Flatpak and native locations).</source>
+        <translation>Folder containing Heroic's config.json. Blank = auto-detect (Flatpak and native locations).</translation>
+    </message>
+    <message>
+        <source>Steam libraryfolders.vdf</source>
+        <translation>Steam libraryfolders.vdf</translation>
+    </message>
+    <message>
+        <source>Path to libraryfolders.vdf (or its folder). Blank = auto-detect (standard, Flatpak and Snap locations).</source>
+        <translation>Path to libraryfolders.vdf (or its folder). Blank = auto-detect (standard, Flatpak and Snap locations).</translation>
+    </message>
+    <message>
+        <source>Failed to save setting: {0}</source>
+        <translation>Failed to save setting: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>ShareCodeExportOverlay</name>
+    <message>
+        <source>Export code</source>
+        <translation>Export code</translation>
+    </message>
+    <message>
+        <source>Share this code with someone to send them your load order ({0} {1}). They can add it with Import code.</source>
+        <translation>Share this code with someone to send them your load order ({0} {1}). They can add it with Import code.</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Copy to clipboard</source>
+        <translation>Copy to clipboard</translation>
+    </message>
+    <message>
+        <source>Copied ✓</source>
+        <translation>Copied ✓</translation>
+    </message>
+</context>
+<context>
+    <name>ShareCodeImportOverlay</name>
+    <message>
+        <source>Import code</source>
+        <translation>Import code</translation>
+    </message>
+    <message>
+        <source>Paste a share code below to build a new profile from someone else's load order.</source>
+        <translation>Paste a share code below to build a new profile from someone else's load order.</translation>
+    </message>
+    <message>
+        <source>Paste from clipboard</source>
+        <translation>Paste from clipboard</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation>Import</translation>
+    </message>
+</context>
+<context>
+    <name>ShowConflictsView</name>
+    <message>
+        <source>Conflicts: {0}</source>
+        <translation>Conflicts: {0}</translation>
+    </message>
+    <message>
+        <source>Files overriding others</source>
+        <translation>Files overriding others</translation>
+    </message>
+    <message>
+        <source>File path</source>
+        <translation>File path</translation>
+    </message>
+    <message>
+        <source>Mod(s) beaten</source>
+        <translation>Mod(s) beaten</translation>
+    </message>
+    <message>
+        <source>Files overridden by others</source>
+        <translation>Files overridden by others</translation>
+    </message>
+    <message>
+        <source>Winning mod</source>
+        <translation>Winning mod</translation>
+    </message>
+    <message>
+        <source>Files with no conflicts</source>
+        <translation>Files with no conflicts</translation>
+    </message>
+    <message>
+        <source>Computing conflicts…</source>
+        <translation>Computing conflicts…</translation>
+    </message>
+    <message>
+        <source>Could not compute conflicts — see the log.</source>
+        <translation>Could not compute conflicts — see the log.</translation>
+    </message>
+    <message>
+        <source>{0}  ({1})</source>
+        <translation>{0}  ({1})</translation>
+    </message>
+</context>
+<context>
+    <name>SkyGenView</name>
+    <message>
+        <source>Step 1: Scan Active Plugins</source>
+        <translation>Step 1: Scan Active Plugins</translation>
+    </message>
+    <message>
+        <source>SkyGen scans your active load order to find plugins that add objects/records eligible for Base Object Swapper or SkyPatcher patches, and flags those already patched.</source>
+        <translation>SkyGen scans your active load order to find plugins that add objects/records eligible for Base Object Swapper or SkyPatcher patches, and flags those already patched.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Scan →</source>
+        <translation>Scan →</translation>
+    </message>
+    <message>
+        <source>Scanning…</source>
+        <translation>Scanning…</translation>
+    </message>
+    <message>
+        <source>No active plugins found.
+Make sure a profile is loaded and has an active load order.</source>
+        <translation>No active plugins found.
+Make sure a profile is loaded and has an active load order.</translation>
+    </message>
+    <message>
+        <source>Step 2: Generate Patches</source>
+        <translation>Step 2: Generate Patches</translation>
+    </message>
+    <message>
+        <source>Mode:</source>
+        <translation>Mode:</translation>
+    </message>
+    <message>
+        <source>Base Object Swapper</source>
+        <translation>Base Object Swapper</translation>
+    </message>
+    <message>
+        <source>SkyPatcher</source>
+        <translation>SkyPatcher</translation>
+    </message>
+    <message>
+        <source>Select All</source>
+        <translation>Select All</translation>
+    </message>
+    <message>
+        <source>Deselect All</source>
+        <translation>Deselect All</translation>
+    </message>
+    <message>
+        <source>← Back</source>
+        <translation>← Back</translation>
+    </message>
+    <message>
+        <source>Generate →</source>
+        <translation>Generate →</translation>
+    </message>
+    <message>
+        <source>{0} eligible plugin(s)</source>
+        <translation>{0} eligible plugin(s)</translation>
+    </message>
+    <message>
+        <source>Generating…</source>
+        <translation>Generating…</translation>
+    </message>
+    <message>
+        <source>Generated {0} {1} patch INI(s).
+
+Output mod: {2}
+{3}</source>
+        <translation>Generated {0} {1} patch INI(s).
+
+Output mod: {2}
+{3}</translation>
+    </message>
+    <message>
+        <source>Patch generation complete</source>
+        <translation>Patch generation complete</translation>
+    </message>
+    <message>
+        <source>Open output folder</source>
+        <translation>Open output folder</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>SmapiView</name>
+    <message>
+        <source>Step 1: Download SMAPI</source>
+        <translation>Step 1: Download SMAPI</translation>
+    </message>
+    <message>
+        <source>Checking for the latest SMAPI release…</source>
+        <translation>Checking for the latest SMAPI release…</translation>
+    </message>
+    <message>
+        <source>A terminal window will open to run the installer.
+Follow its prompts, then press a key to close it.</source>
+        <translation>A terminal window will open to run the installer.
+Follow its prompts, then press a key to close it.</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Selected: {0}</source>
+        <translation>Selected: {0}</translation>
+    </message>
+    <message>
+        <source>Step 2: Install SMAPI</source>
+        <translation>Step 2: Install SMAPI</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Extracting SMAPI archive…</source>
+        <translation>Extracting SMAPI archive…</translation>
+    </message>
+</context>
+<context>
+    <name>StatsBar</name>
+    <message>
+        <source>{0}: {1}</source>
+        <translation>{0}: {1}</translation>
+    </message>
+</context>
+<context>
+    <name>SynthesisView</name>
+    <message>
+        <source>Step 1: Download Synthesis</source>
+        <translation>Step 1: Download Synthesis</translation>
+    </message>
+    <message>
+        <source>Fetching latest release from GitHub …</source>
+        <translation>Fetching latest release from GitHub …</translation>
+    </message>
+    <message>
+        <source>Step 2: Select Proton Version</source>
+        <translation>Step 2: Select Proton Version</translation>
+    </message>
+    <message>
+        <source>Synthesis will run in its own Wine prefix next to Synthesis.exe.
+Pick a Proton version to create that prefix with.</source>
+        <translation>Synthesis will run in its own Wine prefix next to Synthesis.exe.
+Pick a Proton version to create that prefix with.</translation>
+    </message>
+    <message>
+        <source>Continue →</source>
+        <translation>Continue →</translation>
+    </message>
+    <message>
+        <source>No Proton installations found. Install Proton (e.g. GE-Proton) via Steam and try again.</source>
+        <translation>No Proton installations found. Install Proton (e.g. GE-Proton) via Steam and try again.</translation>
+    </message>
+    <message>
+        <source>Step 3: Prepare Prefix</source>
+        <translation>Step 3: Prepare Prefix</translation>
+    </message>
+    <message>
+        <source>Preparing …</source>
+        <translation>Preparing …</translation>
+    </message>
+    <message>
+        <source>Launch Synthesis</source>
+        <translation>Launch Synthesis</translation>
+    </message>
+    <message>
+        <source>Running …</source>
+        <translation>Running …</translation>
+    </message>
+</context>
+<context>
+    <name>TTWView</name>
+    <message>
+        <source>Step 1: Install the TTW MPI Installer</source>
+        <translation>Step 1: Install the TTW MPI Installer</translation>
+    </message>
+    <message>
+        <source>The native Linux TTW installer will be downloaded from GitHub
+and placed in this game's Applications folder.
+
+Click Install to begin.</source>
+        <translation>The native Linux TTW installer will be downloaded from GitHub
+and placed in this game's Applications folder.
+
+Click Install to begin.</translation>
+    </message>
+    <message>
+        <source>Installer by SulfurNitride (TTW_Linux_Installer)</source>
+        <translation>Installer by SulfurNitride (TTW_Linux_Installer)</translation>
+    </message>
+    <message>
+        <source>View on GitHub</source>
+        <translation>View on GitHub</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>Contacting GitHub…</source>
+        <translation>Contacting GitHub…</translation>
+    </message>
+    <message>
+        <source>Tale of Two Wastelands is already installed</source>
+        <translation>Tale of Two Wastelands is already installed</translation>
+    </message>
+    <message>
+        <source>The '{0}' mod is already in your mod list, so the ~18 GB build can be skipped.
+
+• Re-apply setup only — re-runs the profile INI + FalloutCustom.ini setup without rebuilding (fast).
+
+• Rebuild from scratch — restores to vanilla and runs the full installer again (needs the .mpi + both games).</source>
+        <translation>The '{0}' mod is already in your mod list, so the ~18 GB build can be skipped.
+
+• Re-apply setup only — re-runs the profile INI + FalloutCustom.ini setup without rebuilding (fast).
+
+• Rebuild from scratch — restores to vanilla and runs the full installer again (needs the .mpi + both games).</translation>
+    </message>
+    <message>
+        <source>Re-apply setup only</source>
+        <translation>Re-apply setup only</translation>
+    </message>
+    <message>
+        <source>Rebuild from scratch</source>
+        <translation>Rebuild from scratch</translation>
+    </message>
+    <message>
+        <source>Re-applying TTW setup…</source>
+        <translation>Re-applying TTW setup…</translation>
+    </message>
+    <message>
+        <source>Step 2: Game folders &amp; TTW package</source>
+        <translation>Step 2: Game folders &amp; TTW package</translation>
+    </message>
+    <message>
+        <source>TTW merges assets from both Fallout 3 and Fallout New Vegas, so both games must be installed. Confirm the folders below, then select the TTW .mpi package.
+
+Get the latest TTW .mpi from mod.pub (free account required) — extract the download and the .mpi is inside.</source>
+        <translation>TTW merges assets from both Fallout 3 and Fallout New Vegas, so both games must be installed. Confirm the folders below, then select the TTW .mpi package.
+
+Get the latest TTW .mpi from mod.pub (free account required) — extract the download and the .mpi is inside.</translation>
+    </message>
+    <message>
+        <source>Open mod.pub TTW page</source>
+        <translation>Open mod.pub TTW page</translation>
+    </message>
+    <message>
+        <source>Continue</source>
+        <translation>Continue</translation>
+    </message>
+    <message>
+        <source>— not set —</source>
+        <translation>— not set —</translation>
+    </message>
+    <message>
+        <source>Please select the TTW .mpi package.</source>
+        <translation>Please select the TTW .mpi package.</translation>
+    </message>
+    <message>
+        <source>Fallout New Vegas folder is not set.</source>
+        <translation>Fallout New Vegas folder is not set.</translation>
+    </message>
+    <message>
+        <source>Fallout 3 folder is not set. TTW requires Fallout 3 to be installed.</source>
+        <translation>Fallout 3 folder is not set. TTW requires Fallout 3 to be installed.</translation>
+    </message>
+    <message>
+        <source>Starting…</source>
+        <translation>Starting…</translation>
+    </message>
+    <message>
+        <source>Step 3: Building Tale of Two Wastelands</source>
+        <translation>Step 3: Building Tale of Two Wastelands</translation>
+    </message>
+    <message>
+        <source>The game is first restored to a vanilla state, then the installer
+merges Fallout 3 and Fallout New Vegas assets. This produces ~18 GB of output and can take a long while — please leave it running.
+Output is written directly into your mod list as the '{0}' mod.</source>
+        <translation>The game is first restored to a vanilla state, then the installer
+merges Fallout 3 and Fallout New Vegas assets. This produces ~18 GB of output and can take a long while — please leave it running.
+Output is written directly into your mod list as the '{0}' mod.</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
+    <name>TextEditor</name>
+    <message>
+        <source>Find…</source>
+        <translation>Find…</translation>
+    </message>
+    <message>
+        <source>Previous match</source>
+        <translation>Previous match</translation>
+    </message>
+    <message>
+        <source>Next match</source>
+        <translation>Next match</translation>
+    </message>
+    <message>
+        <source>Revert</source>
+        <translation>Revert</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+</context>
+<context>
+    <name>TextInputOverlay</name>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>TextureToolView</name>
+    <message>
+        <source>Step 5: Run {0}</source>
+        <translation>Step 5: Run {0}</translation>
+    </message>
+    <message>
+        <source>Output: {0}</source>
+        <translation>Output: {0}</translation>
+    </message>
+    <message>
+        <source>▶  Run {0}</source>
+        <translation>▶  Run {0}</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>{0} not found. Please restart the wizard.</source>
+        <translation>{0} not found. Please restart the wizard.</translation>
+    </message>
+    <message>
+        <source>Game Data folder not found. Deploy first.</source>
+        <translation>Game Data folder not found. Deploy first.</translation>
+    </message>
+</context>
+<context>
+    <name>ThemeEditorView</name>
+    <message>
+        <source>Backgrounds</source>
+        <translation>Backgrounds</translation>
+    </message>
+    <message>
+        <source>App background (deepest)</source>
+        <translation>App background (deepest)</translation>
+    </message>
+    <message>
+        <source>Panel / card surface</source>
+        <translation>Panel / card surface</translation>
+    </message>
+    <message>
+        <source>Header / toolbar</source>
+        <translation>Header / toolbar</translation>
+    </message>
+    <message>
+        <source>List row</source>
+        <translation>List row</translation>
+    </message>
+    <message>
+        <source>List row (alt stripe)</source>
+        <translation>List row (alt stripe)</translation>
+    </message>
+    <message>
+        <source>List row hover</source>
+        <translation>List row hover</translation>
+    </message>
+    <message>
+        <source>Tree / list surface</source>
+        <translation>Tree / list surface</translation>
+    </message>
+    <message>
+        <source>Separator fill</source>
+        <translation>Separator fill</translation>
+    </message>
+    <message>
+        <source>Hover highlight</source>
+        <translation>Hover highlight</translation>
+    </message>
+    <message>
+        <source>Selection highlight</source>
+        <translation>Selection highlight</translation>
+    </message>
+    <message>
+        <source>Text input field</source>
+        <translation>Text input field</translation>
+    </message>
+    <message>
+        <source>Text</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <source>Primary text</source>
+        <translation>Primary text</translation>
+    </message>
+    <message>
+        <source>Dimmed text</source>
+        <translation>Dimmed text</translation>
+    </message>
+    <message>
+        <source>Muted text</source>
+        <translation>Muted text</translation>
+    </message>
+    <message>
+        <source>Faint text</source>
+        <translation>Faint text</translation>
+    </message>
+    <message>
+        <source>Separator text</source>
+        <translation>Separator text</translation>
+    </message>
+    <message>
+        <source>White</source>
+        <translation>White</translation>
+    </message>
+    <message>
+        <source>Black</source>
+        <translation>Black</translation>
+    </message>
+    <message>
+        <source>Success text</source>
+        <translation>Success text</translation>
+    </message>
+    <message>
+        <source>Error text</source>
+        <translation>Error text</translation>
+    </message>
+    <message>
+        <source>Warning text</source>
+        <translation>Warning text</translation>
+    </message>
+    <message>
+        <source>Success text (bright)</source>
+        <translation>Success text (bright)</translation>
+    </message>
+    <message>
+        <source>Error text (bright)</source>
+        <translation>Error text (bright)</translation>
+    </message>
+    <message>
+        <source>Warning text (bright)</source>
+        <translation>Warning text (bright)</translation>
+    </message>
+    <message>
+        <source>Card text</source>
+        <translation>Card text</translation>
+    </message>
+    <message>
+        <source>Card text (dim)</source>
+        <translation>Card text (dim)</translation>
+    </message>
+    <message>
+        <source>Card text (medium)</source>
+        <translation>Card text (medium)</translation>
+    </message>
+    <message>
+        <source>Tree foreground</source>
+        <translation>Tree foreground</translation>
+    </message>
+    <message>
+        <source>Accent</source>
+        <translation>Accent</translation>
+    </message>
+    <message>
+        <source>Accent hover</source>
+        <translation>Accent hover</translation>
+    </message>
+    <message>
+        <source>Text on accent</source>
+        <translation>Text on accent</translation>
+    </message>
+    <message>
+        <source>Hyperlink</source>
+        <translation>Hyperlink</translation>
+    </message>
+    <message>
+        <source>Dropdown arrow</source>
+        <translation>Dropdown arrow</translation>
+    </message>
+    <message>
+        <source>Borders</source>
+        <translation>Borders</translation>
+    </message>
+    <message>
+        <source>Border</source>
+        <translation>Border</translation>
+    </message>
+    <message>
+        <source>Border (dim)</source>
+        <translation>Border (dim)</translation>
+    </message>
+    <message>
+        <source>Border (faint)</source>
+        <translation>Border (faint)</translation>
+    </message>
+    <message>
+        <source>Buttons — Red</source>
+        <translation>Buttons — Red</translation>
+    </message>
+    <message>
+        <source>Danger</source>
+        <translation>Danger</translation>
+    </message>
+    <message>
+        <source>Danger hover</source>
+        <translation>Danger hover</translation>
+    </message>
+    <message>
+        <source>Danger (alt)</source>
+        <translation>Danger (alt)</translation>
+    </message>
+    <message>
+        <source>Danger alt hover</source>
+        <translation>Danger alt hover</translation>
+    </message>
+    <message>
+        <source>Danger (deep)</source>
+        <translation>Danger (deep)</translation>
+    </message>
+    <message>
+        <source>Danger deep hover</source>
+        <translation>Danger deep hover</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Cancel hover</source>
+        <translation>Cancel hover</translation>
+    </message>
+    <message>
+        <source>Red (legacy)</source>
+        <translation>Red (legacy)</translation>
+    </message>
+    <message>
+        <source>Red hover (legacy)</source>
+        <translation>Red hover (legacy)</translation>
+    </message>
+    <message>
+        <source>Buttons — Green</source>
+        <translation>Buttons — Green</translation>
+    </message>
+    <message>
+        <source>Success</source>
+        <translation>Success</translation>
+    </message>
+    <message>
+        <source>Success hover</source>
+        <translation>Success hover</translation>
+    </message>
+    <message>
+        <source>Success (alt)</source>
+        <translation>Success (alt)</translation>
+    </message>
+    <message>
+        <source>Success alt hover</source>
+        <translation>Success alt hover</translation>
+    </message>
+    <message>
+        <source>Success (deep)</source>
+        <translation>Success (deep)</translation>
+    </message>
+    <message>
+        <source>Success deep hover</source>
+        <translation>Success deep hover</translation>
+    </message>
+    <message>
+        <source>Buttons — Orange</source>
+        <translation>Buttons — Orange</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation>Warning</translation>
+    </message>
+    <message>
+        <source>Warning hover</source>
+        <translation>Warning hover</translation>
+    </message>
+    <message>
+        <source>Warning (deep)</source>
+        <translation>Warning (deep)</translation>
+    </message>
+    <message>
+        <source>Warning deep hover</source>
+        <translation>Warning deep hover</translation>
+    </message>
+    <message>
+        <source>Warning (brown)</source>
+        <translation>Warning (brown)</translation>
+    </message>
+    <message>
+        <source>Warning brown hover</source>
+        <translation>Warning brown hover</translation>
+    </message>
+    <message>
+        <source>Warning (orange)</source>
+        <translation>Warning (orange)</translation>
+    </message>
+    <message>
+        <source>Warning orange hover</source>
+        <translation>Warning orange hover</translation>
+    </message>
+    <message>
+        <source>Buttons — Blue</source>
+        <translation>Buttons — Blue</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation>Info</translation>
+    </message>
+    <message>
+        <source>Info hover</source>
+        <translation>Info hover</translation>
+    </message>
+    <message>
+        <source>Info (deep)</source>
+        <translation>Info (deep)</translation>
+    </message>
+    <message>
+        <source>Info deep hover</source>
+        <translation>Info deep hover</translation>
+    </message>
+    <message>
+        <source>Neutral</source>
+        <translation>Neutral</translation>
+    </message>
+    <message>
+        <source>Neutral hover</source>
+        <translation>Neutral hover</translation>
+    </message>
+    <message>
+        <source>Buttons — Grey</source>
+        <translation>Buttons — Grey</translation>
+    </message>
+    <message>
+        <source>Grey</source>
+        <translation>Grey</translation>
+    </message>
+    <message>
+        <source>Grey hover</source>
+        <translation>Grey hover</translation>
+    </message>
+    <message>
+        <source>Grey (alt)</source>
+        <translation>Grey (alt)</translation>
+    </message>
+    <message>
+        <source>Grey alt hover</source>
+        <translation>Grey alt hover</translation>
+    </message>
+    <message>
+        <source>Buttons — Purple</source>
+        <translation>Buttons — Purple</translation>
+    </message>
+    <message>
+        <source>Purple</source>
+        <translation>Purple</translation>
+    </message>
+    <message>
+        <source>Purple hover</source>
+        <translation>Purple hover</translation>
+    </message>
+    <message>
+        <source>Tree tags</source>
+        <translation>Tree tags</translation>
+    </message>
+    <message>
+        <source>Folder</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>BSA archive</source>
+        <translation>BSA archive</translation>
+    </message>
+    <message>
+        <source>BSA archive (alt)</source>
+        <translation>BSA archive (alt)</translation>
+    </message>
+    <message>
+        <source>INI profile</source>
+        <translation>INI profile</translation>
+    </message>
+    <message>
+        <source>Bundled (text)</source>
+        <translation>Bundled (text)</translation>
+    </message>
+    <message>
+        <source>Bundled (background)</source>
+        <translation>Bundled (background)</translation>
+    </message>
+    <message>
+        <source>Installed (background)</source>
+        <translation>Installed (background)</translation>
+    </message>
+    <message>
+        <source>Unordered (text)</source>
+        <translation>Unordered (text)</translation>
+    </message>
+    <message>
+        <source>Tones</source>
+        <translation>Tones</translation>
+    </message>
+    <message>
+        <source>Green tone</source>
+        <translation>Green tone</translation>
+    </message>
+    <message>
+        <source>Red tone</source>
+        <translation>Red tone</translation>
+    </message>
+    <message>
+        <source>Blue tone</source>
+        <translation>Blue tone</translation>
+    </message>
+    <message>
+        <source>Cyan tone</source>
+        <translation>Cyan tone</translation>
+    </message>
+    <message>
+        <source>Soft blue tone</source>
+        <translation>Soft blue tone</translation>
+    </message>
+    <message>
+        <source>Flag tone</source>
+        <translation>Flag tone</translation>
+    </message>
+    <message>
+        <source>Scrollbars</source>
+        <translation>Scrollbars</translation>
+    </message>
+    <message>
+        <source>Scrollbar background</source>
+        <translation>Scrollbar background</translation>
+    </message>
+    <message>
+        <source>Scrollbar trough</source>
+        <translation>Scrollbar trough</translation>
+    </message>
+    <message>
+        <source>Scrollbar thumb (active)</source>
+        <translation>Scrollbar thumb (active)</translation>
+    </message>
+    <message>
+        <source>Overlays &amp; tinted rows</source>
+        <translation>Overlays &amp; tinted rows</translation>
+    </message>
+    <message>
+        <source>Error overlay</source>
+        <translation>Error overlay</translation>
+    </message>
+    <message>
+        <source>Deep overlay</source>
+        <translation>Deep overlay</translation>
+    </message>
+    <message>
+        <source>Card</source>
+        <translation>Card</translation>
+    </message>
+    <message>
+        <source>Card (alt)</source>
+        <translation>Card (alt)</translation>
+    </message>
+    <message>
+        <source>Green row</source>
+        <translation>Green row</translation>
+    </message>
+    <message>
+        <source>Green (deep)</source>
+        <translation>Green (deep)</translation>
+    </message>
+    <message>
+        <source>Red (deep)</source>
+        <translation>Red (deep)</translation>
+    </message>
+    <message>
+        <source>Orange (deep)</source>
+        <translation>Orange (deep)</translation>
+    </message>
+    <message>
+        <source>Blue (deep)</source>
+        <translation>Blue (deep)</translation>
+    </message>
+    <message>
+        <source>Green tint text</source>
+        <translation>Green tint text</translation>
+    </message>
+    <message>
+        <source>Red tint text</source>
+        <translation>Red tint text</translation>
+    </message>
+    <message>
+        <source>Orange tint text</source>
+        <translation>Orange tint text</translation>
+    </message>
+    <message>
+        <source>Blue tint text</source>
+        <translation>Blue tint text</translation>
+    </message>
+    <message>
+        <source>Dark blue</source>
+        <translation>Dark blue</translation>
+    </message>
+    <message>
+        <source>Dark green</source>
+        <translation>Dark green</translation>
+    </message>
+    <message>
+        <source>Save button</source>
+        <translation>Save button</translation>
+    </message>
+    <message>
+        <source>Selection bar</source>
+        <translation>Selection bar</translation>
+    </message>
+    <message>
+        <source>Required mod</source>
+        <translation>Required mod</translation>
+    </message>
+    <message>
+        <source>Optional mod</source>
+        <translation>Optional mod</translation>
+    </message>
+    <message>
+        <source>Status</source>
+        <translation>Status</translation>
+    </message>
+    <message>
+        <source>Error (bright)</source>
+        <translation>Error (bright)</translation>
+    </message>
+    <message>
+        <source>Badge red</source>
+        <translation>Badge red</translation>
+    </message>
+    <message>
+        <source>Badge green</source>
+        <translation>Badge green</translation>
+    </message>
+    <message>
+        <source>Success (solid)</source>
+        <translation>Success (solid)</translation>
+    </message>
+    <message>
+        <source>Queued</source>
+        <translation>Queued</translation>
+    </message>
+    <message>
+        <source>Download green</source>
+        <translation>Download green</translation>
+    </message>
+    <message>
+        <source>Plugin cycle &amp; files</source>
+        <translation>Plugin cycle &amp; files</translation>
+    </message>
+    <message>
+        <source>Cycle error row (bg)</source>
+        <translation>Cycle error row (bg)</translation>
+    </message>
+    <message>
+        <source>Cycle error row (text)</source>
+        <translation>Cycle error row (text)</translation>
+    </message>
+    <message>
+        <source>Cycle ok row (bg)</source>
+        <translation>Cycle ok row (bg)</translation>
+    </message>
+    <message>
+        <source>Cycle ok row (text)</source>
+        <translation>Cycle ok row (text)</translation>
+    </message>
+    <message>
+        <source>Cycle warn row (bg)</source>
+        <translation>Cycle warn row (bg)</translation>
+    </message>
+    <message>
+        <source>Cycle warn row (text)</source>
+        <translation>Cycle warn row (text)</translation>
+    </message>
+    <message>
+        <source>Cycle anchor</source>
+        <translation>Cycle anchor</translation>
+    </message>
+    <message>
+        <source>Cycle link</source>
+        <translation>Cycle link</translation>
+    </message>
+    <message>
+        <source>File winning</source>
+        <translation>File winning</translation>
+    </message>
+    <message>
+        <source>File overridden</source>
+        <translation>File overridden</translation>
+    </message>
+    <message>
+        <source>File dim</source>
+        <translation>File dim</translation>
+    </message>
+    <message>
+        <source>File anchor</source>
+        <translation>File anchor</translation>
+    </message>
+    <message>
+        <source>Drag selection outline</source>
+        <translation>Drag selection outline</translation>
+    </message>
+    <message>
+        <source>Conflict highlights</source>
+        <translation>Conflict highlights</translation>
+    </message>
+    <message>
+        <source>Conflict row — winning</source>
+        <translation>Conflict row — winning</translation>
+    </message>
+    <message>
+        <source>Conflict row — overridden</source>
+        <translation>Conflict row — overridden</translation>
+    </message>
+    <message>
+        <source>Conflict row — anchor</source>
+        <translation>Conflict row — anchor</translation>
+    </message>
+    <message>
+        <source>Framework detection</source>
+        <translation>Framework detection</translation>
+    </message>
+    <message>
+        <source>Installed (bg)</source>
+        <translation>Installed (bg)</translation>
+    </message>
+    <message>
+        <source>Installed (text)</source>
+        <translation>Installed (text)</translation>
+    </message>
+    <message>
+        <source>Staged (bg)</source>
+        <translation>Staged (bg)</translation>
+    </message>
+    <message>
+        <source>Staged (text)</source>
+        <translation>Staged (text)</translation>
+    </message>
+    <message>
+        <source>Disabled (bg)</source>
+        <translation>Disabled (bg)</translation>
+    </message>
+    <message>
+        <source>Disabled (text)</source>
+        <translation>Disabled (text)</translation>
+    </message>
+    <message>
+        <source>Missing (bg)</source>
+        <translation>Missing (bg)</translation>
+    </message>
+    <message>
+        <source>Missing (text)</source>
+        <translation>Missing (text)</translation>
+    </message>
+    <message>
+        <source>Separator bands</source>
+        <translation>Separator bands</translation>
+    </message>
+    <message>
+        <source>Overwrite band (bg)</source>
+        <translation>Overwrite band (bg)</translation>
+    </message>
+    <message>
+        <source>Overwrite band (text)</source>
+        <translation>Overwrite band (text)</translation>
+    </message>
+    <message>
+        <source>Root Folder band (bg)</source>
+        <translation>Root Folder band (bg)</translation>
+    </message>
+    <message>
+        <source>Root Folder band (text)</source>
+        <translation>Root Folder band (text)</translation>
+    </message>
+    <message>
+        <source>Checkboxes</source>
+        <translation>Checkboxes</translation>
+    </message>
+    <message>
+        <source>Checkbox fill (checked)</source>
+        <translation>Checkbox fill (checked)</translation>
+    </message>
+    <message>
+        <source>Window, panels, list rows and input fields — the app's surfaces.</source>
+        <translation>Window, panels, list rows and input fields — the app's surfaces.</translation>
+    </message>
+    <message>
+        <source>Label and list text throughout the app, plus success/warning/error text.</source>
+        <translation>Label and list text throughout the app, plus success/warning/error text.</translation>
+    </message>
+    <message>
+        <source>The highlight colour: links, dropdown arrows and accented controls.</source>
+        <translation>The highlight colour: links, dropdown arrows and accented controls.</translation>
+    </message>
+    <message>
+        <source>Lines and frames around panels, lists and inputs.</source>
+        <translation>Lines and frames around panels, lists and inputs.</translation>
+    </message>
+    <message>
+        <source>Danger / cancel / remove buttons (delete, remove profile, ✕ close).</source>
+        <translation>Danger / cancel / remove buttons (delete, remove profile, ✕ close).</translation>
+    </message>
+    <message>
+        <source>Success / confirm buttons (Install, Done, Play).</source>
+        <translation>Success / confirm buttons (Install, Done, Play).</translation>
+    </message>
+    <message>
+        <source>Warning buttons (Reinstall, download / update actions).</source>
+        <translation>Warning buttons (Reinstall, download / update actions).</translation>
+    </message>
+    <message>
+        <source>Info / neutral action buttons (Select, Groups, Plugin Rules).</source>
+        <translation>Info / neutral action buttons (Select, Groups, Plugin Rules).</translation>
+    </message>
+    <message>
+        <source>Secondary / neutral buttons (View, minor actions).</source>
+        <translation>Secondary / neutral buttons (View, minor actions).</translation>
+    </message>
+    <message>
+        <source>Accent buttons like Ko-Fi.</source>
+        <translation>Accent buttons like Ko-Fi.</translation>
+    </message>
+    <message>
+        <source>Coloured labels in file trees (folders, BSA archives, bundled/installed).</source>
+        <translation>Coloured labels in file trees (folders, BSA archives, bundled/installed).</translation>
+    </message>
+    <message>
+        <source>Shared accent tones reused by flags, icons and small highlights.</source>
+        <translation>Shared accent tones reused by flags, icons and small highlights.</translation>
+    </message>
+    <message>
+        <source>The scrollbar track and thumb.</source>
+        <translation>The scrollbar track and thumb.</translation>
+    </message>
+    <message>
+        <source>Popup/overlay backgrounds and coloured info rows (required/optional mods, cards).</source>
+        <translation>Popup/overlay backgrounds and coloured info rows (required/optional mods, cards).</translation>
+    </message>
+    <message>
+        <source>Small status pills and badges (queued, download progress, error/success).</source>
+        <translation>Small status pills and badges (queued, download progress, error/success).</translation>
+    </message>
+    <message>
+        <source>Plugin-cycle rows and file-conflict colours in the Data / Mod Files views.</source>
+        <translation>Plugin-cycle rows and file-conflict colours in the Data / Mod Files views.</translation>
+    </message>
+    <message>
+        <source>Row tints when a conflicting mod is selected (winning / overridden / anchor).</source>
+        <translation>Row tints when a conflicting mod is selected (winning / overridden / anchor).</translation>
+    </message>
+    <message>
+        <source>The framework-status banner above the Plugins list (installed / staged / disabled / missing).</source>
+        <translation>The framework-status banner above the Plugins list (installed / staged / disabled / missing).</translation>
+    </message>
+    <message>
+        <source>The pinned Overwrite and Root Folder bands at the top of the modlist.</source>
+        <translation>The pinned Overwrite and Root Folder bands at the top of the modlist.</translation>
+    </message>
+    <message>
+        <source>The fill colour of a ticked checkbox (the tick stays auto-contrasted).</source>
+        <translation>The fill colour of a ticked checkbox (the tick stays auto-contrasted).</translation>
+    </message>
+    <message>
+        <source>Theme Editor</source>
+        <translation>Theme Editor</translation>
+    </message>
+    <message>
+        <source>Start from:</source>
+        <translation>Start from:</translation>
+    </message>
+    <message>
+        <source>Advanced (show all colours)</source>
+        <translation>Advanced (show all colours)</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Save As…</source>
+        <translation>Save As…</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>Restart to apply</source>
+        <translation>Restart to apply</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Save As New…</source>
+        <translation>Save As New…</translation>
+    </message>
+    <message>
+        <source>Editing a base colour adjusts its hover/variants automatically. Tick Advanced to edit every colour individually. Use "Restart to apply" to save your theme and see it across the whole app.</source>
+        <translation>Editing a base colour adjusts its hover/variants automatically. Tick Advanced to edit every colour individually. Use "Restart to apply" to save your theme and see it across the whole app.</translation>
+    </message>
+    <message>
+        <source>Pick colour: {0}</source>
+        <translation>Pick colour: {0}</translation>
+    </message>
+    <message>
+        <source>Save Theme</source>
+        <translation>Save Theme</translation>
+    </message>
+    <message>
+        <source>Theme name:</source>
+        <translation>Theme name:</translation>
+    </message>
+    <message>
+        <source>Save failed</source>
+        <translation>Save failed</translation>
+    </message>
+    <message>
+        <source>{0} (edited)</source>
+        <translation>{0} (edited)</translation>
+    </message>
+    <message>
+        <source>Delete theme?</source>
+        <translation>Delete theme?</translation>
+    </message>
+    <message>
+        <source>Delete the custom theme "{0}"? This cannot be undone.</source>
+        <translation>Delete the custom theme "{0}"? This cannot be undone.</translation>
+    </message>
+</context>
+<context>
+    <name>UpdateOverlay</name>
+    <message>
+        <source>Update Collection</source>
+        <translation>Update Collection</translation>
+    </message>
+    <message>
+        <source>Rev {0}</source>
+        <translation>Rev {0}</translation>
+    </message>
+    <message>
+        <source>?</source>
+        <translation>?</translation>
+    </message>
+    <message>
+        <source>Profile '{0}' — {1} → {2}</source>
+        <translation>Profile '{0}' — {1} → {2}</translation>
+    </message>
+    <message>
+        <source>{0} to remove · {1} to update · {2} to add · {3} orphan(s)</source>
+        <translation>{0} to remove · {1} to update · {2} to add · {3} orphan(s)</translation>
+    </message>
+    <message>
+        <source>Removed and updated mods will be reinstalled. Your existing load order is preserved where possible.</source>
+        <translation>Removed and updated mods will be reinstalled. Your existing load order is preserved where possible.</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>Update</source>
+        <translation>Update</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Add</translation>
+    </message>
+    <message>
+        <source>Orphans</source>
+        <translation>Orphans</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Apply Update</source>
+        <translation>Apply Update</translation>
+    </message>
+    <message>
+        <source>{0} ({1})</source>
+        <translation>{0} ({1})</translation>
+    </message>
+    <message>
+        <source>  (none)</source>
+        <translation>  (none)</translation>
+    </message>
+    <message>
+        <source>A new version of Amethyst Mod Manager is available on the AUR.
+
+Current: {0}
+AUR:     {1}
+
+Update via your AUR helper, e.g.
+  yay -Syu amethyst-mod-manager</source>
+        <translation>A new version of Amethyst Mod Manager is available on the AUR.
+
+Current: {0}
+AUR:     {1}
+
+Update via your AUR helper, e.g.
+  yay -Syu amethyst-mod-manager</translation>
+    </message>
+    <message>
+        <source>Pre-release</source>
+        <translation>Pre-release</translation>
+    </message>
+    <message>
+        <source>Stable</source>
+        <translation>Stable</translation>
+    </message>
+    <message>
+        <source>You're running a pre-release. Switch to the latest {0} build?
+
+Current:     {1}
+{2}: {3}
+
+This will downgrade your installation.</source>
+        <translation>You're running a pre-release. Switch to the latest {0} build?
+
+Current:     {1}
+{2}: {3}
+
+This will downgrade your installation.</translation>
+    </message>
+    <message>
+        <source>A new version of Amethyst Mod Manager is available.
+
+Current: {0}
+Latest:  {1}</source>
+        <translation>A new version of Amethyst Mod Manager is available.
+
+Current: {0}
+Latest:  {1}</translation>
+    </message>
+    <message>
+        <source>Switch to stable</source>
+        <translation>Switch to stable</translation>
+    </message>
+    <message>
+        <source>Update via installer</source>
+        <translation>Update via installer</translation>
+    </message>
+    <message>
+        <source>Open AUR page</source>
+        <translation>Open AUR page</translation>
+    </message>
+    <message>
+        <source>Open releases page</source>
+        <translation>Open releases page</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Later</translation>
+    </message>
+</context>
+<context>
+    <name>UserlistBar</name>
+    <message>
+        <source>After:</source>
+        <translation>After:</translation>
+    </message>
+    <message>
+        <source>Before:</source>
+        <translation>Before:</translation>
+    </message>
+    <message>
+        <source>Separate multiple plugins with  |</source>
+        <translation>Separate multiple plugins with  |</translation>
+    </message>
+</context>
+<context>
+    <name>WizardViewBase</name>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Try Again</source>
+        <translation>Try Again</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Searching Downloads folder…</source>
+        <translation>Searching Downloads folder…</translation>
+    </message>
+    <message>
+        <source>Extracting…</source>
+        <translation>Extracting…</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Deploy is unavailable here.</source>
+        <translation>Deploy is unavailable here.</translation>
+    </message>
+    <message>
+        <source>Deploying…</source>
+        <translation>Deploying…</translation>
+    </message>
+    <message>
+        <source>Deploy complete.</source>
+        <translation>Deploy complete.</translation>
+    </message>
+    <message>
+        <source>Deploy failed — see log.</source>
+        <translation>Deploy failed — see log.</translation>
+    </message>
+    <message>
+        <source>Could not start deploy — see log.</source>
+        <translation>Could not start deploy — see log.</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy</source>
+        <translation>Deploy</translation>
+    </message>
+</context>
+<context>
+    <name>WryeBashView</name>
+    <message>
+        <source>Step 1: Download Wrye Bash</source>
+        <translation>Step 1: Download Wrye Bash</translation>
+    </message>
+    <message>
+        <source>'{0}' was not found.</source>
+        <translation>'{0}' was not found.</translation>
+    </message>
+    <message>
+        <source>Launching Wrye Bash…</source>
+        <translation>Launching Wrye Bash…</translation>
+    </message>
+</context>
+<context>
+    <name>XEditView</name>
+    <message>
+        <source>Run {0} — {1}</source>
+        <translation>Run {0} — {1}</translation>
+    </message>
+    <message>
+        <source>✕ Close</source>
+        <translation>✕ Close</translation>
+    </message>
+    <message>
+        <source>Step 1: Download {0}</source>
+        <translation>Step 1: Download {0}</translation>
+    </message>
+    <message>
+        <source>Click the button below to open the {0} page on Nexus Mods.
+
+Download the archive manually (do NOT use the Mod Manager download button), then click Next.</source>
+        <translation>Click the button below to open the {0} page on Nexus Mods.
+
+Download the archive manually (do NOT use the Mod Manager download button), then click Next.</translation>
+    </message>
+    <message>
+        <source>Open Download Page</source>
+        <translation>Open Download Page</translation>
+    </message>
+    <message>
+        <source>Next →</source>
+        <translation>Next →</translation>
+    </message>
+    <message>
+        <source>Step 1: Download xEdit (Discord version)</source>
+        <translation>Step 1: Download xEdit (Discord version)</translation>
+    </message>
+    <message>
+        <source>The latest official xEdit is now released through the xEdit Discord — a single multi-game download that is NOT on Nexus Mods.
+
+To get it:
+  1. Find and join the xEdit Discord server (search for it yourself — we do not link it here as the invite can change).
+  2. Download the latest xEdit archive (e.g. "xEdit 4.1.5q.7z") from the #xedit-builds channel.
+  3. Leave the archive in your Downloads folder and click Next.
+
+It contains xFOEdit (Fallout), xSFEdit (Starfield) and xTESEdit (Elder Scrolls); the wizard runs the one for this game automatically.</source>
+        <translation>The latest official xEdit is now released through the xEdit Discord — a single multi-game download that is NOT on Nexus Mods.
+
+To get it:
+  1. Find and join the xEdit Discord server (search for it yourself — we do not link it here as the invite can change).
+  2. Download the latest xEdit archive (e.g. "xEdit 4.1.5q.7z") from the #xedit-builds channel.
+  3. Leave the archive in your Downloads folder and click Next.
+
+It contains xFOEdit (Fallout), xSFEdit (Starfield) and xTESEdit (Elder Scrolls); the wizard runs the one for this game automatically.</translation>
+    </message>
+    <message>
+        <source>Step 2: Locate the Archive</source>
+        <translation>Step 2: Locate the Archive</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Try Again</source>
+        <translation>Try Again</translation>
+    </message>
+    <message>
+        <source>Found: {0}</source>
+        <translation>Found: {0}</translation>
+    </message>
+    <message>
+        <source>{0} archive not found in Downloads.
+Make sure you downloaded it, then press Try Again,
+or use Browse to select it manually.</source>
+        <translation>{0} archive not found in Downloads.
+Make sure you downloaded it, then press Try Again,
+or use Browse to select it manually.</translation>
+    </message>
+    <message>
+        <source>Selected: {0}</source>
+        <translation>Selected: {0}</translation>
+    </message>
+    <message>
+        <source>Step 3: Extract {0}</source>
+        <translation>Step 3: Extract {0}</translation>
+    </message>
+    <message>
+        <source>Step 4: Deploy Modlist</source>
+        <translation>Step 4: Deploy Modlist</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>Skip</translation>
+    </message>
+    <message>
+        <source>Deploy is unavailable here — Skip to continue.</source>
+        <translation>Deploy is unavailable here — Skip to continue.</translation>
+    </message>
+    <message>
+        <source>Deploying…</source>
+        <translation>Deploying…</translation>
+    </message>
+    <message>
+        <source>Deploy complete.</source>
+        <translation>Deploy complete.</translation>
+    </message>
+    <message>
+        <source>Deploy failed — see log.</source>
+        <translation>Deploy failed — see log.</translation>
+    </message>
+    <message>
+        <source>Could not start deploy — see log.</source>
+        <translation>Could not start deploy — see log.</translation>
+    </message>
+    <message>
+        <source>{0} was not found.
+Please restart the wizard and install {1} first.</source>
+        <translation>{0} was not found.
+Please restart the wizard and install {1} first.</translation>
+    </message>
+    <message>
+        <source>Step 6: Run {0}</source>
+        <translation>Step 6: Run {0}</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>Plugins needing cleaning ({0}):</source>
+        <translation>Plugins needing cleaning ({0}):</translation>
+    </message>
+    <message>
+        <source>{0} was not found.</source>
+        <translation>{0} was not found.</translation>
+    </message>
+    <message>
+        <source>Launching {0}…</source>
+        <translation>Launching {0}…</translation>
+    </message>
+    <message>
+        <source>{0} is running.
+Close it when you are done, then click Done.</source>
+        <translation>{0} is running.
+Close it when you are done, then click Done.</translation>
+    </message>
+    <message>
+        <source>Searching Downloads folder…</source>
+        <translation>Searching Downloads folder…</translation>
+    </message>
+    <message>
+        <source>Extracting…</source>
+        <translation>Extracting…</translation>
+    </message>
+</context>
+<context>
+    <name>_BarBase</name>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>_GameCard</name>
+    <message>
+        <source>Select</source>
+        <translation>Select</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Add</translation>
+    </message>
+</context>
+<context>
+    <name>_LoadSettingsOverlay</name>
+    <message>
+        <source>Select a saved settings file:</source>
+        <translation>Select a saved settings file:</translation>
+    </message>
+</context>
+<context>
+    <name>_LockBox</name>
+    <message>
+        <source>Locked profiles can't be removed</source>
+        <translation>Locked profiles can't be removed</translation>
+    </message>
+</context>
+<context>
+    <name>_PreviewPane</name>
+    <message>
+        <source>Preview</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
+        <source>No preview</source>
+        <translation>No preview</translation>
+    </message>
+</context>
+<context>
+    <name>_ReqCard</name>
+    <message>
+        <source>View</source>
+        <translation>View</translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation>Install</translation>
+    </message>
+</context>
+<context>
+    <name>_SourceOverlay</name>
+    <message>
+        <source>{0}   — {1}</source>
+        <translation>{0}   — {1}</translation>
+    </message>
+    <message>
+        <source>Download URL:</source>
+        <translation>Download URL:</translation>
+    </message>
+    <message>
+        <source>https://…</source>
+        <translation>https://…</translation>
+    </message>
+</context>
+<context>
+    <name>_VersionOverlay</name>
+    <message>
+        <source>Preferred version (file id — version):</source>
+        <translation>Preferred version (file id — version):</translation>
+    </message>
+</context>
+<context>
+    <name>parent_view</name>
+    <message>
+        <source>Enable this rule</source>
+        <translation>Enable this rule</translation>
+    </message>
+    <message>
+        <source>Search regex</source>
+        <translation>Search regex</translation>
+    </message>
+    <message>
+        <source>Replacement (e.g. \1)</source>
+        <translation>Replacement (e.g. \1)</translation>
+    </message>
+    <message>
+        <source>Reset this rule to its default</source>
+        <translation>Reset this rule to its default</translation>
+    </message>
+    <message>
+        <source>Remove this rule</source>
+        <translation>Remove this rule</translation>
+    </message>
+</context>
+<context>
+    <name>view</name>
+    <message>
+        <source>Files swept into Root Folder (newest restore first)</source>
+        <translation>Files swept into Root Folder (newest restore first)</translation>
+    </message>
+    <message>
+        <source>Files swept into Overwrite (newest restore first)</source>
+        <translation>Files swept into Overwrite (newest restore first)</translation>
+    </message>
+</context>
+</TS>

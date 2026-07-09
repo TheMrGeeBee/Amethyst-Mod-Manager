@@ -395,6 +395,7 @@ class ResidentEvilVillage(BaseGame):
             self.get_effective_filemap_path(),
             self._game_path,
             log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher(),
         )
         _log("Restore complete.")
 

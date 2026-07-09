@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import threading
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -60,10 +62,64 @@ def _own_process_in_steam_flatpak() -> bool:
         return False
 
 
-def proton_run_command(proton_script: "Path", *args: str) -> list[str]:
+def _in_flatpak_sandbox() -> bool:
+    """True when this process runs inside any Flatpak sandbox."""
+    return os.path.exists("/.flatpak-info")
+
+
+def _host_python() -> str:
+    """Return a *host* python3 to run the Proton script with.
+
+    Inside our AppImage, ``python3`` on PATH resolves to the bundle's
+    quick-sharun interpreter (``$APPDIR/usr/bin/python3``). Running the host's
+    Proton script with THAT interpreter re-injects anylinux.so's LD_PRELOAD
+    sentinel, so Proton's startup Vulkan probe fails with
+    ``OSError: /anylinux_blocked_lib_that_does_not_exist.so`` when it tries to
+    ``CDLL('libvulkan.so.1')``. Scrubbing the env dict we pass to Popen isn't
+    enough — the bundled interpreter re-pollutes itself on startup — so the
+    interpreter itself must be a real host one.
+
+    Prefer ``/usr/bin/python3`` (present on every target host); otherwise take
+    the first ``python3`` on PATH that is NOT under ``$APPDIR`` or a
+    ``/tmp/.mount_*`` FUSE mount. Falls back to plain ``"python3"`` when no
+    host interpreter can be located (native/flatpak installs, where ``python3``
+    is already the host one).
+    """
+    appdir = os.environ.get("APPDIR")
+    appimage = os.environ.get("APPIMAGE")
+    if not appdir and not appimage:
+        return "python3"           # not an AppImage — PATH python3 is the host's
+
+    def _is_bundled(path: str) -> bool:
+        rp = os.path.realpath(path)
+        if rp.startswith("/tmp/.mount_"):
+            return True
+        if appdir and rp.startswith(os.path.realpath(appdir)):
+            return True
+        return False
+
+    if os.path.exists("/usr/bin/python3") and not _is_bundled("/usr/bin/python3"):
+        return "/usr/bin/python3"
+
+    # Scan PATH for the first non-bundled python3 (skip $APPDIR//tmp/.mount_*).
+    for d in (os.environ.get("PATH") or "").split(os.pathsep):
+        if not d or d.startswith("/tmp/.mount_"):
+            continue
+        cand = os.path.join(d, "python3")
+        if os.path.isfile(cand) and os.access(cand, os.X_OK) and not _is_bundled(cand):
+            return cand
+    return "python3"
+
+
+def proton_run_command(
+    proton_script: "Path", *args: str, env: "dict | None" = None,
+) -> list[str]:
     """Build the command to invoke ``proton <args>`` for *proton_script*.
 
-    Normally this is ``["python3", <proton_script>, *args]`` run on the host.
+    Normally this is ``[<host python3>, <proton_script>, *args]`` run on the
+    host. Inside the AppImage the interpreter is resolved to a *host* python3
+    (see ``_host_python``) so Proton doesn't inherit the bundle's blocked
+    library loader.
 
     When the Proton script belongs to the Flatpak Steam install and we are NOT
     already inside that sandbox, wrap the invocation in
@@ -71,19 +127,37 @@ def proton_run_command(proton_script: "Path", *args: str) -> list[str]:
     inside the sandbox its runtime and steamclient libraries expect. Without
     this, a host-side manager (AppImage/native) driving Flatpak-Steam's Proton
     hits an lsteamclient assertion or missing-library failures.
+
+    When we are *ourselves* inside a Flatpak sandbox (the manager's own
+    flatpak), there is no ``flatpak`` CLI in the runtime — the ``flatpak run``
+    must be forwarded to the host via ``flatpak-spawn --host``. flatpak-spawn
+    does not forward the environment, so pass the Popen env dict as *env*:
+    every var the caller added on top of ``os.environ`` (STEAM_COMPAT_*,
+    WINEDLLOVERRIDES, …) is re-exported with ``--env=`` flags.
     """
-    base = ["python3", str(proton_script), *map(str, args)]
-    if _proton_script_in_steam_flatpak(proton_script) and not _own_process_in_steam_flatpak():
-        # --filesystem=host so the sandbox can reach the staging/game/tool paths
-        # that live outside Steam's own data dir.
-        return [
-            "flatpak", "run",
-            "--command=python3",
-            "--filesystem=host",
-            _STEAM_FLATPAK_ID,
-            str(proton_script), *map(str, args),
+    base = [_host_python(), str(proton_script), *map(str, args)]
+    if not (_proton_script_in_steam_flatpak(proton_script)
+            and not _own_process_in_steam_flatpak()):
+        return base
+    # Steam-flatpak Proton runs INSIDE the sandbox, so --command=python3 uses
+    # the sandbox's own interpreter (not our host resolver) — that's correct.
+    # --filesystem=host so the sandbox can reach the staging/game/tool paths
+    # that live outside Steam's own data dir.
+    cmd = [
+        "flatpak", "run",
+        "--command=python3",
+        "--filesystem=host",
+        _STEAM_FLATPAK_ID,
+        str(proton_script), *map(str, args),
+    ]
+    if _in_flatpak_sandbox() and shutil.which("flatpak-spawn"):
+        fwd = [
+            f"--env={k}={v}"
+            for k, v in (env or {}).items()
+            if os.environ.get(k) != v
         ]
-    return base
+        cmd = ["flatpak-spawn", "--host", *fwd, *cmd]
+    return cmd
 
 
 def _normalize_tool_name(name: str) -> str:
@@ -724,6 +798,84 @@ def find_game_in_libraries(libraries: list[Path], exe_name: str) -> Path | None:
             continue
 
     return None
+
+
+def scan_drives_for_exe(exe_names: list[str],
+                        stop_event: "threading.Event | None" = None) -> Path | None:
+    """Scan all mounted drives for any of *exe_names*, stopping at first match.
+
+    Walks every real (non-pseudo) mount point from /proc/mounts, fanning the
+    top-level subtree walks out across a thread pool so a big multi-drive scan
+    doesn't run serially. Matching is on the bare filename (case-sensitive, to
+    match the Tk behaviour); *exe_names* entries with sub-paths are matched on
+    their final component. Returns the directory holding the exe, or None.
+
+    Pass *stop_event* to allow an external caller (e.g. a closing dialog) to
+    abort the walk early.
+    """
+    import concurrent.futures
+
+    names = {Path(e.replace("\\", "/")).name for e in exe_names if e}
+    if not names:
+        return None
+
+    skip_types = {"sysfs", "proc", "devtmpfs", "devpts", "tmpfs", "cgroup",
+                  "cgroup2", "pstore", "bpf", "tracefs", "debugfs",
+                  "securityfs", "fusectl", "hugetlbfs", "mqueue", "configfs",
+                  "efivarfs", "overlay", "squashfs"}
+    skip_dirs = {"proc", "sys", "dev", "run", "snap"}
+
+    roots: list[Path] = []
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                fstype = parts[2]
+                mountpoint = parts[1]
+                if fstype in skip_types:
+                    continue
+                p = Path(mountpoint)
+                if p == Path("/"):
+                    roots.insert(0, p)  # scan root first
+                else:
+                    roots.append(p)
+    except OSError:
+        roots = [Path("/")]
+
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    def _scan_subtree(start: Path) -> Path | None:
+        for dirpath, dirnames, filenames in os.walk(start, followlinks=False):
+            if stop_event.is_set():
+                return None
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            if names & set(filenames):
+                return Path(dirpath)
+        return None
+
+    scan_roots: list[Path] = []
+    for root in roots:
+        try:
+            scan_roots.extend(
+                p for p in root.iterdir()
+                if p.is_dir() and p.name not in skip_dirs)
+        except (PermissionError, OSError):
+            pass
+
+    found: Path | None = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_scan_subtree, sr): sr for sr in scan_roots}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result is not None:
+                found = result
+                stop_event.set()
+                break
+
+    return found
 
 
 def find_wine() -> tuple[str, Path]:

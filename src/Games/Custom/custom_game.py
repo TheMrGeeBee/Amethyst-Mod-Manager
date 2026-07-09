@@ -42,6 +42,7 @@ from Games.ue5_game import UE5Game, UE5Rule
 from Utils.deploy import (
     CustomRule,
     LinkMode,
+    RestoreWhitelistRule,
     deploy_core,
     deploy_custom_rules,
     deploy_filemap,
@@ -137,6 +138,28 @@ def _defn_to_custom_rules(defn: dict) -> list[CustomRule]:
                                     flatten=flatten,
                                     include_siblings=include_siblings,
                                     to_prefix=to_prefix))
+    return rules
+
+
+def _defn_to_restore_whitelist(defn: dict) -> list[RestoreWhitelistRule]:
+    """Parse the JSON ``restore_whitelist`` field into RestoreWhitelistRules.
+
+    Each entry: a ``path`` plus one of ``extensions``/``folders``/``filenames``.
+    """
+    raw = defn.get("restore_whitelist", [])
+    if not isinstance(raw, list):
+        return []
+    rules: list[RestoreWhitelistRule] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path", "") or "")
+        extensions = [s.strip().lower() for s in entry.get("extensions", []) if s.strip()]
+        folders = [s.strip().lower() for s in entry.get("folders", []) if s.strip()]
+        filenames = [s.strip().lower() for s in entry.get("filenames", []) if s.strip()]
+        if extensions or folders or filenames:
+            rules.append(RestoreWhitelistRule(path=path, extensions=extensions,
+                                              folders=folders, filenames=filenames))
     return rules
 
 
@@ -305,6 +328,16 @@ class StandardCustomGame(BaseGame):
         return v if v in ("upper", "lower", "force_lower", "force_upper") else "upper"
 
     @property
+    def filemap_casing_pins(self) -> dict[str, str]:
+        raw = self._defn.get("filemap_casing_pins")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(k).lower(): str(v)
+            for k, v in raw.items() if isinstance(v, str) and v
+        }
+
+    @property
     def mod_folder_strip_prefixes_post(self) -> set[str]:
         return _defn_to_set(self._defn, "mod_folder_strip_prefixes_post")
 
@@ -339,6 +372,10 @@ class StandardCustomGame(BaseGame):
     @property
     def custom_routing_rules(self) -> list[CustomRule]:
         return _defn_to_custom_rules(self._defn)
+
+    @property
+    def restore_whitelist(self) -> list[RestoreWhitelistRule]:
+        return _defn_to_restore_whitelist(self._defn)
 
     @property
     def frameworks(self) -> dict[str, str]:
@@ -499,10 +536,13 @@ class StandardCustomGame(BaseGame):
             )
 
         _log(f"Restore: clearing {data_dir.name}/ and moving {data_dir.name}_Core/ back ...")
+        _data_rel = self._defn.get("mod_data_path", "").strip("/\\")
+        _prefix = _data_rel.replace("\\", "/").lower() + "/" if _data_rel else ""
         restored = restore_data_core(
             data_dir,
             overwrite_dir=self.get_effective_overwrite_path(),
             log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher(rel_prefix=_prefix),
         )
         _log(f"  Restored {restored} file(s). {data_dir.name}_Core/ removed.")
 
@@ -598,7 +638,9 @@ class RootCustomGame(StandardCustomGame):
                                  prefix_root=self.get_prefix_path())
 
         _log("Restore: removing mod files and restoring vanilla files ...")
-        removed = restore_filemap_from_root(filemap, game_root, log_fn=_log)
+        removed = restore_filemap_from_root(
+            filemap, game_root, log_fn=_log,
+            restore_whitelist=self.restore_whitelist_matcher())
         _log(f"Restore complete. {removed} mod file(s) removed from game root.")
 
 
@@ -712,6 +754,16 @@ class Ue5CustomGame(UE5Game):
         return v if v in ("upper", "lower", "force_lower", "force_upper") else "upper"
 
     @property
+    def filemap_casing_pins(self) -> dict[str, str]:
+        raw = self._defn.get("filemap_casing_pins")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(k).lower(): str(v)
+            for k, v in raw.items() if isinstance(v, str) and v
+        }
+
+    @property
     def mod_folder_strip_prefixes_post(self) -> set[str]:
         return _defn_to_set(self._defn, "mod_folder_strip_prefixes_post")
 
@@ -746,6 +798,10 @@ class Ue5CustomGame(UE5Game):
     @property
     def custom_routing_rules(self) -> list[CustomRule]:
         return _defn_to_custom_rules(self._defn)
+
+    @property
+    def restore_whitelist(self) -> list[RestoreWhitelistRule]:
+        return _defn_to_restore_whitelist(self._defn)
 
     @property
     def frameworks(self) -> dict[str, str]:

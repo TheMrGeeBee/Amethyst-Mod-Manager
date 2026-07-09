@@ -404,6 +404,52 @@ def _pkce_pair() -> tuple[str, str]:
 # Local callback HTTP server
 # ---------------------------------------------------------------------------
 
+# Logo shown on the browser callback page (the http://localhost:7890/callback
+# page the browser lands on after the user authorises). Inlined as a base64
+# data-URI so the page is self-contained — no second request back to the local
+# server. Uses src/icons/Logo.png (bundled into both the AppImage and Flatpak
+# source trees — src/appimage/ is NOT shipped, only used as an icon source at
+# build time). Loaded + cached once; None (and the page falls back to text-only)
+# if the asset isn't present in this build.
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "icons", "Logo.png")
+_logo_data_uri: Optional[str] = None
+_logo_loaded = False
+
+
+def _callback_logo_uri() -> Optional[str]:
+    """Return the logo as a `data:image/png;base64,...` URI, or None if missing."""
+    global _logo_data_uri, _logo_loaded
+    if _logo_loaded:
+        return _logo_data_uri
+    _logo_loaded = True
+    try:
+        with open(_LOGO_PATH, "rb") as f:
+            _logo_data_uri = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+    except Exception:
+        _logo_data_uri = None
+    return _logo_data_uri
+
+
+def _callback_page(title: str, message: str) -> str:
+    """Build the dark-themed browser callback page (logo + a short message)."""
+    uri = _callback_logo_uri()
+    logo = (f"<img src='{uri}' alt='' width='128' height='128' "
+            f"style='display:block;margin:0 auto 28px;'>") if uri else ""
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>Amethyst Mod Manager</title></head>"
+        "<body style='margin:0;min-height:100vh;display:flex;align-items:center;"
+        "justify-content:center;background:#1b1b1f;color:#f0f0f2;"
+        "font-family:sans-serif;text-align:center;'>"
+        "<div>"
+        f"{logo}"
+        f"<h2 style='margin:0 0 10px;font-weight:600;'>{title}</h2>"
+        f"<p style='margin:0;color:#a8a8b0;'>{message}</p>"
+        "</div></body></html>"
+    )
+
+
 class _CallbackServer:
     """
     Minimal single-request HTTP server that captures the OAuth redirect.
@@ -416,19 +462,6 @@ class _CallbackServer:
         code, state = srv.wait(timeout=300)
         srv.stop()
     """
-
-    _HTML_SUCCESS = (
-        "<html><body style='font-family:sans-serif;text-align:center;margin-top:60px'>"
-        "<h2>Authorised!</h2>"
-        "<p>You can close this tab and return to Amethyst Mod Manager.</p>"
-        "</body></html>"
-    )
-    _HTML_ERROR = (
-        "<html><body style='font-family:sans-serif;text-align:center;margin-top:60px'>"
-        "<h2>Authorisation failed</h2>"
-        "<p>Return to the app for details.</p>"
-        "</body></html>"
-    )
 
     def __init__(self):
         self._code:  Optional[str] = None
@@ -456,10 +489,16 @@ class _CallbackServer:
                 if "code" in params:
                     parent._code  = params["code"]
                     parent._state = params.get("state")
-                    body = parent._HTML_SUCCESS.encode()
+                    body = _callback_page(
+                        "Authorised!",
+                        "You can close this tab and return to Amethyst Mod Manager."
+                    ).encode()
                 else:
                     parent._error = params.get("error", "unknown")
-                    body = parent._HTML_ERROR.encode()
+                    body = _callback_page(
+                        "Authorisation failed",
+                        "Return to the app for details."
+                    ).encode()
 
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -613,7 +652,7 @@ class NexusOAuthClient:
         })
         auth_url = f"{_AUTHORIZE_URL}?{params}"
         self._on_status("Opening browser — please authorise in Nexus Mods...")
-        app_log(f"OAuth: opening auth URL")
+        app_log("OAuth: opening auth URL")
         open_url(auth_url)
 
         # 3. Wait for callback (5-minute timeout)

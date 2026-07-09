@@ -68,20 +68,62 @@ def get_loot_game_dir(game_id: str) -> Path:
     return d
 
 
-def get_profiles_dir() -> Path:
-    """Return the root Profiles directory.
+def get_default_staging_root() -> Path:
+    """Return the built-in default mod-staging root: ``~/Games/Amethyst``.
 
-    Inside an AppImage, $MOD_MANAGER_PROFILES_DIR is set by AppRun to a
-    writable location (~/.config/AmethystModManager/Profiles).  Outside an AppImage
-    the default is get_config_dir()/Profiles so config and Profiles stay consistent
-    regardless of launch method (run.sh, AppImage, etc.).
+    Mod staging must live on the *same filesystem* as the game install so that
+    deployed files can be hardlinked.  Under Flatpak the app's config dir lives
+    in ``~/.var/app/<id>/config`` — a separate namespace mount from the games
+    exposed via ``--filesystem=home`` — so hardlinking staged files into the
+    game silently falls back to symlink/copy (``os.link`` → ``EXDEV``).  Placing
+    the default staging in the user's real home (``~/Games/Amethyst``) keeps it
+    on the ``--filesystem=home`` mount alongside the games, so hardlinks work in
+    the Flatpak, AppImage and native installs alike.
+    """
+    return Path.home() / "Games" / "Amethyst"
+
+
+def get_default_game_staging_root(game_name: str) -> Path:
+    """Return the preferred staging *root* for a newly-added game.
+
+    ``~/Games/Amethyst/<game>`` — the per-game folder that holds ``mods/``,
+    ``profiles/``, ``overwrite/`` and ``filemap.txt`` (i.e. what the backend
+    stores as a game's custom ``_staging_path``).  Used by the add-game / reset
+    UI to seed the staging field so new games land beside the game installs on
+    the same filesystem (hardlink-friendly) — including on *existing* installs,
+    whose already-staged games keep resolving via get_profiles_dir() below.
+    """
+    return get_default_staging_root() / game_name
+
+
+def get_profiles_dir() -> Path:
+    """Return the legacy root Profiles directory for default-staged games.
+
+    Resolution order:
+      1. $MOD_MANAGER_PROFILES_DIR — explicit override (set by AppImage AppRun).
+      2. Legacy <config>/Profiles — if it already exists, existing users keep it
+         so upgrades never relocate an in-use staging tree.  Games with an empty
+         (default) staging_path resolve their mods dir from here, so this MUST
+         stay stable for existing installs.
+      3. Fresh install → ~/Games/Amethyst/Profiles.  Unlike the config dir (which
+         Flatpak redirects into ~/.var/app), the user's home is exposed on the
+         same mount as the game installs, so deployed files can be hardlinked
+         instead of falling back to symlink/copy.
+
+    NB: new games no longer default here — the add-game UI seeds a per-game
+    custom root via get_default_game_staging_root() so their layout is
+    ~/Games/Amethyst/<game>/mods (no Profiles/ segment).  This function only
+    resolves games that already carry an empty staging_path.
     """
     env = os.environ.get("MOD_MANAGER_PROFILES_DIR")
     if env:
         p = Path(env)
         p.mkdir(parents=True, exist_ok=True)
         return p
-    p = get_config_dir() / "Profiles"
+    legacy = get_config_dir() / "Profiles"
+    if legacy.exists():
+        return legacy
+    p = get_default_staging_root() / "Profiles"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -323,6 +365,21 @@ def get_plugins_dir() -> Path:
     Result: ~/.config/AmethystModManager/Plugins/
     """
     d = get_config_dir() / "Plugins"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_languages_dir() -> Path:
+    """Return the directory where downloaded / user-added UI translations live.
+
+    Compiled Qt translation files (``amethyst_<code>.qm``) are stored here. They
+    are synced from the Resources branch on startup (see Utils.gh_sync) and users
+    can drop their own ``.qm`` in to add a language without an app update. The
+    built-in source-tree English is always available regardless of this folder.
+
+    Result: ~/.config/AmethystModManager/languages/
+    """
+    d = get_config_dir() / "languages"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

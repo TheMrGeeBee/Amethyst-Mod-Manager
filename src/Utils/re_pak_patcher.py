@@ -286,6 +286,25 @@ def root_manifest_path(game_root: Path) -> Path:
     return game_root / ROOT_MANIFEST_NAME
 
 
+def root_manifest_summary(game_root: Path) -> tuple[int, int]:
+    """Return (pak_count, entry_count) described by the game-root manifest.
+
+    (0, 0) when the manifest is missing or unreadable.
+    """
+    manifest = root_manifest_path(game_root)
+    if not manifest.exists():
+        return (0, 0)
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        paks = data.get("paks", {})
+    except (json.JSONDecodeError, OSError):
+        return (0, 0)
+    if not isinstance(paks, dict):
+        return (0, 0)
+    entries = sum(len(v) for v in paks.values() if isinstance(v, list))
+    return (len(paks), entries)
+
+
 def update_root_manifest(game_root: Path, pak_path: Path, backup_path: Path,
                          log_fn=None) -> None:
     """Mirror a pak's pak_patches backup into the game-root manifest.

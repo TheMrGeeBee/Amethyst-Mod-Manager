@@ -1,16 +1,2 @@
-customtkinter
-py7zr
-libarchive-c
-Pillow
-lz4
-zstandard
-requests
-websocket-client
-keyring
-jeepney
-importlib_metadata
-backports.tarfile
-importlib_metadata
-msgpack
-bsdiff4
-# PyGObject is a system package (python-gobject); accessed via --system-site-packages
+PySide6
+-r requirements-vendor.txt

@@ -189,12 +189,18 @@ class BaldursGate3(BaseGame):
     def frameworks(self) -> dict[str, str]:
         return {
                 "Script Extender": "bin/DWrite.dll",
-                "Native Mod Loader":"bin/bink2w64.dll"
+                "Native Mod Loader":"bin/bink2w64_original.dll"
             }
 
     @property
     def wine_dll_overrides(self) -> dict[str, str]:
         return {"DWrite": "native,builtin"}
+
+    def runtime_snapshot_exclude_dirs(self) -> set[str] | None:
+        # Custom rules route loose mods into Data/ (undone via restore_custom_rules)
+        # and the .pak Mods folder lives outside the game root, so only capture
+        # runtime-generated files sitting outside Data/.
+        return {"Data"}
 
     # -----------------------------------------------------------------------
     # Paths
@@ -422,6 +428,11 @@ class BaldursGate3(BaseGame):
 
         _suppress_launcher_mod_warnings(larian_root, log_fn=_log)
 
+        # Snapshot the game root so restore() can sweep any runtime-generated
+        # files (outside Data/) into Root_Folder/ and preserve them. Deferred
+        # by the pipeline so the snapshot lands after Root_Folder files deploy.
+        self.snapshot_root_for_runtime_capture(log_fn=_log)
+
         _log(
             f"Deploy complete. "
             f"{linked_mod} mod + {linked_core} vanilla "
@@ -466,6 +477,12 @@ class BaldursGate3(BaseGame):
         modsettings = larian_root / _MODSETTINGS_REL
         write_vanilla_modsettings(modsettings, log_fn=_log,
                                   patch_version=self._patch_version)
+
+        # Sweep runtime-generated files (outside Data/) into Root_Folder/ so they
+        # re-deploy next time instead of being clobbered by the vanilla restore.
+        moved = self.capture_runtime_files_to_root_folder(log_fn=_log)
+        if moved:
+            _log(f"  Moved {moved} runtime file(s) to Root_Folder/.")
 
         _log("Restore complete.")
 

@@ -36,6 +36,29 @@ def set_main_thread_dispatcher(fn: "Callable[[Callable[[], None]], None]") -> No
     _main_thread_dispatcher = fn
 
 
+# Last-resort GUI-toolkit file pickers, registered by the GUI on startup so this
+# Utils module needn't import a GUI toolkit. Each is the final step in the
+# portal → zenity/kdialog → toolkit waterfall. Unset → that step is skipped.
+# Expected callables (return Path/None or list[Path]):
+#   folder(title)                     -> Path | None
+#   file(title, filters)              -> Path | None
+#   files(title)                      -> list[Path]
+#   save(title, current_name, filters)-> Path | None
+_toolkit_pickers: "dict[str, Callable]" = {}
+
+
+def set_toolkit_pickers(folder=None, file=None, files=None, save=None) -> None:
+    """Register GUI-toolkit fallback pickers (folder/file/files/save)."""
+    if folder is not None:
+        _toolkit_pickers["folder"] = folder
+    if file is not None:
+        _toolkit_pickers["file"] = file
+    if files is not None:
+        _toolkit_pickers["files"] = files
+    if save is not None:
+        _toolkit_pickers["save"] = save
+
+
 def _debug_log(msg: str) -> None:
     """Log to app log panel when PORTAL_DEBUG is set."""
     if _DEBUG:
@@ -518,42 +541,25 @@ def _tkinter_dispatch(fn: "Callable[[], object]", kind: str, empty):
 
 
 def _tkinter_folder(title: str) -> Path | None:
-    """Last-resort folder picker using tkinter.filedialog."""
-    import tkinter.filedialog as fd
-
-    def _fn() -> Path | None:
-        chosen = fd.askdirectory(title=title)
-        if chosen:
-            p = Path(chosen)
-            if p.is_dir():
-                return p
+    """Last-resort folder picker via the registered GUI-toolkit picker."""
+    picker = _toolkit_pickers.get("folder")
+    if picker is None:
+        _debug_log("toolkit folder picker unavailable: none registered")
         return None
-
-    return _tkinter_dispatch(_fn, "folder", None)
+    return _tkinter_dispatch(lambda: picker(title), "folder", None)
 
 
 def _tkinter_file(
     title: str, filters: "list[tuple[str, list[str]]] | None" = None
 ) -> Path | None:
-    """Last-resort file picker using tkinter.filedialog."""
-    import tkinter.filedialog as fd
-
+    """Last-resort file picker via the registered GUI-toolkit picker."""
+    picker = _toolkit_pickers.get("file")
+    if picker is None:
+        _debug_log("toolkit file picker unavailable: none registered")
+        return None
     if filters is None:
         filters = _MOD_ARCHIVE_FILTERS
-    filetypes = [(label, " ".join(globs)) for label, globs in filters]
-
-    def _fn() -> Path | None:
-        chosen = fd.askopenfilename(
-            title=title,
-            filetypes=filetypes,
-        )
-        if chosen:
-            p = Path(chosen)
-            if p.is_file():
-                return p
-        return None
-
-    return _tkinter_dispatch(_fn, "file", None)
+    return _tkinter_dispatch(lambda: picker(title, filters), "file", None)
 
 
 def _run_waterfall(
@@ -705,22 +711,12 @@ def _kdialog_files(title: str) -> "list[Path] | object | None":
 
 
 def _tkinter_files(title: str) -> "list[Path]":
-    """Multi-file picker using tkinter.filedialog.askopenfilenames."""
-    import tkinter.filedialog as fd
-
-    def _fn() -> list[Path]:
-        chosen = fd.askopenfilenames(
-            title=title,
-            filetypes=[
-                ("Mod Archives", "*.zip *.7z *.rar *.tar.gz *.tar *.dazip *.override *.fomod"),
-                ("All files", "*"),
-            ],
-        )
-        if chosen:
-            return [Path(s) for s in chosen if Path(s).is_file()]
+    """Last-resort multi-file picker via the registered GUI-toolkit picker."""
+    picker = _toolkit_pickers.get("files")
+    if picker is None:
+        _debug_log("toolkit multi-file picker unavailable: none registered")
         return []
-
-    return _tkinter_dispatch(_fn, "multi-file", [])
+    return _tkinter_dispatch(lambda: picker(title), "multi-file", [])
 
 
 def _run_file_picker_worker_multi(title: str, filters: list[tuple[str, list[str]]], cb: "Callable[[list[Path]], None]") -> None:
@@ -849,21 +845,12 @@ def _zenity_save(title: str, current_name: str) -> "Path | object | None":
 
 
 def _tkinter_save(title: str, current_name: str, filters: list) -> "Path | None":
-    """Last-resort save-file picker using tkinter.filedialog."""
-    import tkinter.filedialog as fd
-
-    def _fn() -> Path | None:
-        chosen = fd.asksaveasfilename(
-            title=title,
-            initialfile=current_name,
-            defaultextension=".json",
-            filetypes=filters or [("JSON files", "*.json"), ("All files", "*.*")],
-        )
-        if chosen:
-            return Path(chosen)
+    """Last-resort save-file picker via the registered GUI-toolkit picker."""
+    picker = _toolkit_pickers.get("save")
+    if picker is None:
+        _debug_log("toolkit save picker unavailable: none registered")
         return None
-
-    return _tkinter_dispatch(_fn, "save", None)
+    return _tkinter_dispatch(lambda: picker(title, current_name, filters), "save", None)
 
 
 def _run_save_worker(

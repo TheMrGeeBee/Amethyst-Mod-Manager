@@ -131,7 +131,7 @@ def deploy_filemap_to_root(
 
     _prebuild_mod_indexes(
         _tab_lines, overwrite_dir, staging_root, mod_index_cache,
-        profile_dir=filemap_path.parent,
+        index_dir=filemap_path.parent,
         strip_prefixes=strip_prefixes,
         per_mod_strip_prefixes=per_mod_strip_prefixes,
     )
@@ -287,6 +287,7 @@ def restore_filemap_from_root(
     log_fn=None,
     *,
     move_runtime_files: bool = True,
+    restore_whitelist=None,
 ) -> int:
     """Undo a deploy_filemap_to_root() operation.
 
@@ -299,6 +300,9 @@ def restore_filemap_from_root(
     to the profile's overwrite/ directory so it is preserved across redeploys.
     Pass move_runtime_files=False for migration helpers that are not game
     restore operations.
+
+    restore_whitelist — optional matcher from build_restore_whitelist_matcher;
+    matching runtime files are left in the game folder instead of moved.
 
     filemap_path — Profiles/<game>/filemap.txt  (used to locate the log)
     game_root    — the game's install directory
@@ -319,7 +323,8 @@ def restore_filemap_from_root(
     if move_runtime_files and snapshot_path.is_file():
         overwrite_dir = filemap_path.parent / "overwrite"
         _log("  Scanning game root for runtime-generated files ...")
-        moved = _move_runtime_files(game_root, snapshot_path, overwrite_dir, log_fn)
+        moved = _move_runtime_files(game_root, snapshot_path, overwrite_dir, log_fn,
+                                    restore_whitelist=restore_whitelist)
         _log(f"  Moved {moved} runtime-generated file(s) to overwrite/.")
         try:
             snapshot_path.unlink()

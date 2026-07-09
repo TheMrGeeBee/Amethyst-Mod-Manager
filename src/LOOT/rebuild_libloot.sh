@@ -6,8 +6,9 @@
 #   ./LOOT/rebuild_libloot.sh              # clone/update and build latest master
 #   ./LOOT/rebuild_libloot.sh v0.29.0      # build a specific release tag
 #
-# Requires: bash, git, Python 3.13, Rust (cargo), and a C toolchain (cc/gcc).
-# The script creates/uses a .venv in the project root and installs requirements + maturin there.
+# Requires: bash, git, Python 3, Rust (cargo), and a C toolchain (cc/gcc).
+# The script creates/uses a .venv in the project root and installs maturin there.
+# The extension targets whatever Python version `python3` resolves to.
 
 set -euo pipefail
 
@@ -21,7 +22,6 @@ PY_TAG="$(python3 -c 'import sys; print(f"cpython-{sys.version_info.major}{sys.v
 PY_TAG_SHORT="$(python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
 OUT_SO_NAME="loot.${PY_TAG}-x86_64-linux-gnu.so"
 OUT_PRIMARY="${SCRIPT_DIR}/${OUT_SO_NAME}"
-REQUIREMENTS="${PROJECT_DIR}/requirements.txt"
 
 # Optional: build a specific tag or commit (e.g. v0.29.0)
 REF="${1:-}"
@@ -85,8 +85,10 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 VENV_PYTHON="${VENV_DIR}/bin/python"
 VENV_PIP="${VENV_DIR}/bin/pip"
-echo "=== Ensuring .venv has requirements and maturin ==="
-"$VENV_PIP" install -q -r "$REQUIREMENTS" maturin
+echo "=== Ensuring .venv has maturin ==="
+# libloot is an independent maturin project — the app's requirements
+# (PySide6 etc.) are not needed to build it.
+"$VENV_PIP" install -q maturin
 echo ""
 
 # ── Clone or update libloot ───────────────────────────────────────────

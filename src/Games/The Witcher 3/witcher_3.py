@@ -49,6 +49,23 @@ _DEPLOYED_MANIFEST = "tw3_deployed.txt"
 _VANILLA_BACKUP_DIR = "Amethyst_vanilla_files"
 
 
+def _merge_tree_into(src: Path, dest: Path) -> int:
+    """Recursively copy every file under *src* into *dest*, overwriting on
+    collision and keeping *dest*-only files.  Returns the number of files
+    copied.  Used to rescue Script Merger output into the staged Merged_Mods
+    mod without discarding merges made in earlier sessions.
+    """
+    copied = 0
+    for entry in src.rglob("*"):
+        if not entry.is_file():
+            continue
+        target = dest / entry.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(entry, target)
+        copied += 1
+    return copied
+
+
 # ---------------------------------------------------------------------------
 # Routing helper
 # ---------------------------------------------------------------------------
@@ -170,6 +187,10 @@ class Witcher3(BaseGame):
     @property
     def reshade_dll(self) -> str:
         return "dxgi.dll"
+    
+    @property
+    def filemap_casing(self) -> str:
+        return "lower"
 
     # -----------------------------------------------------------------------
     # Paths
@@ -556,6 +577,38 @@ class Witcher3(BaseGame):
     # Restore
     # -----------------------------------------------------------------------
 
+    def merged_mods_staging_dir(self) -> Path:
+        """Staging folder of the Merged_Mods mod that preserves Script Merger
+        output (and its MergeInventory.xml snapshot) across restores.
+        Lives in the profile when it uses profile-specific mods, otherwise
+        in the shared mods folder.
+        """
+        profile_specific = False
+        if self._active_profile_dir is not None:
+            try:
+                from Utils.profile_state import profile_uses_specific_mods
+                profile_specific = profile_uses_specific_mods(self._active_profile_dir)
+            except Exception:
+                pass
+
+        if profile_specific:
+            merged_base = self._active_profile_dir
+        else:
+            merged_base = self.get_profile_root()
+        return merged_base / "mods" / "Merged_Mods"
+
+    def _invalidate_merged_mods_index(self, log_fn=None) -> None:
+        """Re-scan the Merged_Mods mod into modindex.bin after its file set
+        changed on disk, so the next build_filemap deploys the FULL merge set
+        rather than the previously-cached subset.
+        """
+        _log = log_fn or (lambda _: None)
+        try:
+            from Utils.install_as_mod import index_installed_mod
+            index_installed_mod(self, "Merged_Mods", log_fn=_log)
+        except Exception as exc:
+            _log(f"WARN: could not re-index Merged_Mods: {exc}")
+
     def restore(self, log_fn=None, progress_fn=None) -> None:
         """Remove every deployed mod file, restore displaced vanilla files,
         prune empty directories, and preserve _MergedFiles folders.
@@ -635,30 +688,33 @@ class Witcher3(BaseGame):
         # Preserve _MergedFiles folders so they survive the restore.
         # Must run BEFORE runtime-file detection so merged files are moved to
         # their dedicated staging location rather than ending up in overwrite/.
+        #
+        # MERGE into staging rather than replacing it: Script Merger only
+        # writes the files it merged THIS run into mod0000_MergedFiles, so an
+        # incremental merge session (merge some mods now, more later) leaves
+        # the game-folder copy holding only the deployed subset plus the new
+        # files.  A wholesale rmtree+move would drop every merge not touched
+        # this run.  Existing merged files are never rewritten by the merger,
+        # so a union (game-folder file wins on collision) is safe.
         mods_dir = game_path / "mods"
         if mods_dir.is_dir():
-            profile_specific = False
-            if self._active_profile_dir is not None:
-                try:
-                    from gui.game_helpers import profile_uses_specific_mods  # type: ignore
-                    profile_specific = profile_uses_specific_mods(self._active_profile_dir)
-                except Exception:
-                    pass
-
-            if profile_specific:
-                merged_base = self._active_profile_dir
-            else:
-                merged_base = self.get_profile_root()
-
-            merged_dir = merged_base / "mods" / "Merged_Mods" / "mods"
+            merged_dir = self.merged_mods_staging_dir() / "mods"
             merged_dir.mkdir(parents=True, exist_ok=True)
+            merged_changed = False
             for folder in mods_dir.iterdir():
                 if folder.is_dir() and "_MergedFiles" in folder.name:
                     dest = merged_dir / folder.name
-                    if dest.exists():
-                        shutil.rmtree(dest)
-                    shutil.move(str(folder), dest)
-                    _log(f"Moved merged files folder '{folder.name}' to {merged_dir}.")
+                    rescued = _merge_tree_into(folder, dest)
+                    shutil.rmtree(folder, ignore_errors=True)
+                    merged_changed = True
+                    _log(f"Rescued {rescued} merged file(s) from "
+                         f"'{folder.name}' into {merged_dir}.")
+            # The Merged_Mods mod's file set just changed on disk; drop its
+            # cached modindex entry so the next build_filemap rescans it and
+            # deploys the full merge set (a stale index would redeploy only
+            # the previously-known subset, re-triggering the loss).
+            if merged_changed:
+                self._invalidate_merged_mods_index(log_fn=_log)
 
         # Move runtime-generated files to overwrite/ so they persist across
         # redeploys.  Runs after _MergedFiles preservation so those folders
@@ -667,7 +723,8 @@ class Witcher3(BaseGame):
         if snapshot_path.is_file():
             overwrite_dir = self.get_effective_mod_staging_path().parent / "overwrite"
             _log("  Scanning game root for runtime-generated files ...")
-            moved = _move_runtime_files(game_path, snapshot_path, overwrite_dir, log_fn=_log)
+            moved = _move_runtime_files(game_path, snapshot_path, overwrite_dir, log_fn=_log,
+                                        restore_whitelist=self.restore_whitelist_matcher())
             _log(f"  Moved {moved} runtime-generated file(s) to overwrite/.")
             try:
                 snapshot_path.unlink()

@@ -47,6 +47,108 @@ _REQUIRED_KEYS = {"id", "label", "dialog_class"}
 
 
 # ---------------------------------------------------------------------------
+# Built-in wizard tools (ported former external plugins)
+# ---------------------------------------------------------------------------
+#
+# These were originally distributed as external ``PLUGIN_INFO`` scripts (see the
+# discovery machinery below) but are now shipped inside the app as first-class
+# wizard tools with Qt views registered in ``wizards_qt.REGISTRY``.  We keep the
+# game-id-based attachment (rather than moving them onto each game class) because
+# some target games are JSON custom games (e.g. Slime Rancher, My Summer Car),
+# which have no Python game class to edit — matching on ``game.game_id`` covers
+# both built-in and custom games uniformly.
+#
+# Each entry mirrors the old PLUGIN_INFO shape but carries a *real*
+# ``dialog_class`` (used as the ``dialog_class_path`` that keys ``get_spec`` in
+# the Qt wizard registry), not a class object.
+
+_BETHESDA_GAME_IDS = [
+    "skyrim_se", "Fallout3", "Fallout3GOTY", "FalloutNV", "Fallout4",
+    "Fallout4VR", "Oblivion", "skyrim", "skyrimvr", "Starfield",
+    "enderal", "enderalse",
+]
+
+BUILTIN_WIZARD_TOOLS: list[dict] = [
+    {
+        "id": "bethesda_register_game_path",
+        "label": "Register Game Path in Wine Registry",
+        "description": ("Write the game's install path to the Bethesda Softworks "
+                        "registry keys in the game's Proton prefix."),
+        "game_ids": _BETHESDA_GAME_IDS,
+        "all_games": False,
+        "dialog_class": "wizards.bethesda_register_game_path.RegisterGamePathWizard",
+        "category": "Setup & Installers",
+    },
+    {
+        "id": "bethesda_synthesis",
+        "label": "Run Synthesis",
+        "description": "Install and run Mutagen Synthesis patcher in its own prefix.",
+        "game_ids": [g for g in _BETHESDA_GAME_IDS if g != "FalloutNV"],
+        "all_games": False,
+        "dialog_class": "wizards.bethesda_synthesis.SynthesisWizard",
+        "category": "Patchers & Cleanup",
+    },
+    {
+        "id": "bg3_import_modlist_json",
+        "label": "Import BG3MM Load Order (.json)",
+        "description": ("Convert a BG3 Mod Manager modlist.json into this "
+                        "profile's load order and apply it."),
+        "game_ids": ["baldurs_gate_3"],
+        "all_games": False,
+        "dialog_class": "wizards.bg3_import.BG3ImportWizard",
+        "category": "Load Order & Config",
+    },
+    {
+        "id": "sdv_smapi",
+        "label": "Install SMAPI",
+        "description": "Download and install SMAPI (mod loader) for Stardew Valley.",
+        "game_ids": ["Stardew_Valley"],
+        "all_games": False,
+        "dialog_class": "wizards.sdv_smapi.SmapiWizard",
+        "category": "Setup & Installers",
+    },
+    {
+        "id": "sr_srml",
+        "label": "Install SRML",
+        "description": "Download and install SRML (Slime Rancher Mod Loader).",
+        "game_ids": ["Slime_Rancher"],
+        "all_games": False,
+        "dialog_class": "wizards.sr_srml.SRMLWizard",
+        "category": "Setup & Installers",
+    },
+    {
+        "id": "msc_mscloader",
+        "label": "Install MSCLoader",
+        "description": "Download and install MSCLoader (mod loader for My Summer Car).",
+        "game_ids": ["My_Summer_Car"],
+        "all_games": False,
+        "dialog_class": "wizards.msc_mscloader.MSCLoaderWizard",
+        "category": "Setup & Installers",
+    },
+]
+
+
+def get_builtin_wizard_tools_for_game(game_id: str) -> list[WizardTool]:
+    """Return built-in ported-plugin :class:`WizardTool` entries for *game_id*.
+
+    Attaches by ``game_id`` so JSON custom games are covered too.  Unlike the
+    external plugins, these carry a real ``dialog_class_path`` (the key
+    ``wizards_qt.get_spec`` looks up), so no ``extra['_dialog_class']`` route.
+    """
+    tools: list[WizardTool] = []
+    for info in BUILTIN_WIZARD_TOOLS:
+        if info.get("all_games") or game_id in info.get("game_ids", []):
+            tools.append(WizardTool(
+                id=info["id"],
+                label=info["label"],
+                description=info.get("description", ""),
+                dialog_class_path=info["dialog_class"],
+                category=info.get("category", ""),
+            ))
+    return tools
+
+
+# ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 
@@ -160,8 +262,11 @@ def get_plugin_tools_for_game(game_id: str) -> list[WizardTool]:
 
 
 def get_all_wizard_tools(game: BaseGame) -> list[WizardTool]:
-    """Return built-in wizard tools merged with external plugin tools for *game*."""
-    return list(game.wizard_tools) + get_plugin_tools_for_game(game.game_id)
+    """Return a game's own wizard tools merged with the built-in ported-plugin
+    tools and any external plugin tools for *game*."""
+    return (list(game.wizard_tools)
+            + get_builtin_wizard_tools_for_game(game.game_id)
+            + get_plugin_tools_for_game(game.game_id))
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +310,12 @@ def _tool_exe_names(tool: WizardTool) -> set[str]:
         base = (tool.extra.get("xedit_exe") or "SSEEdit.exe")
         if path.endswith("QACWizard") and base.lower().endswith(".exe"):
             base = base[: -len(".exe")] + "QuickAutoClean.exe"
+        return {base.lower()}
+    if path in ("wizards.sseedit.XEditDiscordWizard",
+                "wizards.sseedit.XEditDiscordQACWizard"):
+        # The Discord build's QAC uses the same launcher (a -quickautoclean
+        # switch), so both wizard classes map to the plain exe name.
+        base = (tool.extra.get("xedit_exe") or "xTESEdit.exe")
         return {base.lower()}
     return set()
 
