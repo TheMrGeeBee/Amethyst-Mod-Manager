@@ -13,8 +13,8 @@ Covers:
     the game folder / Root_Folder staging / a managed root-flagged mod, plus
     the Wine DLL override
 
-The bundled default ReShade.ini still lives next to the Tk wizard
-(wizards/ReShade.ini); this module references it by path.
+The bundled default ReShade.ini lives next to the Qt wizard
+(wizards_qt/ReShade.ini); this module references it by path.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ API_CHOICES: list[tuple[str, str]] = [
     ("Vulkan  (dxgi.dll)", "dxgi.dll"),
 ]
 
-# Path to the bundled default ReShade.ini (lives next to the Tk wizard).
-BUNDLED_INI_PATH = Path(__file__).resolve().parent.parent / "wizards" / "ReShade.ini"
+# Path to the bundled default ReShade.ini (lives next to the Qt wizard).
+BUNDLED_INI_PATH = Path(__file__).resolve().parent.parent / "wizards_qt" / "ReShade.ini"
 
 
 def _noop(_msg: str) -> None:
