@@ -999,7 +999,7 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
     prepared._tmp_reserved = tmp_reserved
     if fomod_base is not None:
         prepared.saved_fomod_selections = _read_saved_fomod_selections(
-            game, mod_name, log_fn)
+            game, mod_name, log_fn, profile_dir=profile_dir)
         try:
             prepared.fomod_context = _collection_plugin_context(game, profile_dir)
         except Exception:
@@ -1029,7 +1029,7 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
             prepared.bain_root = bain_root
             prepared.readme_text = _read_bain_readme(bain_root)
             prepared.saved_bain_selections = _read_saved_bain_selections(
-                game, mod_name, log_fn)
+                game, mod_name, log_fn, profile_dir=profile_dir)
             log_fn(f"BAIN package detected — {len(subpkgs)} sub-package(s).")
 
     # RE / Fluffy bundle & multi-mod probe (Tk parity: gui/install_mod.py chain
@@ -1160,7 +1160,8 @@ def finish_install(prepared: "PreparedInstall", fomod_selections, *,
             # Persist the wizard's choices (restored + highlighted next time).
             # None = headless defaults install → nothing to remember (Tk parity).
             if fomod_selections is not None:
-                _persist_fomod_selection(p.game, p.mod_name, fomod_selections)
+                _persist_fomod_selection(p.game, p.mod_name, fomod_selections,
+                                         profile_dir=p.profile_dir)
             ok = _install_fomod(p.fomod_base, p.fomod_config, dest_root,
                                 fomod_selections, log_fn, _pp,
                                 context=p.fomod_context)
@@ -1260,7 +1261,8 @@ def finish_install(prepared: "PreparedInstall", fomod_selections, *,
     # Persist the BAIN sub-package selection (global + profile) so a re-install
     # restores the user's choices (Tk parity).
     if bain_selected is not None:
-        _persist_bain_selection(p.game, p.mod_name, {"selected": bain_selected})
+        _persist_bain_selection(p.game, p.mod_name, {"selected": bain_selected},
+                                profile_dir=p.profile_dir)
     _pp(0, 0, "Indexing")
     _update_indexes(p.game, p.profile_dir, p.mod_name, dest_root, log_fn)
     _add_to_modlist(p.profile_dir, p.mod_name, log_fn,
@@ -1509,7 +1511,8 @@ def install_collection_archive(
                     # the next install of this mod (Tk parity; the profile
                     # mirror is written below for every non-cancelled path).
                     _persist_fomod_selection(game, prepared.mod_name,
-                                             final_selections, profile=False)
+                                             final_selections, profile=False,
+                                             profile_dir=prepared.profile_dir)
             else:
                 # No auto-selections and no resolver → FOMOD defaults (parity with
                 # the non-interactive single-mod fallback).
@@ -1517,7 +1520,9 @@ def install_collection_archive(
                 final_selections = None
 
             if not cancelled:
-                _write_profile_fomod_selection(game, prepared.mod_name, final_selections)
+                _write_profile_fomod_selection(game, prepared.mod_name,
+                                               final_selections,
+                                               prepared.profile_dir)
                 try:
                     if final_selections is None:
                         file_list = _default_fomod_file_list(
@@ -1570,7 +1575,8 @@ def install_collection_archive(
                     log_fn("BAIN: non-interactive install — using default selection.")
                 if not cancelled:
                     _write_profile_bain_selection(
-                        game, prepared.mod_name, {"selected": selected})
+                        game, prepared.mod_name, {"selected": selected},
+                        prepared.profile_dir)
                     file_list = resolve_bain_files(bain_subpkgs, set(selected))
                     log_fn(f"BAIN complete — {len(selected)} sub-package(s), "
                            f"{len(file_list)} file(s) to install.")
@@ -1725,13 +1731,22 @@ def _default_fomod_file_list(config, installed_files, active_files, loose_files,
     return resolve_files(config, selections, installed_files, active_files, loose_files)
 
 
-def _write_profile_fomod_selection(game, mod_name: str, selections) -> None:
+def _write_profile_fomod_selection(game, mod_name: str, selections,
+                                   profile_dir=None) -> None:
     """Mirror FOMOD selections into ``<profile>/fomod/<mod>.json`` (Tk parity —
     profile-scoped, never the global config, so collection choices don't clobber
-    the user's manual selections). No-op when selections is None (defaults)."""
+    the user's manual selections). No-op when selections is None (defaults).
+
+    *profile_dir* — the target profile captured at prepare time. Prefer it over
+    the live ``game._active_profile_dir``: the game object is shared across the
+    UI + background workers, so a concurrent deploy / collection install can swap
+    (or null) ``_active_profile_dir`` between the install being queued and this
+    mirror write running, which otherwise lands the sidecar in the wrong profile
+    (or nowhere)."""
     if selections is None:
         return
-    pdir = getattr(game, "_active_profile_dir", None)
+    pdir = profile_dir if profile_dir is not None \
+        else getattr(game, "_active_profile_dir", None)
     if not pdir:
         return
     try:
@@ -1744,9 +1759,14 @@ def _write_profile_fomod_selection(game, mod_name: str, selections) -> None:
         pass
 
 
-def _write_profile_bain_selection(game, mod_name: str, result) -> None:
-    """Mirror BAIN selection into ``<profile>/bain/<mod>.json`` (Tk parity)."""
-    pdir = getattr(game, "_active_profile_dir", None)
+def _write_profile_bain_selection(game, mod_name: str, result,
+                                  profile_dir=None) -> None:
+    """Mirror BAIN selection into ``<profile>/bain/<mod>.json`` (Tk parity).
+
+    *profile_dir* — captured target profile; preferred over the shared, mutable
+    ``game._active_profile_dir`` (see _write_profile_fomod_selection)."""
+    pdir = profile_dir if profile_dir is not None \
+        else getattr(game, "_active_profile_dir", None)
     if not pdir:
         return
     try:
@@ -1779,20 +1799,25 @@ def _read_bain_readme(bain_root: str) -> "str | None":
     return None
 
 
-def _read_saved_fomod_selections(game, mod_name: str, log_fn: LogFn) -> "dict | None":
+def _read_saved_fomod_selections(game, mod_name: str, log_fn: LogFn,
+                                 profile_dir=None) -> "dict | None":
     """Load a previously-saved FOMOD selection for *mod_name* so the wizard
     restores + highlights the user's last choices (Tk parity).
 
     Reads the global per-game config first; when that's absent, falls back to
     the profile-scoped copy (``<profile>/fomod/<mod>.json``) so selections still
-    restore for mods installed only under a profile."""
+    restore for mods installed only under a profile.
+
+    *profile_dir* — captured target profile; preferred over the shared, mutable
+    ``game._active_profile_dir`` (see _write_profile_fomod_selection)."""
     game_name = getattr(game, "name", "")
     if not game_name:
         return None
     import json
     from Utils.config_paths import get_fomod_selections_path
     candidates = [get_fomod_selections_path(game_name, mod_name)]
-    pdir = getattr(game, "_active_profile_dir", None)
+    pdir = profile_dir if profile_dir is not None \
+        else getattr(game, "_active_profile_dir", None)
     if pdir:
         candidates.append(Path(pdir) / "fomod" / f"{mod_name}.json")
     for sel_path in candidates:
@@ -1808,11 +1833,14 @@ def _read_saved_fomod_selections(game, mod_name: str, log_fn: LogFn) -> "dict | 
 
 
 def _persist_fomod_selection(game, mod_name: str, selections,
-                             profile: bool = True) -> None:
+                             profile: bool = True, profile_dir=None) -> None:
     """Write the wizard's selections to the global per-game JSON (restored on
     the next install of this mod) and optionally mirror them into the profile
     (Tk parity: interactive installs write both; the collection orchestrator
-    mirrors to the profile itself, so it passes profile=False)."""
+    mirrors to the profile itself, so it passes profile=False).
+
+    *profile_dir* — captured target profile for the mirror (see
+    _write_profile_fomod_selection); falls back to the live active profile."""
     if selections is None:
         return
     game_name = getattr(game, "name", "")
@@ -1826,23 +1854,28 @@ def _persist_fomod_selection(game, mod_name: str, selections,
         except OSError:
             pass
     if profile:
-        _write_profile_fomod_selection(game, mod_name, selections)
+        _write_profile_fomod_selection(game, mod_name, selections, profile_dir)
 
 
-def _read_saved_bain_selections(game, mod_name: str, log_fn: LogFn) -> "dict | None":
+def _read_saved_bain_selections(game, mod_name: str, log_fn: LogFn,
+                                profile_dir=None) -> "dict | None":
     """Load a previously-saved BAIN selection for *mod_name* so the picker
     restores the user's last choices (Tk parity).
 
     Reads the global per-game config first; when that's absent, falls back to
     the profile-scoped copy (``<profile>/bain/<mod>.json``) so selections still
-    restore for mods installed only under a profile."""
+    restore for mods installed only under a profile.
+
+    *profile_dir* — captured target profile; preferred over the shared, mutable
+    ``game._active_profile_dir`` (see _write_profile_fomod_selection)."""
     game_name = getattr(game, "name", "")
     if not game_name:
         return None
     import json
     from Utils.config_paths import get_bain_selections_path
     candidates = [get_bain_selections_path(game_name, mod_name)]
-    pdir = getattr(game, "_active_profile_dir", None)
+    pdir = profile_dir if profile_dir is not None \
+        else getattr(game, "_active_profile_dir", None)
     if pdir:
         candidates.append(Path(pdir) / "bain" / f"{mod_name}.json")
     for sel_path in candidates:
@@ -1857,11 +1890,14 @@ def _read_saved_bain_selections(game, mod_name: str, log_fn: LogFn) -> "dict | N
     return None
 
 
-def _persist_bain_selection(game, mod_name: str, result) -> None:
+def _persist_bain_selection(game, mod_name: str, result, profile_dir=None) -> None:
     """Persist a BAIN selection to BOTH the global config
     (``get_bain_selections_path``) and the profile (``<profile>/bain/<mod>.json``),
-    matching the Tk installer."""
-    _write_profile_bain_selection(game, mod_name, result)
+    matching the Tk installer.
+
+    *profile_dir* — captured target profile for the mirror (see
+    _write_profile_fomod_selection); falls back to the live active profile."""
+    _write_profile_bain_selection(game, mod_name, result, profile_dir)
     game_name = getattr(game, "name", "")
     if not game_name:
         return
