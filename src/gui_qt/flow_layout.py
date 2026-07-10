@@ -18,10 +18,12 @@ from PySide6.QtWidgets import QLayout, QLayoutItem, QWidget
 
 class FlowLayout(QLayout):
     def __init__(self, parent: QWidget | None = None,
-                 margin: int = 0, spacing: int = 4) -> None:
+                 margin: int = 0, spacing: int = 4,
+                 center: bool = False) -> None:
         super().__init__(parent)
         self._items: list[QLayoutItem] = []
         self._spacing = spacing
+        self._center = center
         if parent is not None:
             self.setContentsMargins(margin, margin, margin, margin)
 
@@ -77,22 +79,40 @@ class FlowLayout(QLayout):
     def _do_layout(self, rect: QRect, test_only: bool) -> int:
         m: QMargins = self.contentsMargins()
         effective = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
-        x = effective.x()
         y = effective.y()
-        line_height = 0
 
+        # Pass 1: group items into rows at the available width.
+        rows: list[list[QLayoutItem]] = []
+        row: list[QLayoutItem] = []
+        row_w = 0
         for item in self._items:
-            w = item.sizeHint()
-            next_x = x + w.width() + self._spacing
-            if next_x - self._spacing > effective.right() and line_height > 0:
-                # Would overflow the row → wrap to the next line.
-                x = effective.x()
-                y = y + line_height + self._spacing
-                next_x = x + w.width() + self._spacing
-                line_height = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), w))
-            x = next_x
-            line_height = max(line_height, w.height())
+            w = item.sizeHint().width()
+            needed = row_w + (self._spacing if row else 0) + w
+            if row and effective.x() + needed > effective.right():
+                rows.append(row)
+                row, row_w = [], 0
+                needed = w
+            row.append(item)
+            row_w = needed
+        if row:
+            rows.append(row)
 
-        return y + line_height - rect.y() + m.bottom()
+        # Pass 2: place each row, optionally centred in the effective rect.
+        for row in rows:
+            row_w = sum(it.sizeHint().width() for it in row) \
+                + self._spacing * (len(row) - 1)
+            x = effective.x()
+            if self._center:
+                x += max(0, (effective.width() - row_w) // 2)
+            line_height = 0
+            for item in row:
+                w = item.sizeHint()
+                if not test_only:
+                    item.setGeometry(QRect(QPoint(x, y), w))
+                x += w.width() + self._spacing
+                line_height = max(line_height, w.height())
+            y += line_height + self._spacing
+        if rows:
+            y -= self._spacing
+
+        return y - rect.y() + m.bottom()

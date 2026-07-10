@@ -932,8 +932,9 @@ class MainWindow(QMainWindow):
         v.setSpacing(6)
 
         # FlowLayout so longer translated labels wrap to a second row instead of
-        # overflowing the panel (see gui_qt/flow_layout.py).
-        btns = FlowLayout(spacing=4)
+        # overflowing the panel (see gui_qt/flow_layout.py). Centred so the row
+        # stays aligned with the middle of the modlist panel at any width.
+        btns = FlowLayout(spacing=4, center=True)
         # label -> handler ("" = no-op stub, needs a dialog/auth — wired later).
         _handlers = {
             "Expand all": self._on_toggle_collapse_all,
