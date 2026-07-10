@@ -464,6 +464,7 @@ class MainWindow(QMainWindow):
         self._col_install_control = None
         self._col_install_slug = ""
         self._col_bundle_zip = ""      # local .amethyst pending bundle extraction
+        self._col_offsite = []         # (name, url) manual mods — reminder on done
         self._col_status.connect(self._on_col_status)
         self._col_progress.connect(self._on_col_progress)
         self._col_agg.connect(self._on_col_agg)
@@ -2657,6 +2658,9 @@ class MainWindow(QMainWindow):
         slug = getattr(collection, "slug", "") or ""
         domain = (getattr(game, "nexus_game_domain", "")
                   or getattr(collection, "game_domain", "") or "")
+        # Off-site mods (manual downloads) from the detail view's manifest —
+        # remembered so the completion handler can remind the user about them.
+        offsite = list(getattr(detail_view, "_offsite", None) or [])
 
         # Premium gate runs off-thread (validate() is rate-limited); on success it
         # creates the profile + starts the pipeline, all marshaled back to the UI.
@@ -2687,7 +2691,8 @@ class MainWindow(QMainWindow):
                              "game": game, "api": api,
                              "recommend_new": recommend_new, "intent": intent,
                              "local_manifest": local_manifest,
-                             "bundle_zip": bundle_zip})
+                             "bundle_zip": bundle_zip,
+                             "offsite": offsite})
 
         threading.Thread(target=_premium_worker, daemon=True,
                          name="col-premium").start()
@@ -2960,6 +2965,7 @@ class MainWindow(QMainWindow):
         # files are extracted once the Nexus mods finish installing.
         local_manifest = info.get("local_manifest")
         self._col_bundle_zip = info.get("bundle_zip") or ""
+        self._col_offsite = list(info.get("offsite") or [])
 
         # Resolve the install mode chosen in the mode overlay (default: new).
         mode_result = info.get("mode_result") or ("new", None, False, False)
@@ -3426,6 +3432,7 @@ class MainWindow(QMainWindow):
         self._select_installed_collection_profile(profile_name)
         msg = f"Collection installed — {installed}/{total} mod(s)"
         self._notify(msg + (f" ({skipped_n} skipped)" if skipped_n else ""), "success")
+        self._show_offsite_reminder()
 
     # ---- Import profile: local-bundle extraction -------------------------
     def _finish_import_bundle(self, bundle_zip, profile_name, ov,
@@ -3477,6 +3484,29 @@ class MainWindow(QMainWindow):
         msg = f"Profile imported — {installed}/{total} mod(s)"
         self._notify(msg + (f" ({skipped_n} skipped)" if skipped_n else ""),
                      "success")
+        self._show_offsite_reminder()
+
+    def _show_offsite_reminder(self):
+        """Post-install reminder: the collection lists off-site mods that the
+        installer can't download — the user must fetch + install them manually
+        (links live in the detail view's yellow "Off-site mods" panel)."""
+        offsite = self._col_offsite
+        self._col_offsite = []
+        if not offsite:
+            return
+        from gui_qt.confirm_overlay import ConfirmOverlay
+        names = [name or url for name, url in offsite]
+        shown = "\n".join(f"• {n}" for n in names[:8])
+        if len(names) > 8:
+            shown += "\n" + self.tr("…and {0} more").format(len(names) - 8)
+        ConfirmOverlay.show_over(
+            self, self.tr("Off-site mods to install"),
+            self.tr("This collection includes {0} off-site mod(s) the installer "
+                    "could not download:\n\n{1}\n\nDownload and install them "
+                    "manually — the links are in the collection page's "
+                    "\"Off-site mods\" panel.").format(len(offsite), shown),
+            None, confirm_label=self.tr("OK"), cancel_label=None, danger=False,
+            card_h=min(240 + 20 * min(len(names), 9), 460))
 
     def _dismiss_col_overlay(self):
         if self._col_install_overlay is not None:

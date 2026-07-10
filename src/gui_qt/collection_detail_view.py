@@ -116,6 +116,7 @@ class CollectionDetailView(QWidget):
         self._domain = (getattr(game, "nexus_game_domain", "")
                         or getattr(collection, "game_domain", "") or "")
         self._mods = []
+        self._offsite: list[tuple[str, str]] = []   # (name, url) — manual downloads
         self._total_size = 0                        # collection totalSize+assetsSizeBytes
         self._dl_path = ""                          # collection-archive download link
         # Local-manifest import: populate from a parsed manifest dict instead of the
@@ -613,6 +614,7 @@ class CollectionDetailView(QWidget):
             return
         self._revision_number = int(rev_num)
         # Reset the panels; the next detail fetch reloads them for this revision.
+        self._offsite = []
         self._offsite_wrap.setVisible(False)
         self._table.setRowCount(0)
         self._size_lbl.setText(self.tr("Loading…"))
@@ -768,6 +770,7 @@ class CollectionDetailView(QWidget):
 
     def _on_manifest_ready(self, payload):
         offsite, manifest = payload
+        self._offsite = list(offsite or [])
         if manifest and self._apply_manifest_overrides(manifest):
             self._fill_table()
             self._fill_optional()
