@@ -186,20 +186,35 @@ done
 _pyside_dir="$(/usr/bin/python3 -c 'import PySide6, os; print(os.path.dirname(PySide6.__file__))')"
 [ -n "$_pyside_dir" ] && [ -d "$_pyside_dir" ] || {
     echo "ERROR: could not locate the PySide6 package directory" >&2; exit 1; }
+_site_dir="$(dirname "$_pyside_dir")"     # site-packages/ (holds shiboken6/)
 _pyside_libs=()
-for _pat in \
-    "$_pyside_dir"/../shiboken6/libshiboken6.*.so* \
-    "$_pyside_dir"/libpyside6.*.so* \
-    "$_pyside_dir"/../shiboken6/Shiboken.*.so; do
-    for _so in $_pat; do
-        [ -e "$_so" ] && _pyside_libs+=("$_so")
+_seen_names=""
+for _root in \
+    "$_pyside_dir" \
+    "$_site_dir/shiboken6" \
+    /usr/lib; do
+    [ -d "$_root" ] || continue
+    for _so in \
+        "$_root"/libshiboken6.*.so* \
+        "$_root"/libpyside6.*.so* \
+        "$_root"/Shiboken.*.so; do
+        [ -e "$_so" ] || continue
+        # de-dup by basename (a lib may be reachable from >1 root)
+        case " $_seen_names " in *" $(basename "$_so") "*) continue ;; esac
+        _seen_names="$_seen_names $(basename "$_so")"
+        _pyside_libs+=("$_so")
     done
 done
-[ "${#_pyside_libs[@]}" -gt 0 ] || {
-    echo "ERROR: no libshiboken6/libpyside6 libraries found under $_pyside_dir" >&2
-    echo "       (is the system 'pyside6' package installed?)" >&2
-    exit 1; }
-echo "  PySide6 runtime libs: ${#_pyside_libs[@]} found under $_pyside_dir"
+# Both core libs are mandatory — fail loudly if either is missing rather
+# than shipping an AppImage that ImportErrors on the user's machine.
+case "$_seen_names" in *libshiboken6.*) : ;; *)
+    echo "ERROR: libshiboken6 not found (searched $_pyside_dir, $_site_dir/shiboken6, /usr/lib)" >&2
+    exit 1 ;; esac
+case "$_seen_names" in *libpyside6.*) : ;; *)
+    echo "ERROR: libpyside6 not found (searched $_pyside_dir, $_site_dir/shiboken6, /usr/lib)" >&2
+    exit 1 ;; esac
+echo "  PySide6 runtime libs deployed:"
+printf '    %s\n' "${_pyside_libs[@]}"
 
 echo "=== Running quick-sharun ==="
 # Stdlib extension modules in lib-dynload are dlopened at runtime, so
