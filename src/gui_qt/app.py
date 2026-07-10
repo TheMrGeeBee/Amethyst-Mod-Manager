@@ -1366,16 +1366,24 @@ class MainWindow(QMainWindow):
         self._tf_search = search
         return bar
 
+    def _set_tf_content_bar_visible(self, visible: bool):
+        """Show/hide the inline find-in-files bar, then re-clamp the footer
+        stack: its max height is pinned to the current page's height (see
+        _CurrentPageStack), so the page growing a row would otherwise be
+        squashed into the old clamped height."""
+        self._tf_content_bar.setVisible(visible)
+        self._plugin_footer_stack.clamp_to_current()
+
     def _on_text_files_content_search(self):
         """Toggle the inline content-search bar. When a search is active, this
         clears it; otherwise it opens the input bar above the footer + focuses it."""
         if self._text_files_view._content_keyword:
             self._text_files_view.clear_content_search()
             self._tf_content_input.clear()
-            self._tf_content_bar.setVisible(False)
+            self._set_tf_content_bar_visible(False)
             return
         showing = not self._tf_content_bar.isVisible()
-        self._tf_content_bar.setVisible(showing)
+        self._set_tf_content_bar_visible(showing)
         if showing:
             self._tf_content_input.setFocus()
             self._tf_content_input.selectAll()
@@ -1393,7 +1401,7 @@ class MainWindow(QMainWindow):
             self._text_files_view.clear_content_search()
 
     def _close_tf_content_bar(self):
-        self._tf_content_bar.setVisible(False)
+        self._set_tf_content_bar_visible(False)
         self._tf_content_input.clear()
         if self._text_files_view._content_keyword:
             self._text_files_view.clear_content_search()
