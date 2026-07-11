@@ -134,7 +134,26 @@ def proton_run_command(
     does not forward the environment, so pass the Popen env dict as *env*:
     every var the caller added on top of ``os.environ`` (STEAM_COMPAT_*,
     WINEDLLOVERRIDES, …) is re-exported with ``--env=`` flags.
+
+    *proton_script* may also be a plain ``wine``/``wine64`` binary (Lutris
+    classic-wine prefixes): the caller's env must then carry WINEPREFIX. Wine
+    takes the payload directly — Proton's verbs (run / runinprefix /
+    waitforexitandrun) have no wine equivalent and are dropped — and there is
+    no python interpreter in front of the command.
     """
+    script = Path(proton_script)
+    if script.name in ("wine", "wine64"):
+        payload = [a for a in map(str, args) if a not in
+                   ("run", "runinprefix", "waitforexitandrun")]
+        cmd = [str(script), *payload]
+        if _in_flatpak_sandbox() and shutil.which("flatpak-spawn"):
+            fwd = [
+                f"--env={k}={v}"
+                for k, v in (env or {}).items()
+                if os.environ.get(k) != v
+            ]
+            cmd = ["flatpak-spawn", "--host", *fwd, *cmd]
+        return cmd
     base = [_host_python(), str(proton_script), *map(str, args)]
     if not (_proton_script_in_steam_flatpak(proton_script)
             and not _own_process_in_steam_flatpak()):

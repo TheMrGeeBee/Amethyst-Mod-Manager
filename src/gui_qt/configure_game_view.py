@@ -52,6 +52,19 @@ def _heroic_app_names(game) -> list[str]:
     return names
 
 
+def _lutris_available(game) -> bool:
+    """True when a Lutris install exists and the game has an exe to match
+    against it — Lutris detection is keyed off the exe name, so any such game
+    may have a Lutris prefix."""
+    if not getattr(game, "exe_name", None):
+        return False
+    try:
+        from Utils.lutris_finder import find_lutris_roots
+        return bool(find_lutris_roots())
+    except Exception:
+        return False
+
+
 class _ScanSignals(QObject):
     game_found = Signal(object, str)        # (path|None, source)
     drive_scan_found = Signal(object)       # (path|None) — full-drive Scan button
@@ -84,6 +97,7 @@ class ConfigureGameView(QWidget):
 
         self._found_path: Path | None = None
         self._found_prefix: Path | None = None
+        self._found_lutris_slug: str | None = None
         self._custom_staging: Path | None = None
 
         self._sig = _ScanSignals()
@@ -283,7 +297,8 @@ class ConfigureGameView(QWidget):
         # --- Proton prefix ---
         v.addWidget(self._section_header(self.tr("Proton Prefix (compatdata/pfx)")))
         has_prefix_src = bool(getattr(g, "steam_id", None)
-                              or _heroic_app_names(g))
+                              or _heroic_app_names(g)
+                              or _lutris_available(g))
         self._prefix_status = self._status(
             self.tr("Scanning for prefix…") if has_prefix_src
             else self.tr("No launcher ID — prefix not applicable."),
@@ -654,15 +669,18 @@ class ConfigureGameView(QWidget):
     def _set_game(self, path: Path, configured=False, source="steam"):
         self._found_path = path
         self._game_edit.setText(str(path))
-        # Steam/Heroic library detection already verified the exe lives here, so
-        # trust those sources. For manual browse / drive-scan / typed paths the
-        # folder is whatever the user picked — verify the exe is actually inside
-        # and warn (rather than silently claiming "Found") if it isn't.
-        if source in ("steam", "heroic") or configured:
+        # Steam/Heroic/Lutris library detection already verified the exe lives
+        # here, so trust those sources. For manual browse / drive-scan / typed
+        # paths the folder is whatever the user picked — verify the exe is
+        # actually inside and warn (rather than silently claiming "Found") if
+        # it isn't.
+        if source in ("steam", "heroic", "lutris") or configured:
             if configured:
                 msg, tone = "Game already configured. You can update the path below.", "TEXT_OK"
             elif source == "heroic":
                 msg, tone = "Found via Heroic Games Launcher.", "TEXT_OK"
+            elif source == "lutris":
+                msg, tone = self.tr("Found via Lutris."), "TEXT_OK"
             else:
                 msg, tone = "Found via Steam libraries.", "TEXT_OK"
         else:
@@ -838,6 +856,19 @@ class ConfigureGameView(QWidget):
                     source = "heroic"
                     app_log(f"[Configure Game] Found via Heroic app name: {found}")
             if not found:
+                from Utils.lutris_finder import find_lutris_game_info_by_exe
+                app_log(f"[Configure Game] Checking Lutris (exe names: {exe_names})")
+                for exe in exe_names:
+                    info = find_lutris_game_info_by_exe(exe)
+                    if info:
+                        found, fpfx, slug = info
+                        source = "lutris"
+                        if fpfx is not None:
+                            self._found_prefix = fpfx
+                        self._found_lutris_slug = slug
+                        app_log(f"[Configure Game] Found via Lutris ({exe}): {found}")
+                        break
+            if not found:
                 libs = find_steam_libraries()
                 app_log(f"[Configure Game] Steam libraries found: "
                         f"{libs if libs else 'none'}")
@@ -952,6 +983,16 @@ class ConfigureGameView(QWidget):
                     break
             if not found and _heroic_app_names(g):
                 found = find_heroic_prefix(_heroic_app_names(g))
+            if not found:
+                from Utils.lutris_finder import find_lutris_game_info_by_exe
+                exe_names = [getattr(g, "exe_name", None)] + list(
+                    getattr(g, "exe_name_alts", []) or [])
+                for exe in [e for e in exe_names if e]:
+                    info = find_lutris_game_info_by_exe(exe)
+                    if info and info[1] is not None:
+                        found = info[1]
+                        self._found_lutris_slug = info[2]
+                        break
         except Exception:
             found = None
         self._sig.prefix_found.emit(found)
@@ -1050,6 +1091,8 @@ class ConfigureGameView(QWidget):
         g.set_game_path(self._found_path)
         if self._found_prefix is not None:
             g.set_prefix_path(self._found_prefix)
+        if self._found_lutris_slug and hasattr(g, "set_lutris_slug"):
+            g.set_lutris_slug(self._found_lutris_slug)
         if hasattr(g, "set_deploy_mode"):
             g.set_deploy_mode(mode)
         if hasattr(g, "set_staging_path"):

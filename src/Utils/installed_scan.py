@@ -57,6 +57,7 @@ class InstalledIndex:
         self._gog_walks: dict[str, dict[str, list[tuple[str, ...]]]] = {}
         self._build_steam()
         self._build_heroic()
+        self._build_lutris()
 
     # ------------------------------------------------------------------
     # Steam
@@ -247,6 +248,41 @@ class InstalledIndex:
         return False
 
     # ------------------------------------------------------------------
+    # Lutris
+    # ------------------------------------------------------------------
+
+    def _build_lutris(self) -> None:
+        # Per installed Lutris game: lowercase path segments of its configured
+        # game.exe. Read from Lutris's database + YAML configs in a single
+        # pass (build_installed_exe_index), so per-handler lookups are O(1)
+        # against memory rather than re-reading Lutris's data each time.
+        self._lutris_exes: list[list[str]] = []
+        try:
+            from Utils.lutris_finder import build_installed_exe_index
+            self._lutris_exes = build_installed_exe_index()
+        except Exception as exc:
+            self._log(f"lutris index build failed, continuing with none: {exc}")
+            self._lutris_exes = []
+
+    def _lutris_by_exe(self, exe_name: str) -> bool:
+        """True if any installed Lutris game's exe tail matches exe_name.
+
+        Matching mirrors find_lutris_game_info_by_exe: a bare handler name
+        matches on filename; a multi-segment name must match segment-for-
+        segment at the tail (same rule as _stored_exe_matches)."""
+        rel_parts = _exe_parts(exe_name)
+        if not rel_parts:
+            return False
+        for stored_parts in self._lutris_exes:
+            if len(rel_parts) > 1:
+                if (len(stored_parts) >= len(rel_parts)
+                        and stored_parts[-len(rel_parts):] == rel_parts):
+                    return True
+            elif stored_parts and stored_parts[-1] == rel_parts[0]:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -276,6 +312,10 @@ class InstalledIndex:
         for exe in all_exe:
             bare = exe.replace("\\", "/").rsplit("/", 1)[-1]
             if bare and self._heroic_by_exe(bare):
+                return True
+
+        for exe in all_exe:
+            if self._lutris_by_exe(exe):
                 return True
 
         return False

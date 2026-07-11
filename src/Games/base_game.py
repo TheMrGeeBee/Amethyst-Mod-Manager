@@ -57,6 +57,20 @@ _DEFAULT_DEPLOY_MODE = LinkMode.HARDLINK
 _UNSET = object()
 
 
+def _ensure_lutris_prefix_compat(prefix_path: "Path | None") -> None:
+    """When the game's prefix is Lutris-managed, make sure a ``steamuser``
+    account exists (classic lutris-wine prefixes only have the real user;
+    handler paths are hardcoded to steamuser). No-op for other prefixes."""
+    if prefix_path is None:
+        return
+    try:
+        from Utils.lutris_finder import is_lutris_prefix, ensure_steamuser_compat
+        if is_lutris_prefix(prefix_path):
+            ensure_steamuser_compat(prefix_path)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Wizard tool descriptor
 # ---------------------------------------------------------------------------
@@ -1657,7 +1671,8 @@ class BaseGame(ABC):
     def _find_prefix_for_load(self) -> "Path | None":
         """Locate a Proton prefix for this game during load_paths().
 
-        Tries ``steam_id`` first, then any ``alt_steam_ids``. Subclasses with
+        Tries ``steam_id`` first, then any ``alt_steam_ids``, then a Lutris
+        install matching the handler's exe name. Subclasses with other
         non-Steam prefix sources (Heroic-only games, etc.) can override.
         """
         for sid in [self.steam_id, *self.alt_steam_ids]:
@@ -1666,6 +1681,17 @@ class BaseGame(ABC):
             found = _find_steam_prefix(sid)
             if found:
                 return found
+        try:
+            from Utils.lutris_finder import find_lutris_game_info_by_exe
+            for exe in [getattr(self, "exe_name", None),
+                        *(getattr(self, "exe_name_alts", []) or [])]:
+                if not exe:
+                    continue
+                info = find_lutris_game_info_by_exe(exe)
+                if info is not None and info[1] is not None:
+                    return info[1]
+        except Exception:
+            pass
         return None
 
     def load_paths(self) -> bool:
@@ -1711,6 +1737,7 @@ class BaseGame(ABC):
                     # deliberate per-profile choice, so persist it globally rather
                     # than as a spurious override on a non-default profile.
                     self._save_global_prefix(found)
+            _ensure_lutris_prefix_compat(self._prefix_path)
             return bool(self._game_path)
         except (json.JSONDecodeError, OSError):
             pass
@@ -1824,6 +1851,28 @@ class BaseGame(ABC):
             if self._paths_file.is_file():
                 data = json.loads(self._paths_file.read_text(encoding="utf-8")) or {}
             data["heroic_app_name"] = app_name or ""
+            self._paths_file.parent.mkdir(parents=True, exist_ok=True)
+            self._paths_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def set_lutris_slug(self, slug: str | None) -> None:
+        """Persist a discovered Lutris slug into paths.json.
+
+        Written when the Configure-Game scan resolves the game via Lutris.
+        Launch code still prefers live detection against Lutris's database,
+        so this field is an informational fallback rather than the source of
+        truth.
+        """
+        try:
+            self.save_paths()
+        except Exception:
+            pass
+        try:
+            data: dict = {}
+            if self._paths_file.is_file():
+                data = json.loads(self._paths_file.read_text(encoding="utf-8")) or {}
+            data["lutris_slug"] = slug or ""
             self._paths_file.parent.mkdir(parents=True, exist_ok=True)
             self._paths_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except (OSError, json.JSONDecodeError):

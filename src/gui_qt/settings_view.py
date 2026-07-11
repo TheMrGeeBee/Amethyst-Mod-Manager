@@ -221,6 +221,37 @@ class SettingsView(QWidget):
             self._add_help(grid, help)
         return edit
 
+    def _file_row(self, grid: QGridLayout, label: str, load_fn, save_fn,
+                  filters: "list[tuple[str, list[str]]] | None" = None,
+                  help: str | None = None) -> QLineEdit:
+        """Like :meth:`_path_row` but the Browse button picks a single file
+        (e.g. an AppImage) instead of a folder."""
+        row = self._next_row(grid)
+        grid.addWidget(QLabel(label), row, 0)
+        wrap = QHBoxLayout()
+        edit = QLineEdit()
+        try:
+            edit.setText(load_fn() or "")
+        except Exception:
+            pass
+        edit.editingFinished.connect(
+            lambda: self._safe_save(save_fn, edit.text().strip()))
+        browse = QPushButton(self.tr("Browse"))
+        browse.setCursor(Qt.PointingHandCursor)
+        browse.clicked.connect(
+            lambda: self._browse_file_into(edit, save_fn, label, filters))
+        clear = QPushButton(self.tr("Clear"))
+        clear.setCursor(Qt.PointingHandCursor)
+        clear.clicked.connect(lambda: self._clear_path(edit, save_fn))
+        wrap.addWidget(edit, 1)
+        wrap.addWidget(browse)
+        wrap.addWidget(clear)
+        holder = QWidget(); holder.setLayout(wrap)
+        grid.addWidget(holder, row, 1)
+        if help:
+            self._add_help(grid, help)
+        return edit
+
     # ---- sections ---------------------------------------------------------
     def _build_user_interface(self):
         # Language, Theme and UI Scale are all applied once at startup (Qt reads
@@ -576,6 +607,18 @@ class SettingsView(QWidget):
             help=self.tr("Folder containing Heroic's config.json. Blank = auto-detect "
                  "(Flatpak and native locations)."))
         self._path_row(
+            g, self.tr("Lutris Data Location"),
+            uc.load_lutris_data_path, uc.save_lutris_data_path,
+            help=self.tr("Folder containing Lutris's pga.db. Blank = auto-detect "
+                 "(Flatpak and native locations)."))
+        self._file_row(
+            g, self.tr("Lutris AppImage"),
+            uc.load_lutris_appimage_path, uc.save_lutris_appimage_path,
+            filters=[("AppImage", ["*.AppImage", "*.appimage"]), ("All files", ["*"])],
+            help=self.tr("Path to the Lutris AppImage, so Play can launch it "
+                 "directly. Only needed for AppImage installs — leave blank for "
+                 "Flatpak or native Lutris."))
+        self._path_row(
             g, self.tr("Steam libraryfolders.vdf"),
             uc.load_steam_libraries_vdf_path, uc.save_steam_libraries_vdf_path,
             help=self.tr("Path to libraryfolders.vdf (or its folder). Blank = auto-detect "
@@ -604,6 +647,15 @@ class SettingsView(QWidget):
         from Utils.portal_filechooser import pick_folder
         pick_folder(f"Select {title}",
                     lambda path: self._folder_picked.emit((edit, save_fn, path)))
+
+    def _browse_file_into(self, edit: QLineEdit, save_fn, title: str,
+                          filters=None):
+        # Reuse the folder-picked signal/slot — the payload shape is identical
+        # (edit, save_fn, path); pick_file just returns a file Path.
+        from Utils.portal_filechooser import pick_file
+        pick_file(f"Select {title}",
+                  lambda path: self._folder_picked.emit((edit, save_fn, path)),
+                  filters=filters)
 
     def _on_folder_picked(self, payload):
         edit, save_fn, path = payload

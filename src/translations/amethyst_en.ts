@@ -1150,6 +1150,10 @@ The default profile's settings are not affected.</translation>
         <translation>Settings saved.</translation>
     </message>
     <message>
+        <source>Found via Lutris.</source>
+        <translation>Found via Lutris.</translation>
+    </message>
+    <message>
         <source>Executable ({0}) not found in this folder — double-check the path.</source>
         <translation>Executable ({0}) not found in this folder — double-check the path.</translation>
     </message>
@@ -3257,8 +3261,8 @@ It may already be modified. Verify game files in Steam/Heroic to get a clean exe
         <translation>Launch via</translation>
     </message>
     <message>
-        <source>Auto detects Steam/Heroic ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</source>
-        <translation>Auto detects Steam/Heroic ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</translation>
+        <source>Auto detects Steam/Heroic/Lutris ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</source>
+        <translation>Auto detects Steam/Heroic/Lutris ownership. Force a specific launcher, or None to always launch the exe directly via Proton.</translation>
     </message>
     <message>
         <source>Deploy mods before launching</source>
@@ -7975,6 +7979,22 @@ Merge your conflicts, then close it and click Done.</translation>
     <message>
         <source>Folder containing Heroic's config.json. Blank = auto-detect (Flatpak and native locations).</source>
         <translation>Folder containing Heroic's config.json. Blank = auto-detect (Flatpak and native locations).</translation>
+    </message>
+    <message>
+        <source>Lutris Data Location</source>
+        <translation>Lutris Data Location</translation>
+    </message>
+    <message>
+        <source>Folder containing Lutris's pga.db. Blank = auto-detect (Flatpak and native locations).</source>
+        <translation>Folder containing Lutris's pga.db. Blank = auto-detect (Flatpak and native locations).</translation>
+    </message>
+    <message>
+        <source>Lutris AppImage</source>
+        <translation>Lutris AppImage</translation>
+    </message>
+    <message>
+        <source>Path to the Lutris AppImage, so Play can launch it directly. Only needed for AppImage installs — leave blank for Flatpak or native Lutris.</source>
+        <translation>Path to the Lutris AppImage, so Play can launch it directly. Only needed for AppImage installs — leave blank for Flatpak or native Lutris.</translation>
     </message>
     <message>
         <source>Steam libraryfolders.vdf</source>
