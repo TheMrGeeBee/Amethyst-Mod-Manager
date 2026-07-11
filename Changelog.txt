@@ -1,6 +1,10 @@
 - v2.0.2
+### Bug Fixes
 - Fixed segfault on startup caused by incompatible fontconfig files
 - Fixed an issue where plugins from disabled optional mods in collections would show up in plugins.txt
+- Fixed long loading screen in the add game menu if a gog game is installed
+### Changes
+- In progress downloads no longer show in the downloads tab
 
 - v2.0.1
 - Fixed various issues with 2.0.0 that didn't appear during testing
