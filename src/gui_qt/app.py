@@ -8114,6 +8114,10 @@ class MainWindow(QMainWindow):
     def _apply_modlist_filters(self):
         from gui_qt.modlist_filter import compute_hidden_rows
         state = getattr(self, "_modlist_filter_state", {}) or {}
+        # Flatten the column sort across separator groups while separators are
+        # hidden (must run before reading _entries — it may re-derive the sort).
+        self._modlist_model.set_separators_hidden(
+            state.get("filter_hide_separators") == 1)
         data = getattr(self, "_modlist_filter_data", None)
         if data is None:
             self._modlist_view.set_filter_hidden(set())

@@ -151,12 +151,27 @@ def sort_key_fn(key: str, ctx: dict):
 # Display-order construction (Tk _apply_column_sort)
 # ---------------------------------------------------------------------------
 def build_display(natural: list[ModEntry], key: str | None, ascending: bool,
-                  ctx: dict, divider: ModEntry | None = None
+                  ctx: dict, divider: ModEntry | None = None,
+                  flatten_groups: bool = False
                   ) -> list[ModEntry]:
     """Derive the display order from the natural order. Returns a NEW list
-    holding the SAME entry objects (plus the divider in reverse mode)."""
+    holding the SAME entry objects (plus the divider in reverse mode).
+
+    When *flatten_groups* is set (the "hide separators" filter is active), a
+    plain column sort ignores separator boundaries and orders every mod as one
+    flat list — otherwise mods only sort within their own separator group and
+    still cluster under the (now-hidden) separator, which reads as broken. The
+    separators are appended at the end (hidden by the filter anyway) so the
+    natural round-trip and boundary handling stay intact. The special
+    reverse-priority mode is unaffected — its grouping is intrinsic."""
     if not key:
         return list(natural)
+
+    if flatten_groups and key != "priority":
+        key_fn = sort_key_fn(key, ctx)
+        mods = [e for e in natural if not e.is_separator]
+        seps = [e for e in natural if e.is_separator]
+        return sorted(mods, key=key_fn, reverse=not ascending) + seps
 
     groups = split_groups(natural)
 

@@ -92,6 +92,11 @@ class ModListModel(QAbstractTableModel):
         # Active column sort ("name"/"category"/…/"priority") + direction.
         self._sort_key: str | None = None
         self._sort_ascending: bool = True
+        # True while the "hide separators" filter is active — makes a column
+        # sort flatten all mods into one list instead of sorting within each
+        # separator group (which would leave mods clustered under the hidden
+        # separators). Set by the app when the filter state changes.
+        self._separators_hidden: bool = False
         # Reverse-mode divider entry, reused across rebuilds so an unchanged
         # layout compares identical (no spurious layoutChanged).
         self._divider: ModEntry = make_divider()
@@ -179,6 +184,17 @@ class ModListModel(QAbstractTableModel):
     def sort_state(self) -> tuple[str | None, bool]:
         return self._sort_key, self._sort_ascending
 
+    def set_separators_hidden(self, hidden: bool) -> None:
+        """Tell the model whether the 'hide separators' filter is active. When
+        it flips while a (non-priority) column sort is live, the display is
+        re-derived so mods sort as one flat list instead of within groups."""
+        hidden = bool(hidden)
+        if hidden == self._separators_hidden:
+            return
+        self._separators_hidden = hidden
+        if self._sort_key and self._sort_key != "priority":
+            self._rebuild_display()
+
     @property
     def reverse_mode_active(self) -> bool:
         """True in reverse-priority mode (priority ascending, 0 at top)."""
@@ -211,7 +227,8 @@ class ModListModel(QAbstractTableModel):
             return self._natural
         return build_display(self._natural, self._sort_key,
                              self._sort_ascending, self._sort_ctx(),
-                             divider=self._divider)
+                             divider=self._divider,
+                             flatten_groups=self._separators_hidden)
 
     def _rebuild_display(self) -> None:
         """Re-derive the display list from the natural order + active sort.
