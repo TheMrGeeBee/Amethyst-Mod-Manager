@@ -376,9 +376,18 @@ def scan_mod_paks(
     *excluded* — optional {mod_name: {rel_path_lower, ...}} of files the user
     excluded in the Mod Files tab; those paks are not deployed, so they must
     not get a modsettings entry either.
+
+    Mutually-exclusive Nexus file variants of the same mod (e.g. "All-In-One"
+    vs. "Hide Looted" builds of one options page) commonly share the SAME pak
+    UUID — only one is meant to be enabled at a time. When *enabled_mods*
+    includes disabled entries too (bg3_import's re-enable scan), a disabled
+    duplicate must never steal the UUID slot away from an enabled one; ties
+    between two enabled (or two disabled) entries keep whichever is scanned
+    first, i.e. the higher-priority modlist.txt entry.
     """
     by_uuid: dict[str, BG3ModInfo] = {}
     _excluded = excluded or {}
+    _enabled_by_name = {e.name: e.enabled for e in enabled_mods}
 
     for entry in enabled_mods:
         mod_dir = staging_root / entry.name
@@ -411,6 +420,11 @@ def scan_mod_paks(
             info.is_override_only = overrides_builtin and not has_own_data
             info.requires_script_extender = _se_config_requires_extender(pak_info.se_config)
             info.source_mod = entry.name
+            existing = by_uuid.get(info.uuid)
+            if existing is not None and not entry.enabled \
+                    and _enabled_by_name.get(existing.source_mod, False):
+                got_meta = True
+                continue
             by_uuid[info.uuid] = info
             got_meta = True
 

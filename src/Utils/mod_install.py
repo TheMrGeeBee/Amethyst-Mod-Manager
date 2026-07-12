@@ -917,7 +917,8 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
     if staging_root is None:
         log_fn("Install: no staging folder configured.")
         return None
-    mod_name = preferred_name or _clean_mod_name(archive.stem, game)
+    mod_name = preferred_name or _nexus_mod_name(prebuilt_meta) \
+        or _clean_mod_name(archive.stem, game)
 
     def _p(done, total, phase=None):
         if progress_fn is not None:
@@ -1942,6 +1943,19 @@ def _persist_bain_selection(game, mod_name: str, result, profile_dir=None) -> No
 
 
 # ---------------------------------------------------------------- helpers
+def _nexus_mod_name(prebuilt_meta) -> str:
+    """Sanitized display name from a prebuilt Nexus meta's ``nexus_name``, or
+    "" if unavailable. Preferred over parsing the archive filename — Nexus
+    archive filenames are author-chosen and often unrelated to (or a generic
+    truncation of) the mod's actual title, while ``nexus_name`` comes straight
+    from the Nexus API and is what NexusMods.com shows as the mod's name."""
+    name = getattr(prebuilt_meta, "nexus_name", "") if prebuilt_meta is not None else ""
+    if not name:
+        return ""
+    from Utils.mod_name_utils import sanitize_mod_folder_name
+    return sanitize_mod_folder_name(name) or ""
+
+
 def _clean_mod_name(stem: str, game) -> str:
     """Best-effort folder name from the archive stem.
 
