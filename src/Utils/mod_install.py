@@ -978,6 +978,14 @@ class PreparedInstall:
     def is_fomod(self) -> bool:
         return self.fomod_base is not None and self.fomod_config is not None
 
+    def fomod_has_steps(self) -> bool:
+        """True when the FOMOD config has at least one install step (i.e. the
+        wizard has something to show). A config with only requiredInstallFiles /
+        conditionalFileInstalls and no <installSteps> installs headlessly — the
+        wizard would open on an empty step list and crash."""
+        return self.is_fomod() and bool(
+            getattr(self.fomod_config, "steps", None))
+
     def is_bain(self) -> bool:
         return bool(self.bain_subpkgs)
 
@@ -1647,7 +1655,13 @@ def install_collection_archive(
             except Exception:
                 resolve_files = None  # type: ignore
 
-            if fomod_auto_selections is None and defer_interactive_fomod:
+            # A FOMOD with no <installSteps> has nothing for the user to choose
+            # (only requiredInstallFiles / conditionalFileInstalls) — never open
+            # the wizard (it crashes on an empty step list) and no need to defer;
+            # install defaults inline.
+            has_steps = bool(getattr(config, "steps", None))
+
+            if fomod_auto_selections is None and defer_interactive_fomod and has_steps:
                 log_fn("FOMOD installer detected — deferring until dependencies "
                        "are installed.")
                 prepared.cleanup()
@@ -1657,7 +1671,7 @@ def install_collection_archive(
                 log_fn("FOMOD installer detected — applying collection author's "
                        "choices automatically.")
                 final_selections = fomod_auto_selections
-            elif resolve_fomod is not None:
+            elif resolve_fomod is not None and has_steps:
                 log_fn("FOMOD installer detected — opening wizard...")
                 saved_sel = _read_saved_fomod_selections(
                     game, prepared.mod_name, log_fn)

@@ -7355,7 +7355,16 @@ class MainWindow(QMainWindow):
         if prepared is None:
             self._one_install_done.emit(None)
             return
-        if prepared.is_fomod():
+        if prepared.is_fomod() and not prepared.fomod_has_steps():
+            # FOMOD with no install steps (only requiredInstallFiles /
+            # conditionalFileInstalls) → nothing for the user to choose. Install
+            # headlessly with default selections instead of opening the wizard
+            # on an empty step list (which crashed with IndexError).
+            self._op_log.emit(
+                f"FOMOD has no install options: {prepared.mod_name} — "
+                "installing required files.")
+            self._run_finish_install(prepared, None)
+        elif prepared.is_fomod():
             # Open the wizard tab; finish on the user's selections (or cancel).
             # Hide the progress popup while the wizard is up (no work running).
             if self._progress_popup is not None:
