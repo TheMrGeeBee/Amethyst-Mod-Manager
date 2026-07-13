@@ -2352,6 +2352,8 @@ class MainWindow(QMainWindow):
         except (IndexError, ValueError):
             return
         from PySide6.QtCore import QTimer
+        from Nexus.nxm_handler import nxm_log
+        nxm_log("Fresh instance: processing --nxm link after window build")
         QTimer.singleShot(500, lambda: self._process_nxm_link(nxm_url))
 
     def _start_nxm_ipc(self):
@@ -2369,6 +2371,8 @@ class MainWindow(QMainWindow):
     def _receive_nxm(self, nxm_url: str):
         """UI thread: handle an NXM link (from --nxm at startup or delivered via
         IPC from a second instance). Raise the window so the user sees it."""
+        from Nexus.nxm_handler import nxm_log
+        nxm_log("NXM link reached UI thread of running instance")
         self._append_log("[nexus] received NXM link from browser")
         try:
             self.setWindowState(
@@ -2396,17 +2400,20 @@ class MainWindow(QMainWindow):
 
     def _process_nxm_link(self, nxm_url: str):
         """Handle an nxm:// link — download a mod or open a collection."""
-        from Nexus.nxm_handler import parse_nxm_url
+        from Nexus.nxm_handler import parse_nxm_url, nxm_log
+        nxm_log(f"Processing NXM link: {nxm_url}")
         api = self._ensure_nexus_api()
         if api is None:
             self._notify(self.tr("Log in first: Nexus ▸ Login to Nexus ▸ Login via SSO."),
                          "warning")
+            nxm_log("NXM link ignored — not logged in to Nexus")
             self._append_log("[nexus] NXM link ignored — not logged in")
             return
 
         try:
             mod_link, coll_link = parse_nxm_url(nxm_url)
         except ValueError as exc:
+            nxm_log(f"Bad nxm:// URL — {exc}")
             self._append_log(f"[nexus] bad nxm:// URL — {exc}")
             self._notify(self.tr("Received a malformed NXM link."), "warning")
             return
@@ -11016,14 +11023,20 @@ def _apply_app_identity(app) -> None:
 def run() -> int:
     import sys
     from PySide6.QtWidgets import QApplication
-    from Nexus.nxm_handler import NxmIPC, NxmHandler
+    from Nexus.nxm_handler import NxmIPC, NxmHandler, nxm_log
+
+    # The browser-spawned handoff process has no GUI, so nxm_log's file sink
+    # (logs/nxm.log) is the only record of this launch — log it first thing.
+    if "--nxm" in sys.argv:
+        nxm_log(f"--nxm launch: argv={sys.argv[1:]}")
 
     # Register as the nxm:// handler on every launch (idempotent) so "Download
     # with Manager" on Nexus routes here.
     try:
         NxmHandler.register()
     except Exception:
-        pass
+        import traceback
+        nxm_log(f"NxmHandler.register() crashed:\n{traceback.format_exc()}")
 
     # Single-instance: if launched with --nxm and an instance is already
     # running, hand the link off over the IPC socket and exit — don't build a
@@ -11035,8 +11048,12 @@ def run() -> int:
             nxm_url = sys.argv[idx + 1]
         except (IndexError, ValueError):
             nxm_url = None
+            nxm_log("--nxm flag present but no URL argument followed it")
         if nxm_url and NxmIPC.send_to_running(nxm_url):
+            nxm_log("NXM link handed off to running instance — exiting")
             return 0
+        if nxm_url:
+            nxm_log("No running instance — continuing into full app launch")
 
     # Migrate/clean amethyst.ini BEFORE anything reads it (theme loader, GameState).
     # Wipes a pre-Qt ini (missing [meta] version=2) so everyone starts fresh.

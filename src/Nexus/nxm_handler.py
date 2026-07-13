@@ -43,6 +43,38 @@ from urllib.parse import parse_qs, urlparse
 
 from Utils.app_log import app_log
 
+# Max size of logs/nxm.log before it is rotated to nxm.log.old.
+_NXM_LOG_MAX_BYTES = 512_000
+
+
+def nxm_log(message: str) -> None:
+    """Log an NXM-flow message to the GUI panel AND to logs/nxm.log.
+
+    The browser-spawned ``--nxm`` handoff process has no GUI, so plain
+    app_log() calls made there vanish — the file is the only trace of why
+    a "Download with Manager" click did or didn't reach the running
+    instance. Timestamp + pid let the sender and receiver sides of one
+    click be correlated across the two processes.
+    """
+    app_log(message)
+    try:
+        from datetime import datetime
+
+        from Utils.config_paths import get_logs_dir
+
+        path = get_logs_dir() / "nxm.log"
+        try:
+            if path.stat().st_size > _NXM_LOG_MAX_BYTES:
+                path.replace(path.with_suffix(".log.old"))
+        except OSError:
+            pass
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"[{stamp}] [pid {os.getpid()}] {message}\n")
+    except Exception:
+        pass
+
+
 # Path for the Unix domain socket used for single-instance IPC.
 #
 # Resolved via _resolve_socket_path() so that every launch of the same app
@@ -339,9 +371,9 @@ class NxmHandler:
             try:
                 if path.exists():
                     path.unlink()
-                    app_log(f"Scrubbed stale NXM .desktop file: {path}")
+                    nxm_log(f"Scrubbed stale NXM .desktop file: {path}")
             except OSError as exc:
-                app_log(f"Could not scrub NXM .desktop {path}: {exc}")
+                nxm_log(f"Could not scrub NXM .desktop {path}: {exc}")
 
         # Strip the association from all mimeapps.list files (including
         # DE-specific ones like kde-mimeapps.list).  We remove *any* handler
@@ -433,9 +465,9 @@ class NxmHandler:
                 updated = cls._patch_mimeapps_content(existing)
                 if updated != existing:
                     path.write_text(updated, encoding="utf-8")
-                    app_log(f"Updated nxm:// association in {path}")
+                    nxm_log(f"Updated nxm:// association in {path}")
             except OSError as exc:
-                app_log(f"Could not update {path}: {exc}")
+                nxm_log(f"Could not update {path}: {exc}")
 
     @staticmethod
     def _patch_mimeapps_content(content: str) -> str:
@@ -520,7 +552,7 @@ class NxmHandler:
         if in_flatpak:
             if shutil.which("flatpak-spawn"):
                 return ["flatpak-spawn", "--host", "--directory=/", tool]
-            app_log(f"{tool}: flatpak-spawn unavailable — cannot reach host tool from sandbox")
+            nxm_log(f"{tool}: flatpak-spawn unavailable — cannot reach host tool from sandbox")
             return None
         if shutil.which(tool):
             return [tool]
@@ -548,11 +580,11 @@ class NxmHandler:
                 capture_output=True,
             )
             if in_flatpak and cls._is_host_tool_missing(result.returncode):
-                app_log("gio not installed on host — skipping gio mime registration")
+                nxm_log("gio not installed on host — skipping gio mime registration")
                 return
-            app_log("Registered nxm:// handler via gio mime")
+            nxm_log("Registered nxm:// handler via gio mime")
         except OSError as exc:
-            app_log(f"gio mime registration failed: {exc}")
+            nxm_log(f"gio mime registration failed: {exc}")
 
     @classmethod
     def _xdg_settings_register(cls, in_flatpak: bool) -> None:
@@ -573,11 +605,11 @@ class NxmHandler:
                 capture_output=True,
             )
             if in_flatpak and cls._is_host_tool_missing(result.returncode):
-                app_log("xdg-settings not installed on host — skipping registration")
+                nxm_log("xdg-settings not installed on host — skipping registration")
                 return
-            app_log("Registered nxm:// handler via xdg-settings")
+            nxm_log("Registered nxm:// handler via xdg-settings")
         except OSError as exc:
-            app_log(f"xdg-settings registration failed: {exc}")
+            nxm_log(f"xdg-settings registration failed: {exc}")
 
     @classmethod
     def _remove_mimeapps_association(cls, ours_only: bool = False) -> None:
@@ -604,9 +636,9 @@ class NxmHandler:
                 ]
                 if filtered != lines:
                     path.write_text("\n".join(filtered) + "\n")
-                    app_log(f"Removed nxm:// association from {path}")
+                    nxm_log(f"Removed nxm:// association from {path}")
             except OSError as exc:
-                app_log(f"Could not clean {path}: {exc}")
+                nxm_log(f"Could not clean {path}: {exc}")
 
     @classmethod
     def register(cls) -> bool:
@@ -639,7 +671,7 @@ class NxmHandler:
         )
 
         desktop_path.write_text(desktop_content, encoding="utf-8")
-        app_log(f"Wrote NXM .desktop file: {desktop_path}")
+        nxm_log(f"Wrote NXM .desktop file: {desktop_path} (Exec={exec_cmd})")
 
         # Also write to Flatpak exports dir so Flatpak-sandboxed browsers can
         # see the handler.  The dir may not exist if Flatpak isn't installed,
@@ -648,9 +680,9 @@ class NxmHandler:
         if flatpak_path.parent.exists():
             try:
                 flatpak_path.write_text(desktop_content, encoding="utf-8")
-                app_log(f"Wrote NXM .desktop file to Flatpak exports: {flatpak_path}")
+                nxm_log(f"Wrote NXM .desktop file to Flatpak exports: {flatpak_path}")
             except OSError as exc:
-                app_log(f"Could not write Flatpak .desktop file: {exc}")
+                nxm_log(f"Could not write Flatpak .desktop file: {exc}")
 
         # Register as default handler.
         # Inside a Flatpak sandbox xdg-mime is not available directly; use
@@ -658,7 +690,7 @@ class NxmHandler:
         in_flatpak = Path("/.flatpak-info").exists()
         xdg_mime_cmd = cls._host_cmd(in_flatpak, "xdg-mime")
         if xdg_mime_cmd is None:
-            app_log("xdg-mime not available — nxm:// handler not registered")
+            nxm_log("xdg-mime not available — nxm:// handler not registered")
             return False
 
         try:
@@ -669,14 +701,14 @@ class NxmHandler:
                 capture_output=True,
             )
             if in_flatpak and cls._is_host_tool_missing(result.returncode):
-                app_log("xdg-mime not installed on host — nxm:// handler not registered")
+                nxm_log("xdg-mime not installed on host — nxm:// handler not registered")
                 return False
             if result.returncode != 0:
-                app_log(f"xdg-mime default failed: {result.stderr.decode(errors='replace').strip()}")
+                nxm_log(f"xdg-mime default failed: {result.stderr.decode(errors='replace').strip()}")
                 return False
-            app_log("Registered nxm:// protocol handler via xdg-mime")
+            nxm_log("Registered nxm:// protocol handler via xdg-mime")
         except OSError as exc:
-            app_log(f"xdg-mime default failed: {exc}")
+            nxm_log(f"xdg-mime default failed: {exc}")
             return False
 
         # On some distros (e.g. CachyOS / minimal Arch setups without a full
@@ -706,17 +738,49 @@ class NxmHandler:
                     )
                     if in_flatpak and cls._is_host_tool_missing(result.returncode):
                         if not host_missing_logged:
-                            app_log("update-desktop-database not installed on host — desktop database not refreshed")
+                            nxm_log("update-desktop-database not installed on host — desktop database not refreshed")
                             host_missing_logged = True
                         continue
                     if result.returncode != 0:
-                        app_log(f"update-desktop-database failed for {db_dir}: {result.stderr.decode(errors='replace').strip()}")
+                        nxm_log(f"update-desktop-database failed for {db_dir}: {result.stderr.decode(errors='replace').strip()}")
                         continue
-                    app_log(f"Updated desktop database: {db_dir}")
+                    nxm_log(f"Updated desktop database: {db_dir}")
                 except OSError as exc:
-                    app_log(f"update-desktop-database failed for {db_dir}: {exc}")
+                    nxm_log(f"update-desktop-database failed for {db_dir}: {exc}")
 
+        cls._log_effective_handler(in_flatpak)
         return True
+
+    @classmethod
+    def _log_effective_handler(cls, in_flatpak: bool) -> None:
+        """Query what the system NOW resolves for nxm:// and log it.
+
+        Registration can 'succeed' while a DE-specific mimeapps.list or a
+        stale desktop cache still routes nxm:// elsewhere — this readback is
+        the ground truth for diagnosing 'button does nothing' reports.
+        """
+        base = cls._host_cmd(in_flatpak, "xdg-mime")
+        if base is None:
+            return
+        try:
+            result = subprocess.run(
+                [*base, "query", "default", "x-scheme-handler/nxm"],
+                check=False,
+                capture_output=True,
+                timeout=10,
+            )
+            effective = result.stdout.decode(errors="replace").strip()
+            if in_flatpak and cls._is_host_tool_missing(result.returncode):
+                return
+            if effective == _DESKTOP_FILE_NAME:
+                nxm_log(f"nxm:// handler verified: system resolves to {effective}")
+            else:
+                nxm_log(
+                    "nxm:// handler MISMATCH after registration: system "
+                    f"resolves to {effective!r}, expected {_DESKTOP_FILE_NAME!r}"
+                )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            nxm_log(f"xdg-mime query failed: {exc}")
 
     @classmethod
     def unregister(cls) -> None:
@@ -785,14 +849,14 @@ class NxmIPC:
                 sock.connect(str(path))
                 sock.sendall(payload)
                 sock.close()
-                app_log(f"Sent NXM link to running instance via {path}")
+                nxm_log(f"Sent NXM link to running instance via {path}")
                 return True
             except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
                 tried.append(f"{path} ({exc})")
                 # Stale socket — clean up so future launches don't retry it.
                 path.unlink(missing_ok=True)
 
-        app_log(
+        nxm_log(
             "NXM handoff: no running instance reachable "
             f"(FLATPAK_ID={os.environ.get('FLATPAK_ID', '')!r}, "
             f"XDG_RUNTIME_DIR={os.environ.get('XDG_RUNTIME_DIR', '')!r}) "
@@ -825,10 +889,10 @@ class NxmIPC:
                         msg = json.loads(data.decode("utf-8"))
                         url = msg.get("nxm_url", "")
                         if url:
-                            app_log(f"Received NXM link from new instance: {url}")
+                            nxm_log(f"Received NXM link from new instance: {url}")
                             callback(url)
                 except Exception as exc:
-                    app_log(f"Error handling IPC message: {exc}")
+                    nxm_log(f"Error handling IPC message: {exc}")
                 finally:
                     conn.close()
 
@@ -854,9 +918,9 @@ class NxmIPC:
                 cls._threads.append(t)
                 bound.append(str(path))
             except OSError as exc:
-                app_log(f"NXM IPC: could not bind {path}: {exc}")
+                nxm_log(f"NXM IPC: could not bind {path}: {exc}")
 
-        app_log(
+        nxm_log(
             f"NXM IPC server listening on {bound} "
             f"(FLATPAK_ID={os.environ.get('FLATPAK_ID', '')!r}, "
             f"XDG_RUNTIME_DIR={os.environ.get('XDG_RUNTIME_DIR', '')!r})"
