@@ -1,28 +1,9 @@
-"""Collection detail — a full detachable tab shown when the user clicks View on a
-collection card. Layout (per the user's sketch):
-
-  ┌───────────────────────────────────────────────────────────┐
-  │ {name}  by {author}   {summary}        Total size … | N mods│  header
-  ├──────────────────────────────┬────────────────────────────┤
-  │ MOD LIST (sortable table)    │ Optional mods (checklist)   │
-  │                              │                             │
-  ├──────────────────────────────┤                             │
-  │ Off-site mods (if any)       ├─────────────────────────────┤
-  │                              │ [Install]  [View on Nexus]  │
-  └──────────────────────────────┴────────────────────────────┘
-
-The mod list + optional flags come from the fast ``api.get_collection_detail``
-call. Off-site mods only exist in the collection manifest, so that is fetched
-LAZILY on a second worker (cache-first). Install is a stub this pass — it just
-captures/logs the selection. All data logic is in the neutral Nexus/ + Utils/
-layers; this file is Qt UI + threading only.
-"""
 
 from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QT_TRANSLATE_NOOP
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QSplitter, QScrollArea, QCheckBox, QComboBox, QTableWidget, QTableWidgetItem,
@@ -92,7 +73,14 @@ class _RevisionCombo(QComboBox):
             pass
 
 # Mod-list columns.
-_COLS = ["Name", "Author", "Version", "Size", "Opt"]
+# Translated at display time (setHorizontalHeaderLabels); register for lupdate.
+_COLS = [
+    QT_TRANSLATE_NOOP("CollectionDetailView", "Name"),
+    QT_TRANSLATE_NOOP("CollectionDetailView", "Author"),
+    QT_TRANSLATE_NOOP("CollectionDetailView", "Version"),
+    QT_TRANSLATE_NOOP("CollectionDetailView", "Size"),
+    QT_TRANSLATE_NOOP("CollectionDetailView", "Opt"),
+]
 _COL_SIZE = 3
 
 
@@ -250,7 +238,7 @@ class CollectionDetailView(QWidget):
 
         # (red) sortable mod table.
         self._table = QTableWidget(0, len(_COLS))
-        self._table.setHorizontalHeaderLabels(_COLS)
+        self._table.setHorizontalHeaderLabels([self.tr(c) for c in _COLS])
         self._table.setSortingEnabled(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -574,12 +562,12 @@ class CollectionDetailView(QWidget):
         for i, r in enumerate(revs):
             num = r.get("revisionNumber", "?")
             status = (r.get("revisionStatus") or "")
-            label = f"Rev {num}"
+            label = self.tr("Rev {0}").format(num)
             if status and status.lower() != "published":
-                label += f" ({status.lower()})"
+                label += " ({0})".format(status.lower())
             try:
                 if installed is not None and int(num) == int(installed):
-                    label += " (installed)"
+                    label += " " + self.tr("(installed)")
             except (TypeError, ValueError):
                 pass
             # Store the raw revision int as item data (avoids re-parsing).

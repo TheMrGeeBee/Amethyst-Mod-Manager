@@ -185,7 +185,7 @@ class ReShadeView(QWidget):
         arch_row = QWidget()
         ah = QHBoxLayout(arch_row); ah.setContentsMargins(0, 0, 0, 0); ah.setSpacing(20)
         self._arch_group = QButtonGroup(self)
-        for val, label in ((64, "64-bit"), (32, "32-bit")):
+        for val, label in ((64, self.tr("64-bit")), (32, self.tr("32-bit"))):
             rb = QRadioButton(label)
             rb.setChecked(val == self._reshade_arch)
             self._arch_group.addButton(rb, val)
@@ -278,7 +278,7 @@ class ReShadeView(QWidget):
     def _browse_preset(self):
         from Utils.portal_filechooser import pick_preset_file
         # Callback fires on the portal WORKER thread — marshal via Signal.
-        pick_preset_file("Select a ReShade preset (.ini)",
+        pick_preset_file(self.tr("Select a ReShade preset (.ini)"),
                          lambda path: safe_emit(self._preset_picked_sig, path))
 
     def _on_preset_picked(self, path):
@@ -340,7 +340,8 @@ class ReShadeView(QWidget):
         self._dl_bar.setVisible(True)
         self._dl_next_btn.setEnabled(False)
         self._dl_next_btn.setText(self.tr("Next →"))
-        safe_emit(self._dl_status_sig, "Downloading ReShade and shaders…", "")
+        safe_emit(self._dl_status_sig,
+                  self.tr("Downloading ReShade and shaders…"), "")
 
         arch = self._reshade_arch
         preset = self._preset_path
@@ -386,9 +387,10 @@ class ReShadeView(QWidget):
                 self._extracted_shaders = sh_res[0]
                 self._log(f"ReShade wizard: downloaded {self._extracted_dll.name} and shaders.")
 
-                ok_msg = "Downloaded ReShade and shaders successfully."
+                ok_msg = self.tr("Downloaded ReShade and shaders successfully.")
                 if preset is not None and wanted:
-                    safe_emit(self._dl_status_sig, "Trimming shaders to preset…", "")
+                    safe_emit(self._dl_status_sig,
+                              self.tr("Trimming shaders to preset…"), "")
                     self._preset_missing = prune_shaders_to_preset(
                         self._extracted_shaders, wanted)
                     kept = len(wanted) - len(self._preset_missing)
@@ -401,22 +403,26 @@ class ReShadeView(QWidget):
                         obsolete = sorted(
                             m for m in self._preset_missing
                             if m in OBSOLETE_PRESET_EFFECTS)
-                        lines = [f"Installed {kept} of {len(wanted)} preset effects."]
+                        lines = [self.tr("Installed {0} of {1} preset effects.")
+                                 .format(kept, len(wanted))]
                         if unavailable:
-                            lines.append("Missing (not in any pack): " + ", ".join(unavailable))
+                            lines.append(self.tr("Missing (not in any pack): {0}")
+                                         .format(", ".join(unavailable)))
                         if obsolete:
-                            lines.append("Skipped (renamed/removed upstream): "
-                                         + ", ".join(obsolete))
+                            lines.append(
+                                self.tr("Skipped (renamed/removed upstream): {0}")
+                                .format(", ".join(obsolete)))
                         ok_msg = "\n".join(lines)
                     else:
-                        ok_msg = f"Trimmed shaders to {kept} preset effect(s)."
+                        ok_msg = self.tr("Trimmed shaders to {0} preset effect(s).") \
+                            .format(kept)
                 safe_emit(self._dl_status_sig, ok_msg, ok_text())
                 safe_emit(self._dl_done_sig, True)
             except Exception as exc:
                 self._log(f"ReShade wizard: download failed: {exc}")
                 safe_emit(self._dl_status_sig,
-                    f"Download failed:\n{exc}\n\nCheck your internet connection "
-                    "and try again.", err_text())
+                    self.tr("Download failed:\n{0}\n\nCheck your internet connection "
+                    "and try again.").format(exc), err_text())
                 safe_emit(self._dl_done_sig, False)
 
         threading.Thread(target=worker, daemon=True, name="reshade-download").start()
@@ -503,7 +509,8 @@ class ReShadeView(QWidget):
                 ok = install_d3dcompiler_47(
                     game, log_fn=lambda m: safe_emit(self._d3d_status_sig, str(m), ""))
             except Exception as exc:
-                safe_emit(self._d3d_status_sig, f"Install error: {exc}", err_text())
+                safe_emit(self._d3d_status_sig,
+                          self.tr("Install error: {0}").format(exc), err_text())
             safe_emit(self._d3d_done_sig, bool(ok))
 
         threading.Thread(target=worker, daemon=True, name="reshade-d3d").start()
@@ -512,13 +519,14 @@ class ReShadeView(QWidget):
         self._d3d_btn.setEnabled(True)
         if ok:
             self._set_lbl(self._d3d_status,
-                          "d3dcompiler_47 installed successfully.\nClick Next to "
-                          "continue.", ok_text())
+                          self.tr("d3dcompiler_47 installed successfully.\nClick Next to "
+                          "continue."), ok_text())
             self._d3d_btn.setText(self.tr("Next →"))
             self._rewire(self._d3d_btn, self._enter_install)
         else:
             self._set_lbl(self._d3d_status,
-                          "Install failed — you can Skip and install it manually.",
+                          self.tr("Install failed — you can Skip and install it "
+                          "manually."),
                           err_text())
             self._d3d_btn.setText(self.tr("Retry"))
             self._rewire(self._d3d_btn, self._install_d3d)
@@ -544,9 +552,9 @@ class ReShadeView(QWidget):
         bv = QVBoxLayout(box); bv.setContentsMargins(12, 10, 12, 10); bv.setSpacing(4)
         bv.addWidget(self._field_label(self.tr("Install destination")))
         self._dest_group = QButtonGroup(self)
-        for val, label in (("game", "Game folder"),
-                           ("root_folder", "Root_Folder (staging)"),
-                           ("mod", "As a managed mod (root-flagged)")):
+        for val, label in (("game", self.tr("Game folder")),
+                           ("root_folder", self.tr("Root_Folder (staging)")),
+                           ("mod", self.tr("As a managed mod (root-flagged)"))):
             rb = QRadioButton(label)
             rb.setProperty("dest", val)
             if val == "game":
@@ -631,7 +639,8 @@ class ReShadeView(QWidget):
                 safe_emit(self._install_done_sig, True)
             except Exception as exc:
                 self._log(f"ReShade wizard error: {exc}")
-                safe_emit(self._install_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._install_status_sig,
+                          self.tr("Error: {0}").format(exc), err_text())
                 safe_emit(self._install_done_sig, False)
 
         threading.Thread(target=worker, daemon=True, name="reshade-install").start()

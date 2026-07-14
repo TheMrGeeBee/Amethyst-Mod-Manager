@@ -108,7 +108,7 @@ class DownloadLocationsOverlay(OverlayBase):
 
     def _add(self):
         from Utils.portal_filechooser import pick_folder
-        pick_folder("Add download folder",
+        pick_folder(self.tr("Add download folder"),
                     lambda path: self._folder_picked.emit(path))
 
     def _on_folder_picked(self, path):

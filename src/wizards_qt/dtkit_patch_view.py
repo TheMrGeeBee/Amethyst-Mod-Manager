@@ -49,7 +49,7 @@ class DtkitPatchView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Patch Game (dtkit-patch) — {game.name}")
+                         title=self.tr("Patch Game (dtkit-patch) — {0}").format(game.name))
         self._toggling = False
 
         self._toggle_line_sig.connect(self._guard(self._append_output))
@@ -145,7 +145,7 @@ class DtkitPatchView(WizardViewBase):
                     line_fn=lambda line: safe_emit(self._toggle_line_sig, line))
             except Exception as exc:  # noqa: BLE001 — surface, don't kill the tab
                 self._log(f"dtkit-patch wizard: run error: {exc}")
-                safe_emit(self._toggle_line_sig, f"Error: {exc}")
+                safe_emit(self._toggle_line_sig, self.tr("Error: {0}").format(exc))
                 ok = False
             safe_emit(self._toggle_done_sig, ok)
 

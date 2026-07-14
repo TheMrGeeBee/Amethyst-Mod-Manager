@@ -43,7 +43,7 @@ class SkyGenView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"SkyGen — Patch Generator — {game.name}")
+                         title=self.tr("SkyGen — Patch Generator — {0}").format(game.name))
         self._dna_map: dict = {}
         self._lo_map: dict = {}
         self._cancel = False
@@ -116,7 +116,8 @@ class SkyGenView(WizardViewBase):
             except Exception as exc:
                 import traceback
                 _wlog(f"scan error: {exc}\n{traceback.format_exc()}")
-                safe_emit(self._scan_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._scan_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
                 safe_emit(self._scan_done_sig, None)
 
         threading.Thread(target=worker, daemon=True, name="skygen-scan").start()
@@ -247,7 +248,8 @@ class SkyGenView(WizardViewBase):
             except Exception as exc:
                 import traceback
                 _wlog(f"generate error: {exc}\n{traceback.format_exc()}")
-                safe_emit(self._gen_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._gen_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
 
         threading.Thread(target=worker, daemon=True, name="skygen-gen").start()
 

@@ -12,10 +12,12 @@ cancels (Cancel / backdrop click).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QEvent
+import re
+
+from PySide6.QtCore import Qt, QEvent, QT_TRANSLATE_NOOP
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QFrame,
+    QPushButton, QFrame, QTextEdit,
 )
 
 from gui_qt.theme_qt import active_palette, _c
@@ -31,12 +33,56 @@ def _fmt_size_bytes(b: int) -> str:
     return f"{b}B"
 
 
+# Categories offered in the install picker (MAIN first … MISCELLANEOUS last).
+# UPDATE / OLD_VERSION are intentionally excluded — they are patches/superseded
+# archives, not standalone installs.
+_INSTALL_CATEGORIES = {"MAIN": 0, "OPTIONAL": 1, "MISCELLANEOUS": 2}
+# UI strings marked for extraction with QT_TRANSLATE_NOOP (module-level, so no
+# tr() context is available here); translated at the use site via self.tr().
+_CATEGORY_LABEL = {"MAIN": QT_TRANSLATE_NOOP("NexusFileChooser", "Main"),
+                   "OPTIONAL": QT_TRANSLATE_NOOP("NexusFileChooser", "Optional"),
+                   "MISCELLANEOUS": QT_TRANSLATE_NOOP("NexusFileChooser", "Misc")}
+# Section headers shown as separator rows (grouped in category order).
+_CATEGORY_HEADER = {"MAIN": QT_TRANSLATE_NOOP("NexusFileChooser", "Main files"),
+                    "OPTIONAL": QT_TRANSLATE_NOOP("NexusFileChooser", "Optional files"),
+                    "MISCELLANEOUS": QT_TRANSLATE_NOOP("NexusFileChooser", "Miscellaneous files")}
+
+# Marks a non-selectable section-header row (vs a real file row).
+_HEADER_ROLE = Qt.UserRole + 1
+
+
+def _plain_text(html_or_bbcode: str) -> str:
+    """Reduce a Nexus file description (HTML and/or BBCode) to readable plain
+    text — the pane shows text only, so strip markup rather than render it."""
+    s = html_or_bbcode or ""
+    s = s.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    s = re.sub(r"<[^>]+>", "", s)                 # HTML tags
+    s = re.sub(r"\[/?[^\]]+\]", "", s)            # BBCode tags
+    s = (s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+          .replace("&quot;", '"').replace("&#39;", "'").replace("&nbsp;", " "))
+    s = re.sub(r"\n{3,}", "\n\n", s)              # collapse blank runs
+    return s.strip()
+
+
+def installable_files(files: list) -> list:
+    """Files to offer for install: MAIN + OPTIONAL + MISCELLANEOUS, sorted by
+    category (main first) then newest-first. Falls back to every file when the
+    mod exposes none of those categories (e.g. odd/empty category metadata)."""
+    picks = [f for f in files
+             if (f.category_name or "").upper() in _INSTALL_CATEGORIES]
+    picks = picks or list(files)
+    picks.sort(key=lambda f: (
+        _INSTALL_CATEGORIES.get((f.category_name or "").upper(), 9),
+        -(getattr(f, "uploaded_timestamp", 0) or 0)))
+    return picks
+
+
 class NexusFileChooser(QWidget):
     """A dimmed, click-absorbing backdrop with a centered card. Lives inside the
     host widget (no separate top-level window)."""
 
     CARD_W = 560
-    CARD_H = 440
+    CARD_H = 560
 
     def __init__(self, host: QWidget, mod_name: str, files: list, on_pick):
         super().__init__(host)
@@ -63,7 +109,7 @@ class NexusFileChooser(QWidget):
         v.setContentsMargins(16, 14, 16, 14)
         v.setSpacing(8)
 
-        hdr = QLabel(self.tr("'{0}' has multiple main files.").format(mod_name))
+        hdr = QLabel(self.tr("'{0}' has multiple files.").format(mod_name))
         hdr.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:16px;")
         hdr.setWordWrap(True)
@@ -81,7 +127,13 @@ class NexusFileChooser(QWidget):
             f" border-bottom:1px solid {_c(p,'BORDER')}; }}"
             f"QListWidget::item:selected {{ background:{_c(p,'BG_SELECT')};"
             f" color:{_c(p,'TEXT_ON_ACCENT')}; }}")
+        last_cat = None
         for f in files:
+            up = (f.category_name or "").upper()
+            if up != last_cat:
+                last_cat = up
+                self._add_header(
+                    self.tr(_CATEGORY_HEADER.get(up, _CATEGORY_LABEL.get(up, up))), p)
             name = f.name or f.file_name or f"File {f.file_id}"
             size = (f.size_in_bytes or 0) or (f.size_kb * 1024 if f.size_kb else 0)
             bits = []
@@ -94,9 +146,21 @@ class NexusFileChooser(QWidget):
             item = QListWidgetItem(f"{name}\n{detail}" if detail else name)
             item.setData(Qt.UserRole, f)
             self._list.addItem(item)
-        self._list.setCurrentRow(0)
         self._list.itemDoubleClicked.connect(lambda _i: self._pick())
+        self._list.currentItemChanged.connect(self._on_row_changed)
         v.addWidget(self._list, 1)
+
+        # Description of the selected file (plain text; may be empty).
+        self._desc = QTextEdit()
+        self._desc.setReadOnly(True)
+        self._desc.setFixedHeight(110)
+        self._desc.setStyleSheet(
+            f"QTextEdit {{ font-size:13px; background:{_c(p,'BG_LIST')};"
+            f" color:{_c(p,'TEXT_DIM')}; border:1px solid {_c(p,'BORDER')};"
+            f" border-radius:6px; padding:6px; }}")
+        v.addWidget(self._desc)
+
+        self._select_first_file()
 
         bar = QHBoxLayout()
         bar.addStretch(1)
@@ -124,6 +188,38 @@ class NexusFileChooser(QWidget):
         return cls(top or host, mod_name, files, on_pick)
 
     # -- internals ----------------------------------------------------------
+    def _add_header(self, text: str, p):
+        """Append a non-selectable section-header row.
+
+        The row text is drawn by a QLabel via setItemWidget rather than the
+        item's own text — the QListWidget::item stylesheet hard-sets `color`,
+        which overrides QListWidgetItem.setForeground, so an item-level colour
+        would be ignored. A child QLabel is styled independently."""
+        item = QListWidgetItem("")
+        item.setData(_HEADER_ROLE, True)
+        item.setFlags(Qt.NoItemFlags)              # not selectable / not focusable
+        self._list.addItem(item)
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"color:{_c(p,'TONE_GREEN')}; font-weight:700; font-size:13px;"
+            f" padding:2px 4px; background:transparent;")
+        self._list.setItemWidget(item, lbl)
+
+    def _is_header(self, item) -> bool:
+        return item is not None and bool(item.data(_HEADER_ROLE))
+
+    def _select_first_file(self):
+        for i in range(self._list.count()):
+            if not self._is_header(self._list.item(i)):
+                self._list.setCurrentRow(i)
+                return
+
+    def _on_row_changed(self, cur, _prev):
+        """Update the description pane for the selected file row."""
+        f = cur.data(Qt.UserRole) if (cur is not None and not self._is_header(cur)) else None
+        text = _plain_text(getattr(f, "description", "")) if f is not None else ""
+        self._desc.setPlainText(text or self.tr("No description provided."))
+
     def _reposition(self):
         self.setGeometry(self._host.rect())
         w = min(self.CARD_W, self._host.width() - 40)
@@ -134,6 +230,8 @@ class NexusFileChooser(QWidget):
 
     def _pick(self):
         item = self._list.currentItem()
+        if self._is_header(item):
+            return                                 # ignore section-header rows
         self._finish(item.data(Qt.UserRole) if item is not None else None)
 
     def _finish(self, result):

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
+from PySide6.QtCore import (
+    Qt, QAbstractTableModel, QModelIndex, QT_TRANSLATE_NOOP)
 
 from Utils.downloads_core import DownloadEntry, InstalledIndex
 
@@ -23,7 +24,11 @@ COL_CHECK = 0
 COL_NAME = 1
 COL_SIZE = 2
 COL_INSTALL = 3
-COLUMNS = ["", "Name", "Size", ""]
+# Translated at display time in headerData; register literals for lupdate.
+COLUMNS = ["",
+           QT_TRANSLATE_NOOP("DownloadsModel", "Name"),
+           QT_TRANSLATE_NOOP("DownloadsModel", "Size"),
+           ""]
 
 EntryRole = Qt.UserRole + 1
 InstalledRole = Qt.UserRole + 2   # bool: archive already installed
@@ -144,7 +149,7 @@ class DownloadsModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            return self.tr(COLUMNS[section]) if COLUMNS[section] else ""
         return None
 
     def flags(self, index):

@@ -42,7 +42,7 @@ class SynthesisView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run Synthesis — {game.name}")
+                         title=self.tr("Run Synthesis — {0}").format(game.name))
         self._selected_proton: Path | None = None
         self._proton_candidates: list[Path] = []
         self._plugins_links: list[Path] = []
@@ -94,16 +94,18 @@ class SynthesisView(WizardViewBase):
                     pct = min(100, block_num * block_size * 100 / total_size)
                     safe_emit(self._dl_progress_sig, int(pct))
             safe_emit(self._dl_status_sig,
-                      "Fetching latest release from GitHub …", "")
+                      self.tr("Fetching latest release from GitHub …"), "")
             tag = download_and_extract_synthesis(
                 self._game, reporthook=hook, log_fn=self._log)
             safe_emit(self._dl_progress_sig, 100)
-            safe_emit(self._dl_status_sig, f"Installed Synthesis {tag}.", GREEN)
+            safe_emit(self._dl_status_sig,
+                      self.tr("Installed Synthesis {0}.").format(tag), GREEN)
             safe_emit(self._dl_done_sig)
         except Exception as exc:
             self._log(f"Synthesis: download error: {exc}")
             safe_emit(self._dl_progress_sig, -1)
-            safe_emit(self._dl_status_sig, f"Download failed: {exc}", RED)
+            safe_emit(self._dl_status_sig,
+                      self.tr("Download failed: {0}").format(exc), RED)
 
     # ---- page 2: proton ---------------------------------------------------------
     def _build_proton_page(self) -> QWidget:
@@ -204,17 +206,19 @@ class SynthesisView(WizardViewBase):
         )
         game_path = self._game.get_game_path()
         if game_path is None:
-            self._setup_log_line("Game path is not configured; aborting.")
-            safe_emit(self._setup_status_sig, "Game path not configured.", RED)
+            self._setup_log_line(self.tr("Game path is not configured; aborting."))
+            safe_emit(self._setup_status_sig,
+                      self.tr("Game path not configured."), RED)
             return
         if self._selected_proton is None:
-            self._setup_log_line("No Proton selected; aborting.")
+            self._setup_log_line(self.tr("No Proton selected; aborting."))
             return
 
         sdir = synthesis_dir(self._game)
-        self._setup_log_line(f"Synthesis dir: {sdir}")
-        self._setup_log_line(f"Proton: {self._selected_proton.parent.name}")
-        self._setup_log_line(f"Game path: {game_path}")
+        self._setup_log_line(self.tr("Synthesis dir: {0}").format(sdir))
+        self._setup_log_line(
+            self.tr("Proton: {0}").format(self._selected_proton.parent.name))
+        self._setup_log_line(self.tr("Game path: {0}").format(game_path))
         self._setup_log_line("")
 
         try:
@@ -229,15 +233,15 @@ class SynthesisView(WizardViewBase):
                     "Skyrim Special Edition"),
             )
         except Exception as exc:
-            self._setup_log_line(f"Prefix setup raised: {exc}")
+            self._setup_log_line(self.tr("Prefix setup raised: {0}").format(exc))
             ok = False
 
         if ok:
             safe_emit(self._setup_status_sig,
-                      "Prefix ready. Click Launch Synthesis.", GREEN)
+                      self.tr("Prefix ready. Click Launch Synthesis."), GREEN)
         else:
             safe_emit(self._setup_status_sig,
-                      "Setup completed with errors — launch may still work.",
+                      self.tr("Setup completed with errors — launch may still work."),
                       _AMBER)
         safe_emit(self._setup_done_sig)
 

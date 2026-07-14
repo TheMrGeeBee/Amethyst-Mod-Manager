@@ -35,7 +35,7 @@ class SmapiView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Install SMAPI — {game.name}")
+                         title=self.tr("Install SMAPI — {0}").format(game.name))
 
         self._dl_status_sig.connect(self._guard(
             lambda t, c: self._set_status(self._dl_status, t, c)))
@@ -100,11 +100,12 @@ class SmapiView(WizardViewBase):
         from Utils.wizard_archives import get_downloads_dir
         try:
             safe_emit(self._dl_status_sig,
-                      "Fetching latest SMAPI release from GitHub…", "")
+                      self.tr("Fetching latest SMAPI release from GitHub…"), "")
             tag, url = fetch_latest_smapi_asset()
             filename = url.split("/")[-1]
             dest = get_downloads_dir() / filename
-            safe_emit(self._dl_status_sig, f"Downloading SMAPI {tag}…", "")
+            safe_emit(self._dl_status_sig,
+                      self.tr("Downloading SMAPI {0}…").format(tag), "")
             self._log(f"SMAPI Wizard: downloading {url} → {dest}")
 
             def hook(block_num, block_size, total_size):
@@ -117,19 +118,21 @@ class SmapiView(WizardViewBase):
             self._archive_path = dest
             self._log(f"SMAPI Wizard: downloaded {filename}")
             safe_emit(self._dl_status_sig,
-                      f"Downloaded SMAPI {tag}: {filename}", GREEN)
+                      self.tr("Downloaded SMAPI {0}: {1}").format(tag, filename),
+                      GREEN)
             safe_emit(self._dl_next_sig)
         except Exception as exc:
             self._log(f"SMAPI Wizard: download error: {exc}")
             safe_emit(self._dl_progress_sig, -1)
             safe_emit(self._dl_status_sig,
-                      f"Download failed: {exc}\n\n"
-                      "Use Browse to select a manually downloaded archive.", RED)
+                      self.tr("Download failed: {0}\n\n"
+                      "Use Browse to select a manually downloaded archive.")
+                      .format(exc), RED)
             safe_emit(self._dl_next_sig)
 
     def _browse_smapi(self):
         from Utils.portal_filechooser import pick_file
-        pick_file("Select the SMAPI archive",
+        pick_file(self.tr("Select the SMAPI archive"),
                   lambda p: safe_emit(self._picked_sig, p))
 
     def _on_smapi_picked(self, path):
@@ -160,16 +163,17 @@ class SmapiView(WizardViewBase):
         from Utils.smapi_installer import run_smapi_installer
         try:
             safe_emit(self._install_status_sig,
-                      "Launching the SMAPI installer in a terminal.\n\n"
+                      self.tr("Launching the SMAPI installer in a terminal.\n\n"
                       "Follow the on-screen prompts, then press a key to close "
-                      "the terminal and click Done here.", "")
+                      "the terminal and click Done here."), "")
             run_smapi_installer(self._archive_path, log_fn=self._log)
             safe_emit(self._install_status_sig,
-                      "SMAPI installer finished.\n\n"
+                      self.tr("SMAPI installer finished.\n\n"
                       "If it completed successfully, SMAPI is now installed.\n"
-                      "Click Done to close.", GREEN)
+                      "Click Done to close."), GREEN)
         except Exception as exc:
-            safe_emit(self._install_status_sig, f"Error: {exc}", RED)
+            safe_emit(self._install_status_sig,
+                      self.tr("Error: {0}").format(exc), RED)
             self._log(f"SMAPI Wizard error: {exc}")
         finally:
             safe_emit(self._install_done_sig)

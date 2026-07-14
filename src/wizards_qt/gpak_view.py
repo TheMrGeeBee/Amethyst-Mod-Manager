@@ -34,7 +34,7 @@ class GpakView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"GPAK tools — {game.name}")
+                         title=self.tr("GPAK tools — {0}").format(game.name))
         self._game_root = game.get_game_path()
         self._running = False
 
@@ -104,21 +104,23 @@ class GpakView(WizardViewBase):
         resources = self._game_root / _RESOURCES_GPAK
         unpack_dir = self._game_root / _UNPACKED_DIR
         if not resources.is_file():
-            self._append_log(f"'{_RESOURCES_GPAK}' not found in game root.")
+            self._append_log(
+                self.tr("'{0}' not found in game root.").format(_RESOURCES_GPAK))
             return
         self._set_running(True)
-        self._append_log("Unpacking resources.gpak…")
+        self._append_log(self.tr("Unpacking resources.gpak…"))
 
         def worker():
             try:
                 from gpak import extract_gpak
                 if unpack_dir.exists():
-                    safe_emit(self._log_sig, "Removing previous Unpacked folder…")
+                    safe_emit(self._log_sig,
+                              self.tr("Removing previous Unpacked folder…"))
                     shutil.rmtree(unpack_dir)
                 extract_gpak(resources, unpack_dir, try_zlib=True)
-                safe_emit(self._log_sig, "Unpack complete.")
+                safe_emit(self._log_sig, self.tr("Unpack complete."))
             except Exception as exc:
-                safe_emit(self._log_sig, f"Error: {exc}")
+                safe_emit(self._log_sig, self.tr("Error: {0}").format(exc))
             finally:
                 safe_emit(self._running_sig, False)
 
@@ -130,18 +132,19 @@ class GpakView(WizardViewBase):
         unpack_dir = self._game_root / _UNPACKED_DIR
         resources = self._game_root / _RESOURCES_GPAK
         if not unpack_dir.is_dir():
-            self._append_log(f"'{_UNPACKED_DIR}' folder not found. Unpack first.")
+            self._append_log(
+                self.tr("'{0}' folder not found. Unpack first.").format(_UNPACKED_DIR))
             return
         self._set_running(True)
-        self._append_log("Repacking to resources.gpak…")
+        self._append_log(self.tr("Repacking to resources.gpak…"))
 
         def worker():
             try:
                 from gpak import pack_gpak
                 pack_gpak(unpack_dir, resources, compress=False)
-                safe_emit(self._log_sig, "Repack complete.")
+                safe_emit(self._log_sig, self.tr("Repack complete."))
             except Exception as exc:
-                safe_emit(self._log_sig, f"Error: {exc}")
+                safe_emit(self._log_sig, self.tr("Error: {0}").format(exc))
             finally:
                 safe_emit(self._running_sig, False)
 

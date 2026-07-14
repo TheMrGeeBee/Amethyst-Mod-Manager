@@ -310,21 +310,27 @@ def check_for_updates(
     gql_ids = [(game_domain, mod_id) for mod_id in by_mod_id]
     gql_info: dict[int, NexusModUpdateInfo] = api.graphql_mod_update_info_batch(gql_ids)
 
-    # Backfill meta.description from the GraphQL summary whenever it differs
-    # (or was empty). Free — same batch call already fetched the data.
+    # Backfill meta.description / meta.uploaded_by from the GraphQL data
+    # whenever they differ (or were empty). Free — same batch call already
+    # fetched the data.
     if save_results:
         desc_updated = 0
         for mod_id, info in gql_info.items():
             summary = (info.summary or "").strip()
-            if not summary:
-                continue
+            uploader = (getattr(info, "uploaded_by", "") or "").strip()
             for meta in by_mod_id.get(mod_id, []):
-                if meta.description != summary:
+                changed = False
+                if summary and meta.description != summary:
                     meta.description = summary
+                    changed = True
+                if uploader and meta.uploaded_by != uploader:
+                    meta.uploaded_by = uploader
+                    changed = True
+                if changed:
                     write_meta(staging_root / meta.mod_name / "meta.ini", meta)
                     desc_updated += 1
         if desc_updated:
-            _log(f"  Description backfilled for {desc_updated} mod(s).")
+            _log(f"  Description/uploader backfilled for {desc_updated} mod(s).")
 
     # -------------------------------------------------------------------
     # Fetch per-mod file lists via GraphQL (rate-limit-free) for any mod

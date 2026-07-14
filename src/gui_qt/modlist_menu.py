@@ -199,8 +199,10 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         _nexus_multi = [nm for nm in _names if _has_nexus_page(view, nm)]
         _reqs_multi = [nm for nm in _names if _has_missing_reqs(view, nm)]
         _qu = [nm for nm in _names if _has_update_flag(view, nm)]
+        # Reinstall: archive on disk OR redownloadable from Nexus (mod/file id).
         _reinstall_multi = [nm for nm in _names
-                            if _installation_archive(view, nm) is not None]
+                            if _installation_archive(view, nm) is not None
+                            or _can_redownload(view, nm)]
         if _abstain_multi:
             act(_mtf("Abstain selected ({0})", len(_abstain_multi)),
                 lambda ns=_abstain_multi: _endorse(view, ns, False))
@@ -263,11 +265,15 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         act(_mt("Bundle options…"), lambda: _open_bundle(view, name))
     if _staging_ok:
         act(_mt("Create empty mod below"), lambda: _create_empty_mod(view, model, row))
-    # Reinstall Mod — shown only when the install archive is still on disk
-    # (Tk: ctx_meta present + _find_installation_archive). Reinstalls from the
-    # recorded archive into the same folder (silent Replace-All).
+    # Reinstall Mod — from the recorded archive when it's still on disk (Tk:
+    # ctx_meta present + _find_installation_archive), reinstalling into the same
+    # folder (silent Replace-All). When the archive is gone but the mod carries
+    # a Nexus mod/file id, offer 'Reinstall (Redownload)' instead — the handler
+    # redownloads from Nexus (premium) or opens the files page (non-premium).
     if _installation_archive(view, name) is not None:
         act(_mt("Reinstall Mod"), lambda: _reinstall(view, [name]))
+    elif _can_redownload(view, name):
+        act(_mt("Reinstall (Redownload)"), lambda: _reinstall(view, [name]))
     act(_mt("Rename mod"), lambda: _rename(view, model, row), enabled=not locked)
     divider()
     # Group 2: files & install options
@@ -670,6 +676,27 @@ def _installation_archive(view, name: str):
     return None
 
 
+def _can_redownload(view, name: str) -> bool:
+    """True if the mod carries a Nexus mod id + file id (and a resolvable game
+    domain) in its meta.ini, so its install archive can be redownloaded from
+    Nexus even when the on-disk archive is gone. Gates the 'Reinstall
+    (Redownload)' menu item (the handler premium-gates / falls back to the
+    browser)."""
+    meta = _read_mod_meta(view, name)
+    if meta is None:
+        return False
+    if int(getattr(meta, "mod_id", 0) or 0) <= 0:
+        return False
+    if int(getattr(meta, "file_id", 0) or 0) <= 0:
+        return False
+    from Nexus.nexus_meta import normalise_game_domain
+    domain = normalise_game_domain(getattr(meta, "game_domain", "") or "")
+    if not domain:
+        game = getattr(view, "game", None)
+        domain = getattr(game, "nexus_game_domain", "") or ""
+    return bool(domain)
+
+
 # ---- Root Folder install toggle -------------------------------------------
 def _is_root_folder(view, name) -> bool:
     m = _read_mod_meta(view, name)
@@ -841,8 +868,12 @@ def _sort_selected_alphabetically(view, model, mod_rows):
     # bottom of the selection. Only conflict-free mods are sorted A→Z.
     conflicted = [e for e in sel if model.loose_conflict_code(e.name)]
     sortable = [e for e in sel if not model.loose_conflict_code(e.name)]
-    sorted_entries = (sorted(sortable, key=lambda e: e.display_name.casefold())
-                      + conflicted)
+    key_fn = lambda e: e.display_name.casefold()
+    if model.reverse_mode_active:
+        sorted_entries = (list(reversed(conflicted))
+                          + sorted(sortable, key=key_fn, reverse=True))
+    else:
+        sorted_entries = sorted(sortable, key=key_fn) + conflicted
     # Rebuild the body from the NATURAL order (the display may be a sorted
     # permutation); at each selected slot drop in the next sorted entry.
     # set_entries re-appends boundaries.
@@ -911,13 +942,13 @@ def _create_empty_mod_prompt(view, model, insert):
                 f"[General]\ninstalled={installed}\n", encoding="utf-8")
         except OSError as exc:
             ConfirmOverlay.show_message(
-                view, "Create empty mod",
-                f"Could not create the mod folder:\n{exc}")
+                view, _mt("Create empty mod"),
+                _mtf("Could not create the mod folder:\n{0}", exc))
             return
         insert(name)
 
-    TextInputOverlay.show_over(view, "Create empty mod", "Mod name:", _named,
-                               ok_label="Create")
+    TextInputOverlay.show_over(view, _mt("Create empty mod"), _mt("Mod name:"),
+                               _named, ok_label=_mt("Create"))
 
 
 def _show_overwrite_log(view, boundary_name=None):
@@ -981,8 +1012,8 @@ def _rename(view, model, row):
         if callable(cb):
             cb(e.name, new.strip())
 
-    TextInputOverlay.show_over(view, "Rename", "New name:", _named,
-                               initial=e.display_name, ok_label="Rename")
+    TextInputOverlay.show_over(view, _mt("Rename"), _mt("New name:"), _named,
+                               initial=e.display_name, ok_label=_mt("Rename"))
 
 
 def _set_priority(view, model, row):
@@ -996,7 +1027,8 @@ def _set_priority(view, model, row):
         model.set_priority(row, max(0, min(99999, val)))
 
     from PySide6.QtGui import QIntValidator
-    TextInputOverlay.show_over(view, "Set priority", f"Priority for {cur}:",
+    TextInputOverlay.show_over(view, _mt("Set priority"),
+                               _mtf("Priority for {0}:", cur),
                                _picked, initial="0",
                                validator=QIntValidator(0, 99999))
 
@@ -1006,8 +1038,8 @@ def _add_separator(view, model, row, above):
         if name and name.strip():
             model.add_separator(row, name.strip(), above)
 
-    TextInputOverlay.show_over(view, "Add separator", "Separator name:",
-                               _named, ok_label="Add")
+    TextInputOverlay.show_over(view, _mt("Add separator"),
+                               _mt("Separator name:"), _named, ok_label=_mt("Add"))
 
 
 def _notify_mods_removed(view):
@@ -1176,6 +1208,8 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Abstain selected ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Add note"),
     QT_TRANSLATE_NOOP("ModListMenu", "Add note ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Add"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Add separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Add separator above"),
     QT_TRANSLATE_NOOP("ModListMenu", "Add separator below"),
     QT_TRANSLATE_NOOP("ModListMenu", "Bundle options…"),
@@ -1184,7 +1218,10 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Check Updates ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Copy to profile"),
     QT_TRANSLATE_NOOP("ModListMenu", "Copy to profile ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Could not create the mod folder:\n{0}"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Create"),
     QT_TRANSLATE_NOOP("ModListMenu", "Create an empty mod below"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Create empty mod"),
     QT_TRANSLATE_NOOP("ModListMenu", "Create empty mod below"),
     QT_TRANSLATE_NOOP("ModListMenu", "Disable Root Folder install"),
     QT_TRANSLATE_NOOP("ModListMenu", "Disable Root Folder install ({0})"),
@@ -1200,10 +1237,12 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Log"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Mod name:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to profile"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to profile ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to separator ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "New name:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Open folder"),
     QT_TRANSLATE_NOOP("ModListMenu", "Open on Nexus"),
     QT_TRANSLATE_NOOP("ModListMenu", "Open on Nexus ({0})"),
@@ -1211,16 +1250,21 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Quick Update"),
     QT_TRANSLATE_NOOP("ModListMenu", "Quick Update ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Reinstall ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Reinstall (Redownload)"),
     QT_TRANSLATE_NOOP("ModListMenu", "Reinstall Mod"),
     QT_TRANSLATE_NOOP("ModListMenu", "Remove mod"),
     QT_TRANSLATE_NOOP("ModListMenu", "Remove mod ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Remove note ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Remove separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Remove separators ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Rename"),
     QT_TRANSLATE_NOOP("ModListMenu", "Rename mod"),
     QT_TRANSLATE_NOOP("ModListMenu", "Rename separator"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Separator name:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Separator settings…"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Set priority"),
     QT_TRANSLATE_NOOP("ModListMenu", "Set priority…"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Priority for {0}:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Show Conflicts"),
     QT_TRANSLATE_NOOP("ModListMenu", "Sort Alphabetically ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Unlock Separator"),

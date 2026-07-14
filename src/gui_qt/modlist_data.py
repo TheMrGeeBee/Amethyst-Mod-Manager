@@ -68,6 +68,7 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
     bain               -> set of mod names installed via BAIN (meta.is_bain)
     missing_reqs       -> set of mod names with un-ignored missing requirements
     descriptions[name] -> Nexus summary text for the name-column hover tooltip
+    authors[name]      -> Nexus uploader username (Author column, "" if none)
 
     *ignored_reqs* — requirement names the user has dismissed (per-profile); a
     mod is only flagged if it still has missing requirements outside this set.
@@ -83,6 +84,7 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
     bain: set[str] = set()
     missing_reqs: set[str] = set()
     descriptions: dict[str, str] = {}
+    authors: dict[str, str] = {}
     # Requirement resolution is a two-pass job (Tk parity): collect every
     # installed Nexus mod_id first, then flag a mod only for requirement ids
     # that aren't present. Keyed on id, not name, so locally-seeded id-only
@@ -94,7 +96,7 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
         from Nexus.nexus_meta import read_meta
     except Exception:
         return (versions, installed, flags, categories, updates, fomod, bain,
-                missing_reqs, descriptions)
+                missing_reqs, descriptions, authors)
 
     # Per-profile user notes (Note flag) — one read for the whole list.
     notes: dict[str, str] = {}
@@ -135,6 +137,10 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
         desc = (getattr(meta, "description", "") or "").strip()
         if desc:
             descriptions[e.name] = desc
+
+        uploader = (getattr(meta, "uploaded_by", "") or "").strip()
+        if uploader:
+            authors[e.name] = uploader
 
         if getattr(meta, "is_fomod", False):
             fomod.add(e.name)
@@ -202,7 +208,7 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
             flags[name] = flags.get(name, 0) | FLAG_MISSING_REQS
 
     return (versions, installed, flags, categories, updates, fomod, bain,
-            missing_reqs, descriptions)
+            missing_reqs, descriptions, authors)
 
 
 # ---- mod folder sizes (Size column) — ported from gui/modlist_panel.py --------

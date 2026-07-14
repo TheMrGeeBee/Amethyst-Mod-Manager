@@ -6,7 +6,9 @@ Layout mirrors the user's sketch:
 
   * TOP  — aggregate download bar + "X / Y GB (nn%) — S MB/s".
   * RED  — "Downloading" list: a FIXED POOL of rows (name + thin bar), reused.
-  * GREEN— "Installing / Extracting" list: a single text panel (active + queued).
+  * GREEN— "Installing / Extracting" list: a FIXED POOL of rows (name + thin
+           bar, real extraction %) for active installs + one text label for
+           overflow-active and queued names.
   * BLUE — Pause + Cancel buttons.
 
 IMPORTANT — why no per-mod widget creation: creating a QWidget/QLabel and only
@@ -37,6 +39,10 @@ _GREEN_TONE = "#5fb35f"
 
 # Fixed number of visible download rows (matches the Tk overlay's 8 slots).
 _DL_SLOTS = 8
+
+# Fixed number of extraction rows with a progress bar (matches the orchestrator's
+# max_extract_workers default of 4; extras overflow into the text label).
+_EX_SLOTS = 4
 
 # Fixed width of each of the two side panels. Card is CARD_W (720) wide, with
 # 16px outer margins each side and 10px spacing between the panels, so each
@@ -108,8 +114,9 @@ class CollectionInstallOverlay(QWidget):
         self._on_pause = on_pause
         self._on_cancel = on_cancel
         self._p = active_palette()
-        # file_id → pool-slot index (RED). Queue/active names (GREEN) are text.
+        # file_id → pool-slot index (RED and GREEN; -1 = overflow, no bar row).
         self._dl_slot_of: dict[int, int] = {}
+        self._ex_slot_of: dict[int, int] = {}
         self._extract_active: dict[int, str] = {}
         self._extract_queued: dict[int, str] = {}
         self._finished = False
@@ -196,8 +203,14 @@ class CollectionInstallOverlay(QWidget):
         dl_v.addWidget(self._dl_overflow)
         dl_v.addStretch(1)
 
-        # GREEN — ONE text label (no per-mod widgets).
+        # GREEN — a FIXED pool of bar rows for active extractions (same widget as
+        # the download rows) + ONE text label for overflow-active/queued names.
         ex_frame, ex_v = self._panel(self.tr("Installing / Extracting"), _GREEN_TONE)
+        self._ex_rows: list[_DownloadRow] = []
+        for _ in range(_EX_SLOTS):
+            row = _DownloadRow(ex_frame)
+            self._ex_rows.append(row)
+            ex_v.addWidget(row)
         self._ex_label = QLabel("", ex_frame)
         self._ex_label.setTextFormat(Qt.RichText)
         self._ex_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -298,7 +311,8 @@ class CollectionInstallOverlay(QWidget):
         extra = sum(1 for v in self._dl_slot_of.values() if v == -1)
         self._dl_overflow.setText(self.tr("+ {0} more downloading…").format(extra) if extra else "")
 
-    # GREEN — rebuild ONE label's text (no widgets).
+    # GREEN — assign a pool slot per active extraction; overflow-active and
+    # queued names go in the text label (no widget creation).
     def extract_queue(self, file_id: int, name: str):
         self._extract_queued[file_id] = name
         self._render_extract()
@@ -306,11 +320,35 @@ class CollectionInstallOverlay(QWidget):
     def extract_add(self, file_id: int, name: str):
         self._extract_queued.pop(file_id, None)
         self._extract_active[file_id] = name
+        if file_id not in self._ex_slot_of:
+            free = next((i for i in range(_EX_SLOTS)
+                         if i not in self._ex_slot_of.values()), None)
+            self._ex_slot_of[file_id] = -1 if free is None else free
+            if free is not None:
+                self._ex_rows[free].assign(name)
+                # Busy until the first real percent (fallback extractors and the
+                # copy/index phases report no numbers).
+                self._ex_rows[free].set_progress(0, 0)
         self._render_extract()
+
+    def extract_update(self, file_id: int, cur: int, tot: int):
+        slot = self._ex_slot_of.get(file_id)
+        if slot is not None and slot >= 0:
+            self._ex_rows[slot].set_progress(cur, tot)
 
     def extract_remove(self, file_id: int):
         self._extract_active.pop(file_id, None)
         self._extract_queued.pop(file_id, None)
+        slot = self._ex_slot_of.pop(file_id, None)
+        if slot is not None and slot >= 0:
+            self._ex_rows[slot].clear()
+            # Promote an overflow-active extraction into the freed slot — unlike
+            # the download pool we still know its name, so it gains a bar.
+            promo = next((f for f, s in self._ex_slot_of.items() if s == -1), None)
+            if promo is not None:
+                self._ex_slot_of[promo] = slot
+                self._ex_rows[slot].assign(self._extract_active.get(promo, ""))
+                self._ex_rows[slot].set_progress(0, 0)
         self._render_extract()
 
     def row_installed(self, file_id: int):
@@ -319,12 +357,13 @@ class CollectionInstallOverlay(QWidget):
     def _render_extract(self):
         from html import escape
         lines = []
-        for name in self._extract_active.values():
-            lines.append(
-                f"<div style='color:{self._c('TEXT_MAIN')}'>{escape(name)}</div>")
+        for fid, name in self._extract_active.items():
+            if self._ex_slot_of.get(fid, -1) == -1:   # no bar row — text line
+                lines.append(
+                    f"<div style='color:{self._c('TEXT_MAIN')}'>{escape(name)}</div>")
         for name in self._extract_queued.values():
             lines.append(
-                f"<div style='color:{_QUEUED_TONE}'>{escape(name)} — Queued</div>")
+                f"<div style='color:{_QUEUED_TONE}'>{escape(name)} {self.tr('— Queued')}</div>")
         self._ex_label.setText("".join(lines))
 
     # ---- lifecycle --------------------------------------------------------

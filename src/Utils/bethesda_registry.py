@@ -50,8 +50,10 @@ def register_bethesda_game_path(
     *proton_script* is the Proton entrypoint (run via ``python3 <script> run``).
     *env* must already contain STEAM_COMPAT_DATA_PATH / STEAM_COMPAT_CLIENT_INSTALL_PATH.
 
-    Idempotent — a marker file under the prefix skips the write on subsequent
-    launches. Returns True on success or if already done.
+    Idempotent — a marker file under the prefix records the registered path
+    and skips the write while it is unchanged. A different game path (e.g. a
+    profile pinned to another install) re-registers, since the tool prefix is
+    shared across profiles. Returns True on success or if already done.
     """
     def _log(msg: str) -> None:
         if log_fn is not None:
@@ -60,15 +62,18 @@ def register_bethesda_game_path(
             except Exception:
                 pass
 
-    marker = _marker_path(prefix_dir, registry_game_name)
-    if marker.is_file():
-        return True
-
     if not game_path or not Path(game_path).is_dir():
         _log(f"Bethesda registry: game path not available, skipping ({registry_game_name}).")
         return False
 
     wine_value = _posix_to_wine_path(Path(game_path))
+
+    marker = _marker_path(prefix_dir, registry_game_name)
+    try:
+        if marker.is_file() and marker.read_text(encoding="utf-8").strip() == wine_value:
+            return True
+    except OSError:
+        pass
     keys = [
         r"HKLM\Software\Bethesda Softworks" + "\\" + registry_game_name,
         r"HKLM\Software\Wow6432Node\Bethesda Softworks" + "\\" + registry_game_name,
@@ -104,7 +109,7 @@ def register_bethesda_game_path(
 
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("ok\n")
+        marker.write_text(wine_value + "\n", encoding="utf-8")
     except OSError:
         pass
     return True

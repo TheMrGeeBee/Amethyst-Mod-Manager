@@ -209,6 +209,11 @@ class DetachableTabWidget(QTabWidget):
         super().__init__(parent)
         self._bar = _DetachTabBar(self)
         self.setTabBar(self._bar)
+        # Closing the current tab returns to the PREVIOUSLY ACTIVE tab (Qt keeps
+        # a per-tab back-pointer, adjusted across reorders/removals) — not the
+        # neighbour on the right.
+        self._bar.setSelectionBehaviorOnRemove(
+            QTabBar.SelectionBehavior.SelectPreviousTab)
         self.setTabsClosable(True)
         self.setMovable(True)
         self.setDocumentMode(True)
@@ -437,25 +442,27 @@ class DetachableTabWidget(QTabWidget):
 
     def _close_scoped(self, placeholder: QWidget):
         """Tear down a panel-scoped tab: remove its widget from the target stack,
-        reset that stack to page 0, drop the tab, and show the permanent page."""
+        reset that stack to page 0, and drop the tab. Selection then lands on the
+        previously active tab (SelectPreviousTab), not forced to the permanent
+        page."""
         target_stack, scoped_widget, _idx = self._scoped.pop(id(placeholder))
         target_stack.setCurrentIndex(0)
         target_stack.removeWidget(scoped_widget)
         self._modes.pop(id(scoped_widget), None)
         scoped_widget.deleteLater()
+        # Clear BEFORE removeTab: the currentChanged it fires may activate
+        # another scoped tab, and must not be clobbered afterwards.
+        if self._active_scoped == id(placeholder):
+            self._active_scoped = None
         tab_idx = self.indexOf(placeholder)
         if tab_idx != -1:
             self.removeTab(tab_idx)
         self._forget(placeholder)
         placeholder.deleteLater()
-        self._active_scoped = None
-        # Snap to the permanent tab.
-        perm = self._permanent_widget
-        if perm is not None:
-            pi = self.indexOf(perm)
-            if pi != -1:
-                self.setCurrentIndex(pi)
-        self._update_bar_visibility()
+        # Re-sync the panel stacks for whichever tab is now current — closing a
+        # NON-current scoped tab fires no currentChanged, yet we reset a stack
+        # the current scoped tab may share.
+        self._on_current_changed(self.currentIndex())
 
     # -- re-pin (move a view between full / modlist / plugins) --------------
     def _on_pin_requested(self, index: int, global_pos: QPoint):

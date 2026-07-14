@@ -32,24 +32,24 @@ class BethiniView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run BethINI Pie — {game.name}")
+                         title=self.tr("Run BethINI Pie — {0}").format(game.name))
         self._exe = tool_exe_path(game, _EXE_NAME, _APP_DIR)
         self._proton_name = ""
         self._prefix_mode = ""
 
         self._stack.addWidget(self._build_manual_download_page(
-            "Step 1: Download BethINI Pie",
-            "Click the button below to open the BethINI Pie page on Nexus "
+            self.tr("Step 1: Download BethINI Pie"),
+            self.tr("Click the button below to open the BethINI Pie page on Nexus "
             "Mods.\n\nDownload the archive manually (do NOT use the Mod "
-            "Manager download button), then click Next.",
+            "Manager download button), then click Next."),
             _NEXUS_URL,
             lambda: self._goto_step(_PG_LOCATE)))
         self._stack.addWidget(self._build_locate_page(
-            "Step 2: Locate the Archive"))
+            self.tr("Step 2: Locate the Archive")))
         self._stack.addWidget(self._build_extract_page(
-            "Step 3: Extract BethINI Pie"))
+            self.tr("Step 3: Extract BethINI Pie")))
         self._stack.addWidget(self._build_proton_holder())
-        self._stack.addWidget(self._build_run_page("Step 5: Run BethINI Pie"))
+        self._stack.addWidget(self._build_run_page(self.tr("Step 5: Run BethINI Pie")))
 
         if self._exe is not None:
             self._goto_step(_PG_PROTON)
@@ -60,20 +60,20 @@ class BethiniView(WizardViewBase):
         self._stack.setCurrentIndex(idx)
         if idx == _PG_LOCATE:
             self._enter_locate(
-                ["bethini"], "Select the BethINI Pie archive",
-                "BethINI archive not found in Downloads.\n"
+                ["bethini"], self.tr("Select the BethINI Pie archive"),
+                self.tr("BethINI archive not found in Downloads.\n"
                 "Make sure you downloaded it, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                "or use Browse to select it manually."),
                 lambda _p: self._goto_step(_PG_EXTRACT))
         elif idx == _PG_EXTRACT:
             self._extract_to_applications(_APP_DIR, _EXE_NAME, "BethINI")
         elif idx == _PG_PROTON:
             self._enter_proton(
                 self._exe, _EXE_NAME, "BethINI Pie", self._on_proton_chosen,
-                title="Step 4: Choose Proton Version",
-                missing_text=f"'{_EXE_NAME}' was not found.\n"
+                title=self.tr("Step 4: Choose Proton Version"),
+                missing_text=self.tr("'{0}' was not found.\n"
                              "Please restart the wizard and install BethINI "
-                             "Pie first.")
+                             "Pie first.").format(_EXE_NAME))
         elif idx == _PG_RUN:
             self._start_run()
 
@@ -108,8 +108,8 @@ class BethiniView(WizardViewBase):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(proton_name), RED)
                     return
                 proton_script, compat_data, env = result
 
@@ -134,18 +134,18 @@ class BethiniView(WizardViewBase):
 
                 _wlog(f"launching {exe} via Proton")
                 safe_emit(self._run_status_sig,
-                          "BethINI Pie is running.\nConfigure your INI "
-                          "settings, then close it and click Done.", GREEN)
+                          self.tr("BethINI Pie is running.\nConfigure your INI "
+                          "settings, then close it and click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 label="BethINI Pie")
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 _wlog("BethINI Pie closed.")
-                safe_emit(self._run_status_sig, "BethINI Pie finished.", GREEN)
+                safe_emit(self._run_status_sig, self.tr("BethINI Pie finished."), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig, self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"BethINI Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="bethini-run").start()

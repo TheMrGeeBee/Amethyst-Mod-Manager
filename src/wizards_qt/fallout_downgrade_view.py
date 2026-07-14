@@ -35,7 +35,7 @@ class FalloutDowngradeView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Downgrade Fallout 3 — {game.name}")
+                         title=self.tr("Downgrade Fallout 3 — {0}").format(game.name))
         self._game_root = game.get_game_path()
         self._extracted_paths: list[Path] = []
 
@@ -43,18 +43,18 @@ class FalloutDowngradeView(WizardViewBase):
             lambda: self._done_btn.setEnabled(True)))
 
         self._stack.addWidget(self._build_manual_download_page(
-            "Step 1: Download the Patcher",
-            "To downgrade Fallout 3 you need the\n"
+            self.tr("Step 1: Download the Patcher"),
+            self.tr("To downgrade Fallout 3 you need the\n"
             "Fallout Anniversary Patcher from Nexus Mods.\n\n"
             "Click the button below to open the mod page,\n"
-            "then download the main file.",
+            "then download the main file."),
             _NEXUS_URL,
             lambda: self._goto_step(_PG_LOCATE),
-            button_text="Open Nexus Mods Page"))
+            button_text=self.tr("Open Nexus Mods Page")))
         self._stack.addWidget(self._build_locate_page(
-            "Step 2: Locate the Archive", with_next=True))
+            self.tr("Step 2: Locate the Archive"), with_next=True))
         self._stack.addWidget(self._build_run_page(
-            "Step 3: Extract & Run Patcher"))
+            self.tr("Step 3: Extract & Run Patcher")))
         self._stack.setCurrentIndex(_PG_DOWNLOAD)
 
     def _goto_step(self, idx: int):
@@ -62,10 +62,10 @@ class FalloutDowngradeView(WizardViewBase):
         if idx == _PG_LOCATE:
             self._enter_locate(
                 _ARCHIVE_KEYWORDS,
-                "Select the Fallout Anniversary Patcher archive",
-                "Archive not found in Downloads.\n"
+                self.tr("Select the Fallout Anniversary Patcher archive"),
+                self.tr("Archive not found in Downloads.\n"
                 "Make sure you downloaded the mod, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                "or use Browse to select it manually."),
                 lambda _p: self._goto_step(_PG_RUN))
         elif idx == _PG_RUN:
             self._set_status(self._run_status,
@@ -79,19 +79,19 @@ class FalloutDowngradeView(WizardViewBase):
             self._do_extract()
             self._do_run_patcher()
         except Exception as exc:
-            safe_emit(self._run_status_sig, f"Error: {exc}", RED)
+            safe_emit(self._run_status_sig, self.tr("Error: {0}").format(exc), RED)
             self._log(f"Downgrade Wizard: {exc}")
 
     def _do_extract(self):
         from Utils.wizard_archives import extract_archive
         game_root = self._game_root
         if game_root is None:
-            raise RuntimeError("Game path is not configured.")
+            raise RuntimeError(self.tr("Game path is not configured."))
         archive = self._archive_path
         if archive is None or not archive.is_file():
-            raise RuntimeError("Archive not found.")
+            raise RuntimeError(self.tr("Archive not found."))
         safe_emit(self._run_status_sig,
-                  "Extracting archive to game folder…", "")
+                  self.tr("Extracting archive to game folder…"), "")
         self._log(f"Downgrade Wizard: extracting {archive.name} → {game_root}")
         # extract_archive returns files then dirs deepest-first — kept for
         # the reverse-depth cleanup when the wizard closes.
@@ -112,19 +112,19 @@ class FalloutDowngradeView(WizardViewBase):
             patcher_exe = next(game_root.rglob("Patcher.exe"), None)
         if patcher_exe is None:
             raise RuntimeError(
-                "Could not find Patcher.exe after extraction.\n"
-                "Make sure you downloaded the correct mod.")
+                self.tr("Could not find Patcher.exe after extraction.\n"
+                "Make sure you downloaded the correct mod."))
 
         safe_emit(self._run_status_sig,
-                  f"Running {patcher_exe.name} via Proton…\n"
-                  "This may take a moment.", "")
+                  self.tr("Running {0} via Proton…\n"
+                  "This may take a moment.").format(patcher_exe.name), "")
         self._log(f"Downgrade Wizard: running {patcher_exe} via Proton")
 
         result = get_game_prefix_env(
             self._game, log_fn=lambda m: self._log(f"Downgrade Wizard: {m}"),
             allow_runner_fallback=True)
         if result is None:
-            raise RuntimeError("Could not determine Proton version for this game.")
+            raise RuntimeError(self.tr("Could not determine Proton version for this game."))
         proton_script, _compat_data, env = result
 
         proc = subprocess.Popen(
@@ -141,8 +141,8 @@ class FalloutDowngradeView(WizardViewBase):
                       f"{proc.returncode}: {stderr}")
 
         safe_emit(self._run_status_sig,
-                  "Patcher has finished.\n\n"
-                  "Click Done to clean up the extracted files and close.",
+                  self.tr("Patcher has finished.\n\n"
+                  "Click Done to clean up the extracted files and close."),
                   GREEN)
         safe_emit(self._done_enable_sig)
         self._log("Downgrade Wizard: patcher complete. Waiting for Done.")

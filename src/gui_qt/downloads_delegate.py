@@ -71,7 +71,7 @@ class DownloadsDelegate(QStyledItemDelegate):
                 p.drawRoundedRect(rect, 4, 4)
                 p.setPen(self.c_selall_text)
                 f = QFont(); f.setPixelSize(BTN_FONT_PX); f.setBold(True); p.setFont(f)
-                p.drawText(rect, Qt.AlignCenter, "Select all")
+                p.drawText(rect, Qt.AlignCenter, self.tr("Select all"))
                 p.setRenderHint(p.RenderHint.Antialiasing, False)
             return
 
@@ -123,7 +123,8 @@ class DownloadsDelegate(QStyledItemDelegate):
         p.drawRoundedRect(rect, 4, 4)
         p.setPen(self.c_reinstall_text if installed else self.c_install_text)
         f = QFont(); f.setPixelSize(BTN_FONT_PX); f.setBold(True); p.setFont(f)
-        p.drawText(rect, Qt.AlignCenter, "Reinstall" if installed else "Install")
+        p.drawText(rect, Qt.AlignCenter,
+                   self.tr("Reinstall") if installed else self.tr("Install"))
         p.setRenderHint(p.RenderHint.Antialiasing, False)
 
     def sizeHint(self, opt, index):

@@ -316,7 +316,7 @@ class TextFilesView(QWidget):
     def filetype_items(self) -> list[tuple]:
         from collections import Counter
         c = Counter(Path(e[0]).suffix.lower() for e in self._all_entries)
-        return [(ext or "(none)", ext or "(no ext)", n)
+        return [(ext or "(none)", ext or self.tr("(no ext)"), n)
                 for ext, n in sorted(c.items())]
 
     # -- search -------------------------------------------------------------

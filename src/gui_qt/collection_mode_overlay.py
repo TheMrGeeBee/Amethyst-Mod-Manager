@@ -99,7 +99,7 @@ class ModeOverlay(_BaseModeOverlay):
             v.addWidget(self._append_radio)
             # Append controls (indented) — enabled only when Append is selected.
             self._profile_combo = QComboBox(self._card)
-            self._profile_combo.addItems(self._profiles or ["(no profiles)"])
+            self._profile_combo.addItems(self._profiles or [self.tr("(no profiles)")])
             v.addWidget(self._profile_combo)
             self._overwrite_cb = QCheckBox(self.tr("Overwrite existing mods"), self._card)
             v.addWidget(self._overwrite_cb)

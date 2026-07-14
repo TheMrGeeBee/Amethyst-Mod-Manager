@@ -49,16 +49,33 @@ _ARCHIVE_EXTS = ('.zip', '.7z', '.rar', '.tar.gz', '.tar.bz2', '.tar.xz', '.tar'
 
 
 def _clean_nexus_stem(stem: str, mod_id_str: str) -> str:
-    """Strip the Nexus trailing metadata (``-{modId}-version-timestamp``) from
+    """Strip the Nexus trailing metadata (``{modId} version timestamp``) from
     an archive stem, returning just the display-name portion.
 
-    E.g. ``"FDE Ysolda-124787-2-0-1725289331"`` → ``"FDE Ysolda"``.
-    Falls back to the full stem if the mod_id isn't found.
+    Handles both name shapes Nexus produces:
+      * manager / CDN, hyphen-joined:
+        ``"FDE Ysolda-124787-2-0-1725289331"`` → ``"FDE Ysolda"``
+      * newer website "slow download", space-joined (with a random suffix):
+        ``"powerofthree's Tweaks 51073 1.16.0 2026-07-12T16-59Z 587RqTEnz"``
+        → ``"powerofthree's Tweaks"``
+
+    The mod id is the anchor: everything from the mod-id *token* onward is
+    Nexus metadata regardless of the delimiter.  Falls back to the full stem
+    if the mod_id isn't present as a delimited token (so an id that merely
+    appears inside the name doesn't truncate it).
     """
-    if mod_id_str:
-        idx = stem.find(f"-{mod_id_str}")
-        if idx > 0:
-            return stem[:idx]
+    if not mod_id_str:
+        return stem
+    # Match the mod id only as a whole token — bounded by a hyphen, space or
+    # underscore (or the string ends), so "51073" inside "Mod510732" won't
+    # match.  \b would treat "-" as a boundary but not reliably for digits
+    # next to other digits, hence the explicit delimiter class.
+    m = re.search(rf'(?:^|[-_ ]){re.escape(mod_id_str)}(?:[-_ ]|$)', stem)
+    if m and m.start() > 0:
+        # Cut at the delimiter just before the mod id (m.start() points at
+        # that delimiter when the id isn't at the very start).
+        cut = m.start()
+        return stem[:cut].rstrip(' -_')
     return stem
 
 
@@ -363,7 +380,12 @@ def _find_cached_archive(
             # Require exact normalized equality for the same prefix-collision
             # reason described above.  Strip trailing ``(N)`` collision counter.
             raw_stem = re.sub(r'\s*\(\d+\)$', '', f.stem)
-            norm_stem = re.sub(r'[^\w]', '', raw_stem.lower())
+            # Compare display-portion to display-portion: strip the trailing
+            # Nexus ``{modId} version timestamp`` metadata (hyphen- OR space-
+            # joined) so the newer website "slow download" names still match.
+            display_stem = _clean_nexus_stem(raw_stem, mod_id_str) \
+                if mod_id_str else raw_stem
+            norm_stem = re.sub(r'[^\w]', '', display_stem.lower())
             if norm_name and norm_stem == norm_name:
                 if expected_md5 and not _md5_matches(f, expected_md5):
                     continue

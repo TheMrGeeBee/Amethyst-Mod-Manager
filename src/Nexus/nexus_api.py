@@ -134,7 +134,8 @@ class NexusModInfo:
     available: bool = True
     contains_adult_content: bool = False
     status: str = ""
-    uploaded_by: str = ""
+    uploaded_by: str = ""       # uploader's display name (GraphQL uploader.name)
+    uploader_id: int = 0        # uploader's stable account id (GraphQL uploader.memberId)
     category_name: str = ""
     created_at: str = ""        # ISO-8601 string (GraphQL createdAt), "" if absent
     updated_at: str = ""        # ISO-8601 string (GraphQL updatedAt), "" if absent
@@ -204,9 +205,11 @@ class NexusModUpdateInfo:
     summary: str = ""                       # short tagline shown on the mod page
     updated_at: Optional[datetime] = None   # when any file was last uploaded
     viewer_update_available: Optional[bool] = None  # Nexus-native flag (requires tracking)
+    viewer_endorsed: Optional[bool] = None  # True/False if the viewer has endorsed; None if unauthenticated/unknown
     requirements: list["NexusModRequirement"] = field(default_factory=list)  # mod dependencies
     category_id: int = 0                    # Nexus mod category (e.g. Armor, Weapons)
     category_name: str = ""                 # Category display name
+    uploaded_by: str = ""                   # Nexus username that uploaded the mod
     files: list["NexusModFile"] = field(default_factory=list)  # from batch; avoids REST get_mod_files
 
 
@@ -223,6 +226,7 @@ class NexusCollection:
     mod_count: int = 0
     tile_image_url: str = ""
     game_domain: str = ""
+    contains_adult_content: bool = False
 
 
 @dataclass
@@ -873,6 +877,7 @@ class NexusAPI:
                     createdAt
                     updatedAt
                     fileSize
+                    uploader { name memberId }
                     modCategory { name }
                 }
             }
@@ -910,6 +915,8 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
+                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
+                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,
@@ -965,6 +972,55 @@ class NexusAPI:
         if gid:
             self._game_id_cache[game_domain] = gid
         return gid
+
+    def _enrich_files_from_rest(self, game_domain: str, mod_id: int,
+                                files: "list[NexusModFile]") -> None:
+        """Fill GraphQL modFiles gaps from the REST files endpoint (in place).
+
+        Nexus's newer upload pipeline returns ``sizeInBytes: null`` and a CDN
+        UUID *path* in ``uri`` (e.g. ``ed/8d/27/ed8d270a-…``) instead of the
+        archive filename. The REST endpoint still carries the real
+        ``file_name`` — which for these uploads is the exact browser-download
+        name — plus ``size_kb``. Without them, download detection and cache
+        matching have nothing to match on. Only called when at least one entry
+        is deficient, and merged strictly by ``file_id``, so the REST
+        wrong-mod bug (see get_mod_files docstring) can't corrupt anything —
+        unmatched ids are simply left as they were. Best-effort: REST errors
+        leave the GraphQL data untouched.
+        """
+        def _deficient(f: NexusModFile) -> bool:
+            no_size = not (f.size_in_bytes or f.size_kb)
+            bad_name = (not f.file_name) or ("/" in f.file_name)
+            return no_size or bad_name
+
+        if not any(_deficient(f) for f in files):
+            return
+        try:
+            data = self._get(f"/games/{game_domain}/mods/{mod_id}/files")
+            rest = {}
+            for r in data.get("files", []):
+                try:
+                    rest[int(r.get("file_id") or 0)] = r
+                except (TypeError, ValueError):
+                    continue
+            for f in files:
+                r = rest.get(f.file_id)
+                if r is None:
+                    continue
+                if (not f.file_name) or ("/" in f.file_name):
+                    fn = (r.get("file_name") or "").strip()
+                    if fn:
+                        f.file_name = fn
+                if not (f.size_in_bytes or f.size_kb):
+                    sz_b = r.get("size_in_bytes") or 0
+                    sz_kb = r.get("size_kb") or r.get("size") or 0
+                    if sz_b:
+                        f.size_in_bytes = int(sz_b)
+                        f.size_kb = int(sz_b) // 1024
+                    elif sz_kb:
+                        f.size_kb = int(sz_kb)
+        except Exception as exc:
+            app_log(f"REST file enrichment failed for {game_domain}/{mod_id}: {exc}")
 
     def get_mod_files(self, game_domain: str,
                       mod_id: int) -> NexusModFiles:
@@ -1036,6 +1092,7 @@ class NexusAPI:
                                 uploaded_timestamp=ts,
                                 is_primary=(cat_name == "MAIN"),
                             ))
+                        self._enrich_files_from_rest(game_domain, mod_id, files)
                         return NexusModFiles(files=files, file_updates=[])
             except Exception as exc:
                 app_log(f"GraphQL modFiles error for {game_domain}/{mod_id}: {exc} — falling back to REST")
@@ -1338,6 +1395,7 @@ class NexusAPI:
                     summary
                     version
                     author
+                    uploader { name memberId }
                     modCategory { categoryId name }
                     game { domainName }
                 }
@@ -1377,6 +1435,8 @@ class NexusAPI:
                 description="",
                 version=n.get("version", "") or "",
                 author=n.get("author", "") or "",
+                uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
+                uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
                 category_id=cat_id,
                 category_name=cat_name,
                 game_id=0,
@@ -1418,6 +1478,8 @@ class NexusAPI:
                     summary
                     updatedAt
                     viewerUpdateAvailable
+                    viewerEndorsed
+                    uploader { name memberId }
                     modCategory { categoryId name }
                     modRequirements {
                         nexusRequirements {
@@ -1474,6 +1536,7 @@ class NexusAPI:
                         except ValueError:
                             pass
                     vua = n.get("viewerUpdateAvailable")
+                    ven = n.get("viewerEndorsed")
                     req_nodes = (
                         (n.get("modRequirements") or {})
                         .get("nexusRequirements") or {}
@@ -1503,9 +1566,11 @@ class NexusAPI:
                         summary=n.get("summary", "") or "",
                         updated_at=updated_at,
                         viewer_update_available=None if vua is None else bool(vua),
+                        viewer_endorsed=None if ven is None else bool(ven),
                         requirements=reqs,
                         category_id=cat_id,
                         category_name=cat_name,
+                        uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
                         files=[],  # Mod has no files field in GraphQL; REST used for file checks
                     )
             except Exception as exc:
@@ -1638,6 +1703,7 @@ class NexusAPI:
                     summary
                     version
                     author
+                    uploader { name memberId }
                     endorsements
                     downloads
                     pictureUrl
@@ -1683,6 +1749,8 @@ class NexusAPI:
                         description="",
                         version=n.get("version", "") or "",
                         author=n.get("author", "") or "",
+                        uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
+                        uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
                         category_id=0,
                         game_id=0,
                         domain_name=domain,
@@ -1832,6 +1900,7 @@ class NexusAPI:
                     createdAt
                     updatedAt
                     fileSize
+                    uploader {{ name memberId }}
                     modCategory {{ name }}
                 }}
             }}
@@ -1870,6 +1939,8 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
+                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
+                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,
@@ -1899,28 +1970,94 @@ class NexusAPI:
         Results are sorted by `sort_key` descending (see get_top_mods for the
         valid values); invalid keys fall back to "downloads".
         """
+        return self._search_mods_by_field(
+            "name", game_domain, query_text, count=count, offset=offset,
+            category_names=category_names, sort_key=sort_key)
+
+    def search_mods_by_uploader_id(
+        self, game_domain: str, uploader_id: int, count: int = 10, offset: int = 0,
+        category_names: list[str] | None = None,
+        sort_key: str = "downloads",
+    ) -> list[NexusModInfo]:
+        """
+        List a game's mods by the uploader's stable account id (GraphQL
+        `uploaderId`). This is the RELIABLE "mods by this person" filter: the id
+        never changes even when the account is renamed, and unlike the mod's
+        free-text `author` field the uploader can't set it to anything.
+
+        The GraphQL schema exposes `uploaderId` as a BaseFilterValue (EQUALS
+        only — no WILDCARD), and the value must be passed as a *string*.
+        """
+        if not uploader_id:
+            return []
+        # uploaderId is EQUALS-only and the server rejects an int value — coerce
+        # to a string. No min-length guard: it's an exact numeric id, not text.
+        cond = {"uploaderId": [{"value": str(uploader_id)}]}
+        return self._search_mods_filtered(
+            game_domain, cond, count=count, offset=offset,
+            category_names=category_names, sort_key=sort_key)
+
+    def search_mods_by_author(
+        self, game_domain: str, author: str, count: int = 10, offset: int = 0,
+        category_names: list[str] | None = None,
+        sort_key: str = "downloads",
+    ) -> list[NexusModInfo]:
+        """
+        Search a game's mods by the uploader's display name (GraphQL `uploader`
+        field). Used by the browser's author search bar, where the user types a
+        name (we have no id to match on).
+
+        NB: this matches the uploader's *current* name (EQUALS, not the mod's
+        free-text `author` field). For a stable "this exact person's mods" query
+        prefer search_mods_by_uploader_id().
+        """
+        if len((author or "").strip()) < 2:
+            return []
+        cond = {"uploader": [{"value": author}]}
+        return self._search_mods_filtered(
+            game_domain, cond, count=count, offset=offset,
+            category_names=category_names, sort_key=sort_key)
+
+    def _search_mods_by_field(
+        self, field: str, game_domain: str, value: str, count: int = 10,
+        offset: int = 0, category_names: list[str] | None = None,
+        sort_key: str = "downloads",
+    ) -> list[NexusModInfo]:
+        """
+        WILDCARD text search on a single field (used by search_mods for `name`).
+
+        The `name` WILDCARD operator does substring matching on the raw value —
+        the `nameStemmed` filter only matches whole (stemmed) words, so a
+        trailing partial word like "disp" in "sse disp" never matches "SSE
+        Display Tweaks". NB: do NOT add `*`/`%` wildcard chars around the value —
+        the operator already matches substrings, and supplying them makes it
+        match nothing. WILDCARD needs ≥2 chars, so short values short-circuit.
+        """
+        if len((value or "").strip()) < 2:
+            return []
+        return self._search_mods_filtered(
+            game_domain, {field: {"value": value, "op": "WILDCARD"}},
+            count=count, offset=offset, category_names=category_names,
+            sort_key=sort_key)
+
+    def _search_mods_filtered(
+        self, game_domain: str, cond: dict, count: int = 10,
+        offset: int = 0, category_names: list[str] | None = None,
+        sort_key: str = "downloads",
+    ) -> list[NexusModInfo]:
+        """
+        Shared GraphQL mod search: run the SearchMods query with *cond* (a
+        prebuilt ModsFilter condition) AND-ed onto the domain/category filter.
+        Keeps the query + node parsing in one place for all the search variants.
+        """
         if sort_key not in self._TOP_MODS_SORT_KEYS:
             sort_key = "downloads"
-        # The `name` WILDCARD operator (below) is rejected by the Nexus GraphQL
-        # server for values shorter than 2 characters ("Wildcard value must have
-        # 2 or more characters"). Short-circuit rather than issue a doomed query.
-        if len((query_text or "").strip()) < 2:
-            return []
         base_filter = self._build_mods_filter(game_domain, category_names)
-        # Inject the name search into the filter.
-        #
-        # The `nameStemmed` filter only matches whole (stemmed) words, so a
-        # trailing partial word like "disp" in "sse disp" never matches
-        # "SSE Display Tweaks". The `name` WILDCARD operator does substring
-        # matching on the raw query instead, so partial words are honoured.
-        # NB: do NOT add `*`/`%` wildcard chars around the value — the operator
-        # already matches substrings, and supplying them makes it match nothing.
-        name_cond = {"name": {"value": query_text, "op": "WILDCARD"}}
         if "filter" in base_filter:
-            # nested AND structure — append name condition
-            base_filter["filter"].append(name_cond)
+            # nested AND structure — append the condition
+            base_filter["filter"].append(cond)
         else:
-            base_filter.update(name_cond)
+            base_filter.update(cond)
         query = f"""
         query SearchMods($filter: ModsFilter, $count: Int, $offset: Int) {{
             mods(
@@ -1943,6 +2080,7 @@ class NexusAPI:
                     createdAt
                     updatedAt
                     fileSize
+                    uploader {{ name memberId }}
                     modCategory {{ name }}
                 }}
             }}
@@ -1980,6 +2118,8 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
+                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
+                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,
@@ -2054,7 +2194,24 @@ class NexusAPI:
 
     # -- Collections (GraphQL v2) -------------------------------------------
 
-    _COLLECTIONS_QUERY = """
+    # Accepted sort keys → the collectionsV2 `sort` clause. These are baked into
+    # the GraphQL query text (field names cannot be passed as variables), so the
+    # mapping doubles as an allow-list — only these keys ever reach the query.
+    COLLECTION_SORTS = {
+        "downloads": "{ downloads: { direction: DESC } }",
+        "endorsements": "{ endorsements: { direction: DESC } }",
+        "rating": "{ rating: { direction: DESC } }",
+        "recent": "{ createdAt: { direction: DESC } }",
+    }
+    _DEFAULT_COLLECTION_SORT = "downloads"
+
+    def _collection_sort_clause(self, sort: str) -> str:
+        return self.COLLECTION_SORTS.get(
+            sort, self.COLLECTION_SORTS[self._DEFAULT_COLLECTION_SORT])
+
+    @staticmethod
+    def _collections_query(sort_clause: str) -> str:
+        return """
     query Collections(
         $gameDomain: String!
         $count: Int
@@ -2064,7 +2221,7 @@ class NexusAPI:
             filter: { gameDomain: [{ value: $gameDomain }] }
             count: $count
             offset: $offset
-            sort: [{ downloads: { direction: DESC } }]
+            sort: [%s]
         ) {
             nodes {
                 id
@@ -2077,10 +2234,11 @@ class NexusAPI:
                 latestPublishedRevision { modCount }
                 totalDownloads
                 endorsements
+                adultContent
             }
         }
     }
-    """
+    """ % sort_clause
 
     @staticmethod
     def _parse_collection_nodes(nodes: list, game_domain: str) -> list["NexusCollection"]:
@@ -2102,20 +2260,26 @@ class NexusAPI:
                 mod_count=mod_count,
                 tile_image_url=tile,
                 game_domain=domain,
+                contains_adult_content=bool(n.get("adultContent", False)),
             ))
         return results
 
     def get_collections(
-        self, game_domain: str, count: int = 20, offset: int = 0
+        self, game_domain: str, count: int = 20, offset: int = 0,
+        sort: str = "downloads"
     ) -> list[NexusCollection]:
         """
-        Fetch collections for a game domain via GraphQL, sorted by most downloaded.
+        Fetch collections for a game domain via GraphQL.
+
+        *sort* is one of COLLECTION_SORTS (downloads / endorsements / rating /
+        recent); unknown values fall back to the most-downloaded default.
         """
         variables = {"gameDomain": game_domain, "count": count, "offset": offset}
+        query = self._collections_query(self._collection_sort_clause(sort))
         try:
             resp = self._session.post(
                 GRAPHQL_BASE,
-                json={"query": self._COLLECTIONS_QUERY, "variables": variables},
+                json={"query": query, "variables": variables},
                 timeout=self._timeout,
             )
             self._log_response("POST", "GraphQL get_collections", resp)
@@ -2136,25 +2300,85 @@ class NexusAPI:
             app_log(f"GraphQL get_collections error: {exc}")
             return []
 
+    @staticmethod
+    def _collections_search_query(sort_clause: str) -> str:
+        return """
+    query CollectionsSearch(
+        $gameDomain: String!
+        $query: String!
+        $count: Int
+        $offset: Int
+    ) {
+        collectionsV2(
+            filter: {
+                gameDomain: [{ value: $gameDomain }]
+                name: { value: $query, op: WILDCARD }
+            }
+            count: $count
+            offset: $offset
+            sort: [%s]
+        ) {
+            nodes {
+                id
+                slug
+                name
+                summary
+                tileImage { url }
+                user { name }
+                game { domainName }
+                latestPublishedRevision { modCount }
+                totalDownloads
+                endorsements
+                adultContent
+            }
+        }
+    }
+    """ % sort_clause
+
     def search_collections(
-        self, game_domain: str, query: str, count: int = 20, offset: int = 0
+        self, game_domain: str, query: str, count: int = 20, offset: int = 0,
+        sort: str = "downloads"
     ) -> list[NexusCollection]:
         """
-        Search collections for a game domain by fetching a large batch and
-        filtering client-side (case-insensitive substring match on name/summary).
+        Search collections for a game domain by name via the GraphQL
+        collectionsV2 `name` WILDCARD filter (case-insensitive substring match).
 
-        The Nexus GraphQL API does not expose a reliable partial-text search for
-        collections, so we over-fetch and filter locally.
+        The server-side filter searches the full catalogue and supports
+        count/offset pagination, so results are not limited to the most-
+        downloaded batch the way a client-side filter would be. Do NOT add
+        `*`/`%` wildcard chars around the value — the WILDCARD operator already
+        matches substrings, and supplying them makes it match nothing.
+
+        *sort* is one of COLLECTION_SORTS (see get_collections).
         """
-        _FETCH_BATCH = 200
-        q_lower = query.lower()
+        variables = {
+            "gameDomain": game_domain,
+            "query": query,
+            "count": count,
+            "offset": offset,
+        }
+        query_text = self._collections_search_query(
+            self._collection_sort_clause(sort))
         try:
-            all_cols = self.get_collections(game_domain, count=_FETCH_BATCH, offset=0)
-            matched = [
-                c for c in all_cols
-                if q_lower in c.name.lower() or q_lower in c.summary.lower()
-            ]
-            return matched[offset: offset + count]
+            resp = self._session.post(
+                GRAPHQL_BASE,
+                json={"query": query_text, "variables": variables},
+                timeout=self._timeout,
+            )
+            self._log_response("POST", "GraphQL search_collections", resp)
+            if not resp.ok:
+                app_log(f"GraphQL search_collections failed: {resp.status_code}")
+                return []
+            data = resp.json()
+            if "errors" in data:
+                app_log(f"GraphQL search_collections errors: {data['errors']}")
+                return []
+            nodes = (
+                data.get("data", {})
+                .get("collectionsV2", {})
+                .get("nodes", [])
+            )
+            return self._parse_collection_nodes(nodes, game_domain)
         except Exception as exc:
             app_log(f"GraphQL search_collections error: {exc}")
             return []

@@ -47,7 +47,7 @@ class CreationKitView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run Creation Kit — {game.name}")
+                         title=self.tr("Run Creation Kit — {0}").format(game.name))
         self._exe = creationkit_exe_path(game)
         self._proton_name = ""
         self._prefix_mode = ""
@@ -93,13 +93,13 @@ class CreationKitView(WizardViewBase):
         page, lay = self._step_page(self.tr("Step 2: Creation Kit Platform Extended"))
         already = ckpe_mod_installed(self._game)
         self._make_note(lay, (
-            "Creation Kit Platform Extended (CKPE) patches the Creation Kit "
+            self.tr("Creation Kit Platform Extended (CKPE) patches the Creation Kit "
             "so it runs correctly. It is downloaded from GitHub and installed "
             "as a mod with the root flag enabled, so it deploys into the game "
-            "folder next to CreationKit.exe.\n\n"
-            + ("CKPE already appears to be installed. You can update it or skip."
+            "folder next to CreationKit.exe.\n\n")
+            + (self.tr("CKPE already appears to be installed. You can update it or skip.")
                if already else
-               "Click Install to download and add the latest CKPE (SSE build).")))
+               self.tr("Click Install to download and add the latest CKPE (SSE build)."))))
         self._ckpe_status = self._make_status(lay)
         lay.addStretch(1)
 
@@ -146,10 +146,10 @@ class CreationKitView(WizardViewBase):
             self._enter_proton(
                 self._exe, EXE_NAME, "Creation Kit", self._on_proton_chosen,
                 isolated_prefix_dir_fn=_ck_isolated_prefix_dir,
-                title="Step 3: Choose Proton Version",
-                missing_text=f"{EXE_NAME} was not found in the game folder.\n"
+                title=self.tr("Step 3: Choose Proton Version"),
+                missing_text=self.tr("{0} was not found in the game folder.\n"
                              "Install the Creation Kit from Steam, then "
-                             "reopen this wizard.")
+                             "reopen this wizard.").format(EXE_NAME))
         elif idx == _PG_RUN:
             self._start_run()
 
@@ -173,12 +173,12 @@ class CreationKitView(WizardViewBase):
                     status_fn=lambda t: safe_emit(self._ckpe_status_sig, t, ""),
                     log_fn=_wlog)
                 safe_emit(self._ckpe_status_sig,
-                          f"CKPE {tag} installed as a mod (root flag enabled).",
+                          self.tr("CKPE {0} installed as a mod (root flag enabled).").format(tag),
                           GREEN)
                 safe_emit(self._ckpe_done_sig, True)
             except Exception as exc:
                 safe_emit(self._ckpe_status_sig,
-                          f"CKPE install error: {exc}", RED)
+                          self.tr("CKPE install error: {0}").format(exc), RED)
                 _wlog(f"CKPE install error: {exc}")
                 safe_emit(self._ckpe_done_sig, False)
 
@@ -219,15 +219,15 @@ class CreationKitView(WizardViewBase):
                     isolated_prefix_dir=_ck_isolated_prefix_dir(proton_name))
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(proton_name), RED)
                     return
                 proton_script, compat_data, env = result
 
                 game_path = game.get_game_path()
                 if game_path is None:
                     safe_emit(self._run_status_sig,
-                              "Game path not configured.", RED)
+                              self.tr("Game path not configured."), RED)
                     return
                 pfx = compat_data / "pfx"
 
@@ -242,12 +242,12 @@ class CreationKitView(WizardViewBase):
                 # fallback can't target the game prefix instead of this one.
                 if not is_dep_installed(pfx, D3D_DEP_KEY):
                     safe_emit(self._run_status_sig,
-                              "Installing d3dcompiler_47…", "")
+                              self.tr("Installing d3dcompiler_47…"), "")
                     install_d3dcompiler_47("", log_fn=_wlog, prefix_path=pfx)
                 if not is_dep_installed(pfx, VCREDIST_DEP_KEY):
                     safe_emit(self._run_status_sig,
-                              "Installing VC++ Redistributable (first run "
-                              "only)…", "")
+                              self.tr("Installing VC++ Redistributable (first run "
+                              "only)…"), "")
                     install_vcredist(proton_script, env, log_fn=_wlog,
                                      prefix_path=pfx)
 
@@ -280,18 +280,18 @@ class CreationKitView(WizardViewBase):
 
                 _wlog(f"launching {exe} via Proton from {game_path}")
                 safe_emit(self._run_status_sig,
-                          "Creation Kit is running.\nClose it when you are "
-                          "done, then click Done.", GREEN)
+                          self.tr("Creation Kit is running.\nClose it when you are "
+                          "done, then click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 cwd=game_path, label="Creation Kit")
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 _wlog("Creation Kit closed.")
-                safe_emit(self._run_status_sig, "Creation Kit finished.", GREEN)
+                safe_emit(self._run_status_sig, self.tr("Creation Kit finished."), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig, self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"Creation Kit Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="ck-run").start()

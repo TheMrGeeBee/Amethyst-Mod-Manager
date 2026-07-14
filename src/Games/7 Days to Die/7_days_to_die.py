@@ -64,6 +64,12 @@ _EXISTING_PREFIX_RE = re.compile(r"^\d+[-_]")
 # so it doesn't touch vanilla content.
 _DATA_DEPLOY_LOG = "data_deployed.txt"
 
+# Log of every file linked into Mods/ during the last deploy, grouped per
+# deployed folder with its staged-mod mapping.  Restore diffs the deployed
+# tree against this to find runtime-generated files (mod configs, logs,
+# generated dumps) and rescue them instead of deleting them.
+_MODS_DEPLOY_LOG = "mods_deployed.txt"
+
 # ``.assets`` files replace Unity asset bundles in ``7DaysToDie_Data/``;
 # all other loose content in a Data/-style mod routes to the Prefabs folder.
 _ASSETS_EXTS: frozenset[str] = frozenset({".assets"})
@@ -305,6 +311,11 @@ class SevenDaysToDie(BaseGame):
         if not use_prefix:
             _log("  (Folder numbering disabled — linking mods under their "
                  "original folder names; load order is plain alphabetical.)")
+        # Per deployed folder: (dst_name, staged_name, offset, placed rels) —
+        # persisted so restore can tell deployed files from runtime-generated.
+        deployed_sections: list[tuple[str, str, str, list[str]]] = []
+        overwrite_dir = self.get_effective_overwrite_path()
+        overlaid_total = 0
         for n, (_idx, staged_name, inner) in enumerate(mods_folders):
             if use_prefix:
                 # mods_folders is in modlist order (idx 0 = highest priority),
@@ -324,10 +335,23 @@ class SevenDaysToDie(BaseGame):
             # subfolder of it (legacy nested layout), so prepend that offset
             # when testing each file against the shared filemap filter chain.
             offset = _subtree_offset(staging / staged_name, inner)
-            keep = _make_keep(path_filters, staged_name, offset)
+            keep = _make_keep(path_filters, staged_name, offset.lower())
             try:
-                _deploy_mod_folder(inner, dst, mode, keep)
-                _log(f"  {staged_name} / {inner.name} → {dst_name}")
+                placed_rels = _deploy_mod_folder(inner, dst, mode, keep)
+                # Overlay runtime files rescued to overwrite/ by earlier
+                # restores — only while their owning mod is enabled/deployed.
+                ow_src = overwrite_dir / "Mods" / staged_name
+                if offset:
+                    ow_src = ow_src / offset.rstrip("/")
+                ow_rels = _overlay_overwrite_files(ow_src, dst, mode, _log)
+                if ow_rels:
+                    overlaid_total += len(ow_rels)
+                    placed_rels += ow_rels
+                deployed_sections.append(
+                    (dst_name, staged_name, offset, placed_rels))
+                _log(f"  {staged_name} / {inner.name} → {dst_name}"
+                     + (f" (+{len(ow_rels)} overwrite file(s))"
+                        if ow_rels else ""))
             except OSError as err:
                 _log(f"  ERROR: failed to deploy {staged_name}/{inner.name}: {err}")
             done += 1
@@ -368,14 +392,31 @@ class SevenDaysToDie(BaseGame):
         except OSError as err:
             _log(f"  WARN: could not write {_DATA_DEPLOY_LOG}: {err}")
 
+        # Same for the Mods/ deploy log (also written when empty, clearing any
+        # stale log so restore never diffs against a previous deploy's state).
+        try:
+            _write_mods_deploy_log(
+                profile_dir / _MODS_DEPLOY_LOG, deployed_sections)
+        except OSError as err:
+            _log(f"  WARN: could not write {_MODS_DEPLOY_LOG}: {err}")
+
         _log(f"Deploy complete. {total_mods} Mods/-style folder(s) + "
-             f"{total_data} mod(s) with loose content.")
+             f"{total_data} mod(s) with loose content."
+             + (f" {overlaid_total} overwrite file(s) overlaid."
+                if overlaid_total else ""))
 
     def restore(self, log_fn=None, progress_fn=None) -> None:
         """Undo a previous deploy.
 
-        - Clears ``Mods/`` and moves ``Mods_Core/`` back.
+        - Removes the deployed ``Mods/`` folders, rescuing any runtime-generated
+          files (per the Mods/ deploy log) into ``overwrite/Mods/<mod>/`` first,
+          and moves ``Mods_Core/`` back.  Deploy overlays the rescued files back
+          while their owning mod is enabled.
         - Reads the Data/-style deploy log and unlinks each listed file.
+
+        Entries in ``Mods/`` that the last deploy didn't create are left in
+        place (they're runtime/user-created); the next deploy moves them into
+        ``Mods_Core/`` alongside vanilla content so they keep surviving cycles.
         """
         _log = log_fn or (lambda _: None)
         if self._game_path is None:
@@ -421,20 +462,68 @@ class SevenDaysToDie(BaseGame):
                     pass
                 _log(f"  Removed {removed} Data/-style file(s).")
 
-        # --- Clear Mods/ and swap vanilla back ---
+        # --- Clear deployed Mods/ entries and swap vanilla back ---
+        # The Mods/ deploy log says exactly which folders/files the last deploy
+        # placed.  Files inside those folders that are NOT in the log appeared
+        # at runtime (mod configs, logs, generated dumps) — rescue them into
+        # overwrite/ so the next deploy overlays them back, instead of deleting
+        # them.  With no log (pre-log deploy) fall back to the old
+        # wipe-everything behaviour, but only when a vanilla backup proves a
+        # deploy actually happened — otherwise Mods/ holds vanilla/user content
+        # and must not be touched.
+        deployed_map = None
+        mods_log_path = None
+        if profile_dir is not None:
+            mods_log_path = profile_dir / _MODS_DEPLOY_LOG
+            deployed_map = _read_mods_deploy_log(mods_log_path)
+        overwrite_dir = self.get_effective_overwrite_path()
+
         removed_mods = 0
+        preserved = 0
+        rescued: list[str] = []
         if mods_dir.is_dir():
+            legacy_wipe = deployed_map is None and core_dir.is_dir()
             _log(f"Restore: clearing {mods_dir.name}/ ...")
             for child in list(mods_dir.iterdir()):
                 try:
-                    if child.is_symlink() or child.is_file():
+                    if child.is_symlink():
+                        # Whole-folder symlinks are always deploy leftovers.
                         child.unlink()
-                    else:
+                        removed_mods += 1
+                        continue
+                    entry = (deployed_map.get(child.name)
+                             if deployed_map is not None else None)
+                    if entry is not None and child.is_dir():
+                        staged_name, offset, rels = entry
+                        rescued.extend(_rescue_runtime_files(
+                            child, offset, rels, overwrite_dir,
+                            staged_name, _log))
                         shutil.rmtree(child)
-                    removed_mods += 1
+                        removed_mods += 1
+                    elif legacy_wipe:
+                        if child.is_file():
+                            child.unlink()
+                        else:
+                            shutil.rmtree(child)
+                        removed_mods += 1
+                    else:
+                        preserved += 1
                 except OSError as err:
                     _log(f"  WARN: could not remove {child.name}: {err}")
             _log(f"  Removed {removed_mods} entry/entries from {mods_dir.name}/.")
+            if rescued:
+                _log(f"  Rescued {len(rescued)} runtime file(s) into overwrite/.")
+                # Feed the same restore log the standard deploy writes so the
+                # rescued files show under Overwrite ▸ Log in the modlist.
+                from Utils.deploy_shared import _append_overwrite_log
+                _append_overwrite_log(overwrite_dir, rescued, log_fn=_log)
+            if preserved:
+                _log(f"  Left {preserved} non-deployed entry/entries in place.")
+        if mods_log_path is not None:
+            try:
+                mods_log_path.unlink()
+            except OSError:
+                pass
 
         if core_dir.is_dir():
             _log(f"Restore: moving {core_dir.name}/ back to {mods_dir.name}/ ...")
@@ -568,17 +657,19 @@ def _safe_folder_name(name: str) -> str:
 
 
 def _subtree_offset(stage_root: Path, inner: Path) -> str:
-    """Return the lowercase forward-slash prefix (with trailing '/') of ``inner``
-    relative to ``stage_root``, or '' when they're the same folder.
+    """Return the forward-slash prefix (real case, with trailing '/') of
+    ``inner`` relative to ``stage_root``, or '' when they're the same folder.
 
     Filter keys are relative to the staged mod root; in the legacy nested layout
     ``inner`` is a child of it, so this offset re-bases a file's inner-relative
-    path back onto the staged-root key space the filters expect.
+    path back onto the staged-root key space the filters expect (lowercase it
+    for that use).  The real-case form also rebuilds staging paths when restore
+    rescues runtime files.
     """
     if inner == stage_root:
         return ""
     try:
-        return inner.relative_to(stage_root).as_posix().lower() + "/"
+        return inner.relative_to(stage_root).as_posix() + "/"
     except ValueError:
         return ""
 
@@ -591,7 +682,7 @@ def _make_keep(path_filters, mod_name: str, offset: str):
 
 
 def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode,
-                       keep=None) -> None:
+                       keep=None) -> list[str]:
     """Place ``src`` (a whole mod staging folder) at ``dst``, file-by-file.
 
     Every file is linked individually (rather than symlinking the whole folder)
@@ -607,6 +698,9 @@ def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode,
     matches the Data tab exactly.  ``dst`` must not exist on entry — any
     pre-existing directory with the same name is removed first so re-deploys
     stay idempotent.
+
+    Returns the dst-relative POSIX path (real case) of every file placed, for
+    the Mods/ deploy log.
     """
     keep = keep or (lambda _rel: True)
     if dst.exists() or dst.is_symlink():
@@ -616,14 +710,21 @@ def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode,
             shutil.rmtree(dst)
 
     dst.mkdir(parents=True, exist_ok=True)
+    placed: list[str] = []
     src_str = str(src)
     dst_str = str(dst)
     for root, _dirs, files in os.walk(src_str):
         rel = os.path.relpath(root, src_str)
         target_dir = dst_str if rel == "." else os.path.join(dst_str, rel)
-        rel_prefix = "" if rel == "." else rel.replace(os.sep, "/").lower() + "/"
+        rel_real = "" if rel == "." else rel.replace(os.sep, "/") + "/"
+        rel_prefix = rel_real.lower()
         made_dir = rel == "."   # dst root always exists already
         for fname in files:
+            # Manager metadata at the mod root (meta.ini etc.) is excluded
+            # from the filemap at index level, so keep() never sees it —
+            # filter it here too (flat layout puts it at the walk root).
+            if rel == "." and fname.lower() in _STAGING_METADATA:
+                continue
             if not keep(rel_prefix + fname.lower()):
                 continue
             if not made_dir:
@@ -637,6 +738,146 @@ def _deploy_mod_folder(src: Path, dst: Path, mode: LinkMode,
                 shutil.copy2(s, d)
             else:
                 os.link(s, d)
+            placed.append(rel_real + fname)
+    return placed
+
+
+def _write_mods_deploy_log(
+    path: Path,
+    sections: list[tuple[str, str, str, list[str]]],
+) -> None:
+    """Persist what deploy placed into Mods/, one section per deployed folder:
+
+        > <dst_name>\\t<staged_name>\\t<offset>
+        <rel path of each file placed, relative to the deployed folder>
+
+    ``offset`` re-bases rels onto the staged-mod key space (legacy nested
+    layout); it is '' for flat staging.  Restore diffs the on-disk tree against
+    this to spot runtime-generated files.
+    """
+    lines: list[str] = []
+    for dst_name, staged_name, offset, rels in sections:
+        lines.append(f"> {dst_name}\t{staged_name}\t{offset}")
+        lines.extend(rels)
+    path.write_text("\n".join(lines) + ("\n" if lines else ""),
+                    encoding="utf-8")
+
+
+def _read_mods_deploy_log(
+    path: Path,
+) -> "dict[str, tuple[str, str, set[str]]] | None":
+    """Parse the Mods/ deploy log written by :func:`_write_mods_deploy_log`.
+
+    Returns ``{dst_name: (staged_name, offset, deployed_rels_lower)}``, or
+    None when the log is missing/unreadable (pre-log deploy — the caller falls
+    back to the legacy wipe).  An empty dict is a valid log (deploy placed no
+    Mods/-style folders).
+    """
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    entries: dict[str, tuple[str, str, set[str]]] = {}
+    current: set[str] | None = None
+    for raw in text.splitlines():
+        if not raw:
+            continue
+        if raw.startswith("> "):
+            parts = raw[2:].split("\t")
+            if len(parts) != 3:
+                current = None
+                continue
+            dst_name, staged_name, offset = parts
+            current = set()
+            entries[dst_name] = (staged_name, offset, current)
+        elif current is not None:
+            current.add(raw.lower())
+    return entries
+
+
+def _rescue_runtime_files(
+    deployed_dir: Path,
+    offset: str,
+    deployed_rels: set[str],
+    overwrite_dir: Path,
+    staged_name: str,
+    log_fn,
+) -> list[str]:
+    """Move runtime-generated files out of *deployed_dir* before it is deleted.
+
+    Any regular file not recorded in the deploy log appeared after deploy (mod
+    configs, logs, generated dumps).  It is moved to
+    ``overwrite/Mods/<staged_name>/<offset><rel>`` — the overwrite folder owns
+    runtime data (Stardew-style); deploy overlays it back onto the deployed
+    folder while the owning mod stays enabled.  An existing overwrite copy is
+    replaced (the file being rescued is the newest version).
+
+    Returns the overwrite-root-relative POSIX path of every file moved (the
+    restore appends them to the overwrite log the UI shows via
+    Overwrite ▸ Log).
+    """
+    moved: list[str] = []
+    dep_str = str(deployed_dir)
+    for root, _dirs, files in os.walk(dep_str):
+        rel_dir = os.path.relpath(root, dep_str)
+        prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "/") + "/"
+        for fname in files:
+            rel = prefix + fname
+            if rel.lower() in deployed_rels:
+                continue                      # we deployed it — delete normally
+            src = os.path.join(root, fname)
+            if os.path.islink(src):
+                continue                      # a link is never runtime data
+            ow_rel = f"Mods/{staged_name}/{offset}{rel}"
+            dst = overwrite_dir / ow_rel
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.exists() or dst.is_symlink():
+                    dst.unlink()
+                shutil.move(src, str(dst))
+                moved.append(ow_rel)
+            except OSError as err:
+                log_fn(f"  WARN: could not rescue {rel}: {err}")
+    return moved
+
+
+def _overlay_overwrite_files(ow_dir: Path, dst: Path, mode: LinkMode,
+                             log_fn) -> list[str]:
+    """Link every file under *ow_dir* (the mod's slice of overwrite/) into the
+    deployed folder *dst*, replacing mod-shipped files on collision — runtime
+    data always wins over the shipped default.  Called only for mods being
+    deployed, so overwrite content of disabled/removed mods never reaches the
+    game (Stardew-style orphan skip).
+
+    Returns the dst-relative POSIX rels placed, for the Mods/ deploy log.
+    """
+    if not ow_dir.is_dir():
+        return []
+    placed: list[str] = []
+    ow_str = str(ow_dir)
+    dst_str = str(dst)
+    for root, _dirs, files in os.walk(ow_str):
+        rel_dir = os.path.relpath(root, ow_str)
+        prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "/") + "/"
+        for fname in files:
+            s = os.path.join(root, fname)
+            d = os.path.join(dst_str, prefix.replace("/", os.sep) + fname)
+            try:
+                os.makedirs(os.path.dirname(d), exist_ok=True)
+                if os.path.islink(d) or os.path.exists(d):
+                    os.unlink(d)
+                if mode is LinkMode.SYMLINK:
+                    os.symlink(s, d)
+                elif mode is LinkMode.COPY:
+                    shutil.copy2(s, d)
+                else:
+                    os.link(s, d)
+                placed.append(prefix + fname)
+            except OSError as err:
+                log_fn(f"    WARN: overwrite overlay {prefix + fname}: {err}")
+    return placed
 
 
 def _route_loose_file(rel: str, fname: str) -> str | None:

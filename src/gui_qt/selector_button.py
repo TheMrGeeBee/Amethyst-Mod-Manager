@@ -12,7 +12,40 @@ from __future__ import annotations
 from typing import Callable
 from PySide6.QtWidgets import QToolButton, QMenu
 from PySide6.QtGui import QActionGroup
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QEvent, QObject
+
+
+class SplitPressHighlighter(QObject):
+    """Event filter for split (MenuButtonPopup) buttons whose QSS lights the
+    arrow section via the `menuOpen` dynamic property.
+
+    Qt repaints the pressed (sunken) body SYNCHRONOUSLY inside
+    mousePressEvent, before any pressed-signal handler runs — so when menuOpen
+    is only set in the menu's aboutToShow, the body turns blue a whole
+    menu-build ahead of the arrow (very visible on big dynamic menus like
+    Wizard, whose aboutToShow rebuild probes the filesystem). QSS can't close
+    the gap either: `:pressed::menu-button` misparses and leaks onto every
+    state. Setting the property here, before the widget sees the press, folds
+    both halves into that one synchronous repaint. aboutToHide still clears
+    it; the release guard covers a menu that never actually showed."""
+
+    def eventFilter(self, btn, ev):
+        t = ev.type()
+        if t == QEvent.MouseButtonPress and ev.button() == Qt.LeftButton:
+            self._set(btn, True)
+        elif t == QEvent.MouseButtonRelease:
+            menu = btn.menu()
+            if menu is None or not menu.isVisible():
+                self._set(btn, False)
+        return False
+
+    @staticmethod
+    def _set(btn, on: bool):
+        if btn.property("menuOpen") == on:
+            return
+        btn.setProperty("menuOpen", on)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
 
 
 class _StayOpenMenu(QMenu):
@@ -85,13 +118,14 @@ class SelectorButton(QToolButton):
         self.setMenu(self._menu)
         # The text section (left of the split) also opens the menu — a selector
         # has no separate primary action. Open on *press* (like the arrow
-        # section does natively): waiting for the release made the body
-        # highlight first and the arrow section catch up later, which read as
-        # lag; on press, aboutToShow sets menuOpen before the next repaint so
-        # both halves light up together with the menu. (InstantPopup — the
-        # icon-only mode — already opens on press natively.)
+        # section does natively). The SplitPressHighlighter sets menuOpen
+        # before Qt's synchronous sunken repaint, so both halves light up in
+        # the SAME frame instead of the arrow lagging one menu-build behind
+        # the body. (InstantPopup — the icon-only mode — already opens on
+        # press natively and has no separate arrow section.)
         if icon is None:
             self.pressed.connect(self.showMenu)
+            self.installEventFilter(SplitPressHighlighter(self))
         # A dynamic `menuOpen` property (toggled while the menu is shown) drives
         # the open-state highlight in QSS — reliable across QStyles, unlike the
         # :pressed/:on pseudo-states for a MenuButtonPopup tool button.

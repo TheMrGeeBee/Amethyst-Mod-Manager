@@ -30,8 +30,8 @@ class PrefixManagerView(QWidget):
     """Scoped-tab body listing all tool prefixes with sizes + batch delete."""
 
     _entries_ready = Signal(object)        # list[PrefixEntry]
-    _size_ready = Signal(str, int)         # (entry key, bytes)
-    _sizes_done = Signal(int)              # total bytes
+    _size_ready = Signal(str, "qlonglong")  # (entry key, bytes; 64-bit: >2GB)
+    _sizes_done = Signal("qlonglong")      # total bytes (64-bit: >2GB)
     _delete_done = Signal(int, object)     # (deleted count, list[str] errors)
 
     def __init__(self, active_game_name: str = "", on_close=None, log_fn=None):
@@ -267,7 +267,7 @@ class PrefixManagerView(QWidget):
             f"Delete {n} tool prefix{'' if n == 1 else 'es'}{size_txt}?\n\n"
             "Prefixes are recreated automatically the next time each tool "
             "runs; installed dependencies (e.g. .NET) will re-install then.",
-            _done, confirm_label="Delete")
+            _done, confirm_label=self.tr("Delete"))
 
     def _run_delete(self, entries: list[PrefixEntry]):
         self._busy = True

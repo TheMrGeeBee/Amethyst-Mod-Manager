@@ -269,6 +269,7 @@ class NexusModCard(QFrame):
         self.entry = entry
         self._on_context = on_context
         self._installed = bool(is_installed)
+        self._watching = False
         p = active_palette()
         self._pal = p
         dim = _c(p, "TEXT_DIM")
@@ -374,8 +375,23 @@ class NexusModCard(QFrame):
         self._installed = bool(installed)
         self._apply_install_style()
 
+    def set_watching(self, watching: bool) -> None:
+        """A non-premium install is waiting for this mod's browser download —
+        the Install button becomes a red Cancel (the click toggles the watch)."""
+        if bool(watching) == self._watching:
+            return
+        self._watching = bool(watching)
+        self._apply_install_style()
+
     def _apply_install_style(self):
-        if self._installed:
+        if self._watching:
+            danger = _c(self._pal, "BTN_DANGER")
+            self._install_btn.setText(self.tr("Cancel"))
+            self._install_btn.setStyleSheet(
+                f"QPushButton{{background:{danger}; color:{contrast_text(danger)}; font-weight:600;"
+                f" border:none; border-radius:4px; padding:5px 0;}}"
+                f"QPushButton:hover{{background:{danger};}}")
+        elif self._installed:
             # Reinstall — orange (BTN_WARN), like the Downloads tab.
             warn = _c(self._pal, "BTN_WARN")
             self._install_btn.setText(self.tr("Reinstall"))

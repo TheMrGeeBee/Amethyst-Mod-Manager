@@ -171,12 +171,13 @@ class PandoraView(QWidget):
     def _start_deploy(self):
         run_deploy = getattr(self._ctx, "run_deploy", None)
         if run_deploy is None:
-            safe_emit(self._deploy_status_sig, "Deploy is unavailable here.", err_text())
+            safe_emit(self._deploy_status_sig,
+                      self.tr("Deploy is unavailable here."), err_text())
             return
         self._busy = True
         self._deploy_btn.setEnabled(False)
         self._skip_btn.setEnabled(False)
-        safe_emit(self._deploy_status_sig, "Deploying…", "")
+        safe_emit(self._deploy_status_sig, self.tr("Deploying…"), "")
 
         def _done(ok: bool):
             # Fired on the UI thread by the app's deploy completion handler.
@@ -215,7 +216,7 @@ class PandoraView(QWidget):
             self._game, self._exe, EXE_NAME, "Pandora",
             on_continue=self._on_proton_chosen,
             log_fn=self._log,
-            title="Step 2: Choose Proton Version",
+            title=self.tr("Step 2: Choose Proton Version"),
         )
 
     def _on_proton_chosen(self, proton_name: str, prefix_mode: str):
@@ -244,31 +245,33 @@ class PandoraView(QWidget):
             from Utils.pandora_tools import install_net10, net10_installed
             try:
                 safe_emit(self._deps_status_sig,
-                    "Preparing Pandora's Wine prefix…", "")
+                    self.tr("Preparing Pandora's Wine prefix…"), "")
                 result = resolve_tool_prefix(
                     exe, game, proton_name, prefix_mode,
                     log_fn=lambda m: self._log(f"Pandora Wizard: {m}"))
                 if result is None:
                     safe_emit(self._deps_status_sig,
-                        f"Could not find Proton '{proton_name}' — check that "
-                        "it is installed in Steam, then reopen this wizard.",
+                        self.tr("Could not find Proton '{0}' — check that "
+                        "it is installed in Steam, then reopen this wizard.")
+                        .format(proton_name),
                         err_text())
                     return
                 self._prefix_env = result
                 proton_script, compat_data, env = result
                 if net10_installed(compat_data):
                     safe_emit(self._deps_status_sig,
-                        ".NET 10 already installed — skipping.", ok_text())
+                        self.tr(".NET 10 already installed — skipping."), ok_text())
                 else:
                     install_net10(
                         proton_script, compat_data, env,
                         log_fn=lambda m: self._log(f"Pandora Wizard: {m}"),
                         status_fn=lambda t: safe_emit(self._deps_status_sig, t, ""))
                     safe_emit(self._deps_status_sig,
-                        ".NET 10 installed successfully.", ok_text())
+                        self.tr(".NET 10 installed successfully."), ok_text())
                 safe_emit(self._goto_step_sig, 3)
             except Exception as exc:
-                safe_emit(self._deps_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._deps_status_sig,
+                          self.tr("Error: {0}").format(exc), err_text())
                 self._log(f"Pandora Wizard: .NET 10 install error: {exc}")
             finally:
                 self._busy = False
@@ -303,7 +306,8 @@ class PandoraView(QWidget):
             try:
                 if prefix_env is None:
                     safe_emit(self._run_status_sig,
-                        "Prefix was not prepared — go back and retry.", err_text())
+                        self.tr("Prefix was not prepared — go back and retry."),
+                        err_text())
                     return
                 proton_script, compat_data, env = prefix_env
                 self._log(f"Pandora Wizard: launching {exe} via Proton")
@@ -313,13 +317,15 @@ class PandoraView(QWidget):
                     on_started=lambda *a: safe_emit(self._run_started_sig, *a))
                 if rc != 0:
                     safe_emit(self._run_status_sig,
-                        f"Pandora exited with error (code {rc}).\nSee the "
-                        "log for details. Click Done to close.", err_text())
+                        self.tr("Pandora exited with error (code {0}).\nSee the "
+                        "log for details. Click Done to close.").format(rc),
+                        err_text())
                 else:
                     safe_emit(self._run_status_sig,
-                        "Pandora finished. Click Done to close.", ok_text())
+                        self.tr("Pandora finished. Click Done to close."), ok_text())
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", err_text())
+                safe_emit(self._run_status_sig,
+                          self.tr("Launch error: {0}").format(exc), err_text())
                 self._log(f"Pandora Wizard: launch error: {exc}")
             finally:
                 self._busy = False

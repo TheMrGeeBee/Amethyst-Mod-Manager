@@ -39,7 +39,7 @@ class WryeBashView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run Wrye Bash — {game.name}")
+                         title=self.tr("Run Wrye Bash — {0}").format(game.name))
         self._exe = tool_exe_path(game, _EXE_NAME, _APP_DIR)
         self._proton_name = ""
         self._prefix_mode = ""
@@ -55,15 +55,16 @@ class WryeBashView(WizardViewBase):
         self._stack.addWidget(page)
         # page 1: deploy
         self._stack.addWidget(self._build_deploy_page(
-            "Step 2: Deploy Modlist",
-            "Deploy the modlist so Wrye Bash sees your mods and the\n"
+            self.tr("Step 2: Deploy Modlist"),
+            self.tr("Deploy the modlist so Wrye Bash sees your mods and the\n"
             "Bashed Patch it creates lands in the modded Data folder.\n"
-            "On restore, the new plugin is moved to Overwrite.",
+            "On restore, the new plugin is moved to Overwrite."),
             lambda: self._goto_step(_PG_PROTON)))
         # page 2: proton
         self._stack.addWidget(self._build_proton_holder())
         # page 3: run
-        self._stack.addWidget(self._build_run_page("Step 4: Run Wrye Bash"))
+        self._stack.addWidget(self._build_run_page(
+            self.tr("Step 4: Run Wrye Bash")))
 
         if self._exe is not None:
             self._goto_step(_PG_DEPLOY)
@@ -79,9 +80,10 @@ class WryeBashView(WizardViewBase):
         elif idx == _PG_PROTON:
             self._enter_proton(
                 self._exe, _EXE_NAME, "Wrye Bash", self._on_proton_chosen,
-                title="Step 3: Choose Proton Version",
-                missing_text=f"'{_EXE_NAME}' was not found.\n"
-                             "Please restart the wizard to reinstall Wrye Bash.")
+                title=self.tr("Step 3: Choose Proton Version"),
+                missing_text=self.tr("'{0}' was not found.\n"
+                             "Please restart the wizard to reinstall Wrye "
+                             "Bash.").format(_EXE_NAME))
         elif idx == _PG_RUN:
             self._start_run()
 
@@ -115,8 +117,9 @@ class WryeBashView(WizardViewBase):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(
+                                  proton_name), RED)
                     return
                 proton_script, compat_data, env = result
                 pfx = compat_data / "pfx"
@@ -145,18 +148,20 @@ class WryeBashView(WizardViewBase):
                       + (f" with -o C:\\wb_games\\{game_path.resolve().name}"
                          if game_path else ""))
                 safe_emit(self._run_status_sig,
-                          "Wrye Bash is running.\nClose it when you are done, "
-                          "then click Done.", GREEN)
+                          self.tr("Wrye Bash is running.\nClose it when you are "
+                          "done, then click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 extra_args=game_arg, label="Wrye Bash")
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 _wlog("Wrye Bash closed.")
-                safe_emit(self._run_status_sig, "Wrye Bash finished.", GREEN)
+                safe_emit(self._run_status_sig,
+                          self.tr("Wrye Bash finished."), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig,
+                          self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"Wrye Bash Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="wryebash-run").start()

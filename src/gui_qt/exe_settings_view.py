@@ -3,8 +3,10 @@
 Qt port of the non-launcher branch of Tk's ExeConfigPanel (gui/dialogs.py):
 launch arguments (+ insert game/mod path), Proton version override with the
 prefix tool buttons (run exe / winetricks / open folder), Steam-style launch
-options, and Remove EXE. "Hide from dropdown" / "Run from Data folder" are
-gone — the dropdown no longer scans, every listed exe is a manual entry.
+options, and Remove EXE. "Run from Data folder" is gone — the dropdown no
+longer scans the staging tree. Entries are manual custom exes, plus
+auto-detected framework launchers (installed script extenders) for which
+Remove becomes "Hide from dropdown" (they aren't in custom_exes.json).
 
 All persistence goes through Utils.exe_launch (same files the Tk app uses).
 The prefix tool workers run on daemon threads and only touch log_fn (the
@@ -20,7 +22,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QComboBox, QLineEdit, QPlainTextEdit, QMenu, QScrollArea,
+    QComboBox, QLineEdit, QPlainTextEdit, QMenu, QScrollArea, QCheckBox,
 )
 
 from gui_qt.theme_qt import active_palette, _c, danger_close_button, button_qss
@@ -36,12 +38,16 @@ class ExeSettingsView(QWidget):
     # Emitted from the Java-install worker to re-enable the button on the UI thread.
     _install_java_done = Signal()
 
-    def __init__(self, game, exe_path: Path, on_close, log_fn=None):
+    def __init__(self, game, exe_path: Path, on_close, log_fn=None,
+                 is_auto: bool = False):
         super().__init__()
         self._game = game
         self._exe_path = exe_path
         self._on_close = on_close or (lambda removed: None)
         self._log = log_fn or (lambda _m: None)
+        # Auto-detected framework entry (installed script extender): not in
+        # custom_exes.json, so "Remove" becomes "Hide from dropdown".
+        self._is_auto = is_auto
 
         from Utils.steam_finder import list_installed_proton
         self._proton_versions = (
@@ -110,8 +116,8 @@ class ExeSettingsView(QWidget):
 
         # -- Java runtime (.jar only) ----------------------------------------
         if self._is_jar:
-            sec_jar, sj = section("Java runtime")
-            sj.addWidget(hint(
+            sec_jar, sj = section(self.tr("Java runtime"))
+            sj.addWidget(hint(self.tr(
                 "How to run this .jar:\n"
                 "Host: run with your system's java (no Proton). Set the Java "
                 "command in Launch Options, e.g. 'java -jar %command%' "
@@ -121,7 +127,7 @@ class ExeSettingsView(QWidget):
                 "in Launch Options / Launch arguments is appended as extra "
                 "flags. Which prefix follows the Proton version below "
                 "('Game default' = the game's prefix; a specific version = an "
-                "isolated prefix next to the jar)."))
+                "isolated prefix next to the jar).")))
             self._jar_runtime_combo = QComboBox()
             self._jar_runtime_combo.addItem(self.tr("Host (system java)"),
                                             exe_launch.JAR_RUNTIME_HOST)
@@ -140,10 +146,10 @@ class ExeSettingsView(QWidget):
             bv.addWidget(sec_jar)
 
         # -- Launch arguments ------------------------------------------------
-        sec_args, sa = section("Launch arguments")
-        sa.addWidget(hint(
+        sec_args, sa = section(self.tr("Launch arguments"))
+        sa.addWidget(hint(self.tr(
             "Arguments passed to the exe. Use Wine paths for file arguments "
-            "(e.g. Z:\\home\\...) — the buttons below insert them for you."))
+            "(e.g. Z:\\home\\...) — the buttons below insert them for you.")))
         self._args_box = QPlainTextEdit()
         self._args_box.setFixedHeight(90)
         sa.addWidget(self._args_box)
@@ -164,7 +170,7 @@ class ExeSettingsView(QWidget):
         bv.addWidget(sec_args)
 
         # -- Proton version ---------------------------------------------------
-        sec_proton, sp = section("Proton version")
+        sec_proton, sp = section(self.tr("Proton version"))
         proton_row = QHBoxLayout()
         proton_row.setSpacing(8)
         self._proton_combo = QComboBox()
@@ -173,18 +179,18 @@ class ExeSettingsView(QWidget):
         proton_row.addWidget(self._proton_combo)
         proton_row.addStretch(1)
         sp.addLayout(proton_row)
-        sp.addWidget(hint(
+        sp.addWidget(hint(self.tr(
             "Use a specific Proton version with an isolated prefix next to the "
             "exe, instead of the game's prefix. Useful for tools that don't "
             "work with the game's Proton version. For Bethesda games the game "
             "path (registry), plugins.txt and My Games INIs are set up in the "
-            "prefix automatically at launch."))
+            "prefix automatically at launch.")))
         tool_row = QHBoxLayout()
         tool_row.setSpacing(6)
-        for label, cb in (("Run EXE in prefix…", self._run_exe_in_prefix),
-                          ("Run winecfg", self._run_winecfg_in_prefix),
-                          ("Run winetricks", self._run_winetricks_in_prefix),
-                          ("Open prefix folder", self._open_prefix_folder)):
+        for label, cb in ((self.tr("Run EXE in prefix…"), self._run_exe_in_prefix),
+                          (self.tr("Run winecfg"), self._run_winecfg_in_prefix),
+                          (self.tr("Run winetricks"), self._run_winetricks_in_prefix),
+                          (self.tr("Open prefix folder"), self._open_prefix_folder)):
             b = QPushButton(label)
             b.setObjectName("FormButton")
             b.setCursor(Qt.PointingHandCursor)
@@ -195,16 +201,28 @@ class ExeSettingsView(QWidget):
         bv.addWidget(sec_proton)
 
         # -- Launch options ----------------------------------------------------
-        sec_opts, so = section("Launch Options")
-        so.addWidget(hint(
+        sec_opts, so = section(self.tr("Launch Options"))
+        so.addWidget(hint(self.tr(
             "Steam-style options: env vars (KEY=VALUE), wrappers (e.g. "
             "gamemoderun), and %command% as placeholder for the full command. "
-            "Without %command%, appended as suffix."))
+            "Without %command%, appended as suffix.")))
         self._options_edit = QLineEdit()
         self._options_edit.setPlaceholderText(
             self.tr("e.g. PROTON_ENABLE_WAYLAND=0 gamemoderun %command%"))
         so.addWidget(self._options_edit)
         bv.addWidget(sec_opts)
+
+        # -- Deploy on run -----------------------------------------------------
+        sec_deploy, sd = section(self.tr("Deploy on run"))
+        self._deploy_on_run_chk = QCheckBox(
+            self.tr("Deploy the modlist before running this exe"))
+        self._deploy_on_run_chk.setStyleSheet(
+            f"color:{_c(p,'TEXT_MAIN')};")
+        sd.addWidget(self._deploy_on_run_chk)
+        sd.addWidget(hint(self.tr(
+            "Runs the same deploy as the Deploy button, then launches this exe "
+            "once the deploy finishes.")))
+        bv.addWidget(sec_deploy)
 
         bv.addStretch(1)
         scroll.setWidget(body)
@@ -213,7 +231,8 @@ class ExeSettingsView(QWidget):
         # -- Bottom bar ---------------------------------------------------------
         foot = QWidget(); foot.setObjectName("HeaderBar")
         fb = QHBoxLayout(foot); fb.setContentsMargins(12, 8, 12, 8); fb.setSpacing(6)
-        remove = QPushButton(self.tr("Remove EXE"))
+        remove = QPushButton(self.tr("Hide from dropdown") if self._is_auto
+                             else self.tr("Remove EXE"))
         remove.setCursor(Qt.PointingHandCursor)
         remove.setStyleSheet(button_qss("BTN_DANGER", padding="6px 14px"))
         remove.clicked.connect(self._on_remove)
@@ -238,6 +257,8 @@ class ExeSettingsView(QWidget):
         self._options_edit.setText(exe_launch.load_launch_options(game, name))
         saved = exe_launch.load_proton_override(game, name) or ""
         self._proton_combo.setCurrentText(self._best_proton_match(saved))
+        self._deploy_on_run_chk.setChecked(
+            exe_launch.load_deploy_on_run(game, name))
         if self._is_jar:
             runtime = exe_launch.load_jar_runtime(game, name)
             idx = self._jar_runtime_combo.findData(runtime)
@@ -264,6 +285,8 @@ class ExeSettingsView(QWidget):
             game, name, "" if selected == "Game default" else selected)
         exe_launch.save_launch_options(game, name,
                                        self._options_edit.text().strip())
+        exe_launch.save_deploy_on_run(
+            game, name, self._deploy_on_run_chk.isChecked())
         if self._is_jar:
             exe_launch.save_jar_runtime(
                 game, name, self._jar_runtime_combo.currentData())
@@ -271,8 +294,15 @@ class ExeSettingsView(QWidget):
         self._on_close(False)
 
     def _on_remove(self):
-        exe_launch.remove_custom_exe(self._game, self._exe_path)
-        self._log(f"[exe] removed {self._exe_path.name} from the exe list")
+        if self._is_auto:
+            # Auto-detected entry — persist the hide so it stays gone across
+            # refreshes; also drop any duplicate manual entry for the same exe.
+            exe_launch.hide_auto_exe(self._game, self._exe_path.name)
+            exe_launch.remove_custom_exe(self._game, self._exe_path)
+            self._log(f"[exe] hid {self._exe_path.name} from the exe dropdown")
+        else:
+            exe_launch.remove_custom_exe(self._game, self._exe_path)
+            self._log(f"[exe] removed {self._exe_path.name} from the exe list")
         self._on_close(True)
 
     # ---- insert helpers -----------------------------------------------------

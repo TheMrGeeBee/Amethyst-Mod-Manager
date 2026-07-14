@@ -499,3 +499,15 @@ def register_shortcuts(win) -> None:
     sc("End", _scroll_bottom)
     sc("Shift+E", _toggle_all_seps)
     sc("Shift+F", _toggle_filters)
+
+    # Perf instrumentation (MM_PERFTRACE=1): F11 = timing summary table,
+    # Shift+F11 = reset counters (perftrace.install only binds Tk keys, so
+    # the Qt window wires its own). Unguarded — the table should dump even
+    # with an overlay open or a text box focused.
+    from Utils import perftrace
+    if perftrace.is_enabled():
+        sc("F11", lambda _win: perftrace.dump(), guarded=False)
+        sc("Shift+F11", lambda _win: perftrace.reset(), guarded=False)
+        import sys
+        print("[PERF] perftrace enabled — F11 = summary table, "
+              "Shift+F11 = reset counters.", file=sys.stderr)

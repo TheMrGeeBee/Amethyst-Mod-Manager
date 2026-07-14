@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, Signal
 from PySide6.QtWidgets import (
     QButtonGroup, QHBoxLayout, QLabel, QRadioButton, QVBoxLayout,
     QWidget,
@@ -36,19 +36,25 @@ _TOOLS = {
         "VRAMr",
         "https://www.nexusmods.com/skyrimspecialedition/mods/90557?tab=files",
         "VRAMr", "vramr", "VRAMr",
-        "Select an optimisation preset, then click Run.", True),
+        QT_TRANSLATE_NOOP("TextureToolView",
+                          "Select an optimisation preset, then click Run."),
+        True),
     "bendr": (
         "BENDr",
         "https://www.nexusmods.com/skyrimspecialedition/mods/121578?tab=files",
         "BENDr", "bendr", "BENDr",
-        "Processes normal maps: BSA extract → filter → parallax prep → "
-        "bend normals → BC7 compress", False),
+        QT_TRANSLATE_NOOP("TextureToolView",
+                          "Processes normal maps: BSA extract → filter → "
+                          "parallax prep → bend normals → BC7 compress"),
+        False),
     "parallaxr": (
         "ParallaxR",
         "https://www.nexusmods.com/skyrimspecialedition/mods/124711?tab=files",
         "ParallaxR", "parallaxr", "ParallaxR",
-        "Processes parallax textures: BSA extract → filter pairs → "
-        "height maps → output QC", False),
+        QT_TRANSLATE_NOOP("TextureToolView",
+                          "Processes parallax textures: BSA extract → filter "
+                          "pairs → height maps → output QC"),
+        False),
 }
 
 _PG_DOWNLOAD, _PG_LOCATE, _PG_EXTRACT, _PG_DEPLOY, _PG_RUN = range(5)
@@ -64,7 +70,7 @@ class TextureToolView(WizardViewBase):
         (self._name, self._nexus_url, self._app_dir, self._archive_kw,
          self._output_dir, self._run_desc, self._has_presets) = _TOOLS[tool]
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run {self._name} — {game.name}")
+                         title=self.tr("Run {0} — {1}").format(self._name, game.name))
         self._preset = "optimum"
         self._run_reenable_sig.connect(self._guard(
             lambda: self._run_btn.setEnabled(True)))
@@ -73,19 +79,20 @@ class TextureToolView(WizardViewBase):
                            else texture_tool_installed(game, self._app_dir))
 
         self._stack.addWidget(self._build_manual_download_page(
-            f"Step 1: Download {self._name}",
-            f"Click the button below to open the {self._name} page on Nexus "
-            "Mods, then download the archive.\n\nOnce downloaded, click Next.",
+            self.tr("Step 1: Download {0}").format(self._name),
+            self.tr("Click the button below to open the {0} page on Nexus "
+            "Mods, then download the archive.\n\nOnce downloaded, click Next.")
+            .format(self._name),
             self._nexus_url,
             lambda: self._goto_step(_PG_LOCATE)))
         self._stack.addWidget(self._build_locate_page(
-            "Step 2: Locate the Archive"))
+            self.tr("Step 2: Locate the Archive")))
         self._stack.addWidget(self._build_extract_page(
-            f"Step 3: Extract {self._name}"))
+            self.tr("Step 3: Extract {0}").format(self._name)))
         self._stack.addWidget(self._build_deploy_page(
-            "Step 4: Deploy Modlist",
-            f"{self._name} reads your mods from the deployed Data folder.\n\n"
-            "Deploy your modlist first, then click Run.",
+            self.tr("Step 4: Deploy Modlist"),
+            self.tr("{0} reads your mods from the deployed Data folder.\n\n"
+            "Deploy your modlist first, then click Run.").format(self._name),
             lambda: self._goto_step(_PG_RUN)))
         self._stack.addWidget(self._build_run_page())
 
@@ -96,7 +103,7 @@ class TextureToolView(WizardViewBase):
 
     def _build_run_page(self) -> QWidget:
         page, lay = self._step_page(self.tr("Step 5: Run {0}").format(self._name))
-        self._make_note(lay, self._run_desc)
+        self._make_note(lay, self.tr(self._run_desc))
 
         if self._has_presets:
             p = active_palette()
@@ -143,10 +150,11 @@ class TextureToolView(WizardViewBase):
         self._stack.setCurrentIndex(idx)
         if idx == _PG_LOCATE:
             self._enter_locate(
-                [self._archive_kw], f"Select the {self._name} archive",
-                f"{self._name} archive not found in Downloads.\n"
+                [self._archive_kw],
+                self.tr("Select the {0} archive").format(self._name),
+                self.tr("{0} archive not found in Downloads.\n"
                 "Make sure you downloaded it, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                "or use Browse to select it manually.").format(self._name),
                 lambda _p: self._goto_step(_PG_EXTRACT))
         elif idx == _PG_EXTRACT:
             self._extract_to_applications(
@@ -184,11 +192,12 @@ class TextureToolView(WizardViewBase):
         output_dir = staging / self._output_dir
         name, tool_id = self._name, self._app_dir.lower()
 
-        self._set_status(
-            self._run_status,
-            f"Running {name}"
-            + (f" ({preset})" if preset else "")
-            + "… This may take a while.")
+        if preset:
+            run_msg = self.tr("Running {0} ({1})… This may take a while.").format(
+                name, preset)
+        else:
+            run_msg = self.tr("Running {0}… This may take a while.").format(name)
+        self._set_status(self._run_status, run_msg)
         self._log(f"{name} Wizard: starting pipeline…")
 
         def worker():
@@ -208,12 +217,14 @@ class TextureToolView(WizardViewBase):
                     run_parallaxr(bat_dir=bat_dir, game_data_dir=game_data_dir,
                                   output_dir=output_dir, log_fn=_wlog)
                 safe_emit(self._run_status_sig,
-                          f"{name} complete! Output is ready as a mod.", GREEN)
+                          self.tr("{0} complete! Output is ready as a mod.")
+                          .format(name), GREEN)
                 # marks _ran + enables Done (no auto-close — let the user read
                 # the result and click Done).
                 safe_emit(self._run_started_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._run_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
                 self._log(f"{name} Wizard: error: {exc}")
                 safe_emit(self._run_reenable_sig)
 

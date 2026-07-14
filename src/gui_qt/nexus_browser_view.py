@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QScrollArea, QFrame, QCheckBox, QToolButton, QMenu,
@@ -47,6 +47,8 @@ TIME_RANGES = [
     ("7 days", 7),
     ("14 days", 14),
     ("28 days", 28),
+    ("3 months", 90),
+    ("6 months", 180),
     ("Year", 365),
 ]
 SECTIONS = ["Browse", "Tracked", "Endorsed", "Trending"]
@@ -64,8 +66,10 @@ class NexusBrowserView(QWidget):
     _cats_ready = Signal(object)                    # (list[NexusCategory])
     _premium_checked = Signal(object, object)       # (entry, is_premium|None)
     _files_ready = Signal(object, object)           # (entry, list[NexusModFile])
+    _manual_files_ready = Signal(object, object)    # (entry, list[NexusModFile]|None)
+    _manual_watch_ended = Signal(int)               # (mod_id) — found or timed out
     _download_done = Signal(object, object, object)      # (archive_path|None, meta|None, dl_key)
-    _download_progress = Signal(object, object, int, int)  # (dl_key, name, downloaded, total)
+    _download_progress = Signal(object, object, "qlonglong", "qlonglong")  # (dl_key, name, downloaded, total bytes; 64-bit: >2GB)
 
     def __init__(self, api, domain, game, install_fn=None, log_fn=None,
                  progress_fn=None, parent=None):
@@ -87,7 +91,14 @@ class NexusBrowserView(QWidget):
         self._page = 0
         self._sort_key = "downloads"
         self._time_days = None
+        self._custom_time_label: str | None = None   # e.g. "Since 2026-03-01"
+        self._custom_time_date: QDate | None = None   # the picked calendar date
         self._query = ""
+        self._search_mode = "Name"      # "Name" | "Author" (Browse search bar)
+        # When an author browse is launched from a card's right-click, we search
+        # by the uploader's stable account id (reliable) rather than the typed
+        # name. Non-zero id here → the Author-mode worker uses the id path.
+        self._uploader_id = 0
         self._selected_categories: list[str] = []
         self._show_adult = self._load_show_adult()
         self._page_size_choice = self._load_page_size()
@@ -103,11 +114,29 @@ class NexusBrowserView(QWidget):
         self._cats_ready.connect(self._on_cats)
         self._premium_checked.connect(self._on_premium_checked)
         self._files_ready.connect(self._on_files_ready)
+        self._manual_files_ready.connect(self._on_manual_files_ready)
+        self._manual_watch_ended.connect(
+            lambda mod_id: self._set_card_watching(mod_id, False))
         self._download_done.connect(self._on_download_done)
         self._download_progress.connect(self._on_download_progress)
         self._installing = False        # serialise the prep phase (premium
         #                                 check → file chooser) of one install;
         #                                 released once the download starts
+        # mod_id → (ManualDownloadWatcher, dl_key): non-premium installs
+        # waiting for a browser ("Slow") download to land in the download
+        # folders. The destroyed hook must not touch self (C++ side is gone
+        # by then), so it captures the dict + progress_fn directly.
+        self._manual_watchers: dict = {}
+
+        def _stop_watchers(*_, w=self._manual_watchers, pf=self._progress_fn):
+            for watcher, key in list(w.values()):
+                watcher.stop()
+                try:
+                    pf(key, "", 0, -1)
+                except Exception:
+                    pass
+            w.clear()
+        self.destroyed.connect(_stop_watchers)
 
         self._build()
         self._update_section_buttons()
@@ -188,7 +217,8 @@ class NexusBrowserView(QWidget):
         tb.addWidget(self._sort_sel)
         self._time_sel = SelectorButton(
             items=[lbl for lbl, _ in TIME_RANGES], current="All time",
-            prefix="Time: ", min_width=130, on_select=self._on_time_changed)
+            prefix="Time: ", min_width=130, on_select=self._on_time_changed,
+            actions=[(self.tr("Custom…"), self._pick_custom_time)])
         tb.addWidget(self._time_sel)
 
         self._adult_cb = QCheckBox(self.tr("Show adult"))
@@ -284,6 +314,17 @@ class NexusBrowserView(QWidget):
         ft.setContentsMargins(10, 6, 10, 6)
         ft.setSpacing(6)
 
+        # Search-field mode: the labels are translated for display, but we map
+        # each back to a canonical English key ("Name"/"Author") so the worker's
+        # comparisons don't break under translation.
+        self._mode_label_name = self.tr("Name")
+        self._mode_label_author = self.tr("Author")
+        self._mode_sel = SelectorButton(
+            items=[self._mode_label_name, self._mode_label_author],
+            current=self._mode_label_name, min_width=110,
+            on_select=self._on_search_mode_changed)
+        ft.addWidget(self._mode_sel)
+
         self._search = QLineEdit()
         self._search.setPlaceholderText(self.tr("Search mods…"))
         self._search.setClearButtonEnabled(True)
@@ -297,6 +338,13 @@ class NexusBrowserView(QWidget):
         sbtn.setCursor(Qt.PointingHandCursor)
         sbtn.clicked.connect(self._do_search_now)
         ft.addWidget(sbtn)
+
+        cbtn = QToolButton()
+        cbtn.setText(self.tr("Clear"))
+        cbtn.setObjectName("ActionButton")
+        cbtn.setCursor(Qt.PointingHandCursor)
+        cbtn.clicked.connect(self._clear_search)
+        ft.addWidget(cbtn)
 
         ft.addStretch(1)
 
@@ -344,6 +392,7 @@ class NexusBrowserView(QWidget):
         self._search.blockSignals(True)
         self._search.clear()
         self._search.blockSignals(False)
+        self._reset_search_mode()
         self._update_section_buttons()
         self._update_browse_controls_visibility()
         self._reload()
@@ -357,6 +406,7 @@ class NexusBrowserView(QWidget):
         paged = self._section in ("Browse", "Trending")
         self._sort_sel.setVisible(browse)
         self._time_sel.setVisible(browse)
+        self._mode_sel.setVisible(browse)
         for w in (self._prev_btn, self._next_btn, self._page_edit,
                   self._perpage_sel):
             w.setVisible(paged)
@@ -440,7 +490,46 @@ class NexusBrowserView(QWidget):
         self._reload()
 
     def _on_time_changed(self, label: str):
+        # A preset was chosen — drop any lingering custom range so it doesn't
+        # stay pinned in the dropdown next to the presets.
+        if self._custom_time_label and label != self._custom_time_label:
+            self._custom_time_label = None
+            self._time_sel.set_items(
+                [lbl for lbl, _ in TIME_RANGES], current=label)
         self._time_days = dict(TIME_RANGES).get(label)
+        self._page = 0
+        self._reload()
+
+    def _pick_custom_time(self):
+        """Open a borderless calendar overlay (like the colour picker) and filter
+        to mods uploaded since the picked date. The Nexus filter is one-ended
+        ('createdAt >= cutoff'), so a single 'since' date is converted to a
+        day-count and reuses the preset path."""
+        from gui_qt.date_picker_overlay import DatePickerOverlay
+        today = QDate.currentDate()
+        initial = self._custom_time_date or today.addMonths(-3)
+        DatePickerOverlay.show_over(
+            self, self.tr("Uploaded since…"), initial, today,
+            self._on_custom_time_picked)
+
+    def _on_custom_time_picked(self, picked: "QDate | None"):
+        if picked is None:               # cancelled / Esc / backdrop click
+            return
+        today = QDate.currentDate()
+        if not picked.isValid() or picked > today:
+            return
+        days = picked.daysTo(today)          # 0 = today (still valid; > 0 path)
+        self._custom_time_date = picked
+        iso = picked.toString("yyyy-MM-dd")
+        label = self.tr("Since {0}").format(iso)
+        self._custom_time_label = label
+        # Inject the custom label as a selectable item so the button can show it
+        # (set_current only accepts known items), then make it current.
+        items = [lbl for lbl, _ in TIME_RANGES] + [label]
+        self._time_sel.set_items(items, current=label)
+        # daysTo(today)==0 (today picked) would disable the filter in the API
+        # (created_since_days>0 guard); clamp to 1 day so "today" still filters.
+        self._time_days = max(days, 1)
         self._page = 0
         self._reload()
 
@@ -454,6 +543,48 @@ class NexusBrowserView(QWidget):
         self._rebuild_cards()       # filter is applied at card-build time
 
     # -- search -------------------------------------------------------------
+    def _on_search_mode_changed(self, label: str):
+        # Map the (possibly translated) label back to a canonical key.
+        mode = "Author" if label == self._mode_label_author else "Name"
+        if mode == self._search_mode:
+            return
+        self._search_mode = mode
+        # Switching mode is a fresh, name-based query — drop any pinned uploader
+        # id from a prior right-click "Mods by this author".
+        self._uploader_id = 0
+        self._search.setPlaceholderText(
+            self.tr("Search by author…") if mode == "Author"
+            else self.tr("Search mods…"))
+        # Re-run the current query under the new mode. _do_search_now would
+        # short-circuit (query unchanged), so reload directly when there's text.
+        q = self._search.text().strip()
+        if q and (q.isdigit() or len(q) >= 2):
+            self._query = q
+            self._page = 0
+            self._set_section_for_search()
+            self._reload()
+
+    def _clear_search(self):
+        """Empty the search field, switch back to Name mode (if the dropdown was
+        on Author), and — if a search was active — return to the default
+        (unfiltered) listing for the current section."""
+        self._search.blockSignals(True)
+        self._search.clear()
+        self._search.blockSignals(False)
+        self._reset_search_mode()   # → Name mode + clears the pinned uploader id
+        if self._query:
+            self._query = ""
+            self._page = 0
+            self._reload()
+
+    def _reset_search_mode(self):
+        """Return the search bar to Name mode (used when switching sections)."""
+        self._uploader_id = 0
+        if self._search_mode != "Name":
+            self._search_mode = "Name"
+            self._search.setPlaceholderText(self.tr("Search mods…"))
+        self._mode_sel.set_current(self._mode_label_name)
+
     def _on_search_text(self, text: str):
         t = getattr(self, "_search_timer", None)
         if t is None:
@@ -472,6 +603,8 @@ class NexusBrowserView(QWidget):
             return
         if q == self._query:
             return
+        # A manually edited query is name-based — drop any pinned uploader id.
+        self._uploader_id = 0
         self._query = q
         self._page = 0
         self._set_section_for_search()
@@ -526,6 +659,9 @@ class NexusBrowserView(QWidget):
         """Retarget this browser at a different game (game switched while the tab
         is open). Resets navigation + filters (categories differ per game) and
         re-fetches categories + the Browse grid for the new domain."""
+        # Pending browser-download watches would install into the NEW game's
+        # modlist — stop them (and their progress cards) instead.
+        self._cancel_manual_watches()
         self._game = game
         self._domain = domain or ""
         # Reset navigation + search + filter state to the new game's defaults.
@@ -534,6 +670,12 @@ class NexusBrowserView(QWidget):
         self._query = ""
         self._selected_categories = []
         self._time_days = None
+        # Drop any custom "Since <date>" range and restore the preset list.
+        if self._custom_time_label:
+            self._custom_time_label = None
+            self._custom_time_date = None
+            self._time_sel.set_items(
+                [lbl for lbl, _ in TIME_RANGES], current="All time")
         self._fetch_token += 1              # invalidate any in-flight fetch
         # Clear the search box without re-triggering a search.
         try:
@@ -568,6 +710,8 @@ class NexusBrowserView(QWidget):
         sort_key = self._sort_key
         time_days = self._time_days
         query = self._query
+        mode = self._search_mode
+        uploader_id = self._uploader_id
         cats = list(self._selected_categories) or None
         domain = self._domain
 
@@ -576,13 +720,27 @@ class NexusBrowserView(QWidget):
             status = ""
             try:
                 if section == "Browse" and query:
-                    if query.isdigit():
+                    if mode == "Author":
+                        if uploader_id:
+                            # Right-click path: reliable stable-id lookup.
+                            entries = self._api.search_mods_by_uploader_id(
+                                domain, uploader_id, count=size,
+                                offset=page * size, category_names=cats,
+                                sort_key=sort_key)
+                        else:
+                            # Typed author search: match uploader by name.
+                            entries = self._api.search_mods_by_author(
+                                domain, query, count=size, offset=page * size,
+                                category_names=cats, sort_key=sort_key)
+                        status = f"Mods by '{query}': page {page + 1} ({len(entries)} result(s))"
+                    elif query.isdigit():
                         entries = self._api.search_mod_by_id(domain, int(query))
+                        status = f"Search '{query}': page {page + 1} ({len(entries)} result(s))"
                     else:
                         entries = self._api.search_mods(
                             domain, query, count=size, offset=page * size,
                             category_names=cats, sort_key=sort_key)
-                    status = f"Search '{query}': page {page + 1} ({len(entries)} result(s))"
+                        status = f"Search '{query}': page {page + 1} ({len(entries)} result(s))"
                 elif section == "Browse":
                     entries = self._api.get_top_mods(
                         domain, count=size, offset=page * size,
@@ -690,6 +848,8 @@ class NexusBrowserView(QWidget):
             card = NexusModCard(e, self._on_view, self._on_install,
                                 on_context=self._show_card_menu,
                                 is_installed=e.mod_id in installed)
+            if e.mod_id in self._manual_watchers:
+                card.set_watching(True)
             self._cards.append(card)
             self._thumbs.request(e.mod_id, getattr(e, "picture_url", "") or "")
         self._cols = 0
@@ -751,14 +911,61 @@ class NexusBrowserView(QWidget):
     def _show_card_menu(self, entry, global_pos):
         menu = QMenu(self)
         menu.addAction(self.tr("Open on Nexus"), lambda: self._on_view(entry))
-        menu.addAction(self.tr("Install"), lambda: self._on_install(entry))
+        # _on_install toggles: while a browser-download watch is pending for
+        # this mod, the same action cancels it instead.
+        menu.addAction(
+            self.tr("Cancel download detection")
+            if entry.mod_id in self._manual_watchers else self.tr("Install"),
+            lambda: self._on_install(entry))
+        # Browse by the uploader's stable account id (reliable — survives a
+        # rename and can't be spoofed via the free-text `author` field). Fall
+        # back to the display name / author only for a label when no id is
+        # available (e.g. a REST-sourced entry without uploader.memberId).
+        uploader_id = int(getattr(entry, "uploader_id", 0) or 0)
+        uploader_name = (getattr(entry, "uploaded_by", "") or "").strip() \
+            or (getattr(entry, "author", "") or "").strip()
+        if uploader_id or uploader_name:
+            menu.addAction(
+                self.tr("Mods by this author"),
+                lambda: self._browse_author(uploader_name, uploader_id))
         if self._section == "Tracked":
             menu.addAction(self.tr("Untrack"), lambda: self._user_action(
                 "untrack", entry))
-        elif self._section == "Endorsed":
+        else:
+            menu.addAction(self.tr("Track Mod"), lambda: self._user_action(
+                "track", entry))
+        if self._section == "Endorsed":
             menu.addAction(self.tr("Abstain"), lambda: self._user_action(
                 "abstain", entry))
         menu.exec(global_pos)
+
+    def _browse_author(self, author: str, uploader_id: int = 0):
+        """List all mods by an uploader in the Browse section. Triggered from a
+        card's right-click menu. When *uploader_id* is given, search uses the
+        stable account id; *author* is only the human-readable label shown in
+        the search field."""
+        author = (author or "").strip()
+        uploader_id = int(uploader_id or 0)
+        if not author and not uploader_id:
+            return
+        # Switch to Browse first — _set_section clears the query and resets the
+        # mode (incl. the pinned uploader id), so do it before we set up below.
+        if self._section != "Browse":
+            self._set_section("Browse")
+        # Enter Author mode and run the search. Pin the uploader id so the worker
+        # takes the reliable id path rather than the typed-name path.
+        self._search_mode = "Author"
+        self._uploader_id = uploader_id
+        self._mode_sel.set_current(self._mode_label_author)
+        self._search.setPlaceholderText(self.tr("Search by author…"))
+        self._search.blockSignals(True)
+        self._search.setText(author)
+        self._search.blockSignals(False)
+        # Use a non-empty query so the worker enters the search branch even when
+        # only an id is known (fall back to the id string as a last resort).
+        self._query = author or str(uploader_id)
+        self._page = 0
+        self._reload()
 
     def _user_action(self, kind: str, entry):
         domain = getattr(entry, "domain_name", "") or self._domain
@@ -766,7 +973,10 @@ class NexusBrowserView(QWidget):
 
         def worker():
             try:
-                if kind == "untrack":
+                if kind == "track":
+                    self._api.track_mod(domain, mod_id)
+                    self._log(f"Nexus: tracking {entry.name}")
+                elif kind == "untrack":
                     self._api.untrack_mod(domain, mod_id)
                     self._log(f"Nexus: untracked {entry.name}")
                 elif kind == "abstain":
@@ -780,6 +990,13 @@ class NexusBrowserView(QWidget):
 
     # -- install (premium check → file pick → download → install queue) ----
     def _on_install(self, entry):
+        if entry.mod_id in self._manual_watchers:
+            # Waiting for this mod's browser download — the click cancels the
+            # watch (e.g. it can't recognise the file). Click again to retry.
+            self.cancel_manual_watch(entry.mod_id)
+            self._log(f"Nexus: cancelled download detection for "
+                      f"{entry.name or entry.mod_id}.")
+            return
         if self._installing:
             self._log("Nexus: an install is already in progress.")
             return
@@ -788,7 +1005,19 @@ class NexusBrowserView(QWidget):
         name = entry.name or f"Mod {mod_id}"
         self._log(f"Nexus: preparing install for {name}…")
 
-        run_in_worker(lambda: (entry, bool(self._api.validate().is_premium)),
+        def _check_premium():
+            premium = bool(self._api.validate().is_premium)
+            if premium:
+                # [dev] force_manual_install = true → exercise the manual
+                # browser-download flow (same switch the collections use).
+                from Utils.ui_config import load_force_manual_install
+                if load_force_manual_install():
+                    self._log("Nexus: [dev] force_manual_install — using the "
+                              "manual browser-download flow.")
+                    premium = False
+            return (entry, premium)
+
+        run_in_worker(_check_premium,
                       self._premium_checked, name="nexus-premium-check",
                       unpack=True, error_result=(entry, None))
 
@@ -796,13 +1025,14 @@ class NexusBrowserView(QWidget):
         domain = getattr(entry, "domain_name", "") or self._domain
         mod_id = entry.mod_id
         if not is_premium:
-            # Non-premium (or unknown): open the files page to use the site button.
-            from Utils.xdg import open_url
-            url = f"{self._mod_url(entry)}?tab=files"
-            self._log("Nexus: premium required for direct download — opening "
-                      "the files page (use 'Download with Mod Manager').")
-            open_url(url, log_fn=self._log)
-            self._installing = False
+            # Non-premium (or unknown): the user downloads on the site. Fetch
+            # the file list first so a folder watcher can recognise the archive
+            # and auto-install it when it lands (manual collection installer
+            # parity); the files page opens once the list is in.
+            run_in_worker(
+                lambda: (entry, list(self._api.get_mod_files(domain, mod_id).files)),
+                self._manual_files_ready, name="nexus-manual-files",
+                unpack=True, error_result=(entry, None))
             return
         # Premium: fetch the file list on a worker → back to UI for the chooser.
         run_in_worker(
@@ -810,17 +1040,127 @@ class NexusBrowserView(QWidget):
             self._files_ready, name="nexus-file-list",
             unpack=True, error_result=(entry, []))
 
+    # -- non-premium: file chooser → file's download page + folder watch ----
+    def _on_manual_files_ready(self, entry, files):
+        """UI thread (non-premium install): pick the file (same chooser as the
+        premium path), open ITS download page directly, and watch the download
+        folders so the browser download auto-installs when it arrives.
+        'Download with Mod Manager' still works too — that comes back as an
+        nxm:// link, which cancels this watch (see app._handle_nxm)."""
+        from gui_qt.nexus_file_chooser import NexusFileChooser, installable_files
+        picks = installable_files(files or [])
+        if not picks:
+            # No file list (API error) or nothing installable: fall back to
+            # the plain files page — no watch possible without expected files.
+            from Utils.xdg import open_url
+            self._installing = False
+            open_url(f"{self._mod_url(entry)}?tab=files", log_fn=self._log)
+            self._log("Nexus: premium required for direct download — opened "
+                      "the files page (couldn't fetch the file list, so the "
+                      "download won't auto-install; use 'Download with Mod "
+                      "Manager' or the Downloads tab).")
+            return
+        if len(picks) > 1:
+            def _picked(chosen):
+                if chosen is None:
+                    self._log("Nexus: install cancelled.")
+                    self._installing = False
+                    return
+                self._open_manual_file(entry, chosen)
+
+            NexusFileChooser.show_over(
+                self, entry.name or f"Mod {entry.mod_id}", picks, _picked)
+        else:
+            self._open_manual_file(entry, picks[0])
+
+    def _open_manual_file(self, entry, file):
+        """Open the chosen file's own download page (file_id deep-link) and
+        arm the folder watcher for that file."""
+        from Utils.xdg import open_url
+        self._installing = False
+        fid = int(getattr(file, "file_id", 0) or 0)
+        open_url(f"{self._mod_url(entry)}?tab=files&file_id={fid}",
+                 log_fn=self._log)
+        self._log("Nexus: premium required for direct download — opened the "
+                  f"download page for '{file.file_name}'. It will install "
+                  "automatically once the browser download finishes.")
+        self._start_manual_watch(entry, [file])
+
+    def _start_manual_watch(self, entry, files):
+        from Nexus.manual_download_watch import ManualDownloadWatcher
+        from Nexus.nexus_meta import build_meta_from_download
+        domain = getattr(entry, "domain_name", "") or self._domain
+        mod_id = entry.mod_id
+        name = entry.name or f"Mod {mod_id}"
+        self.cancel_manual_watch(mod_id)    # re-click → fresh watch
+        self._dl_seq += 1
+        dl_key = f"nxb-man-{self._dl_seq}"
+        # Indeterminate card while waiting; switches to real bytes once the
+        # watcher can see the in-flight browser download.
+        self._progress_fn(dl_key, name, 0, 0)
+        watchers = self._manual_watchers
+
+        # All three callbacks run on the WATCHER thread.
+        def on_found(path, file):
+            watchers.pop(mod_id, None)
+            try:
+                meta = build_meta_from_download(
+                    game_domain=domain, mod_id=mod_id,
+                    file_id=int(getattr(file, "file_id", 0) or 0),
+                    archive_name=path.name, mod_info=entry, file_info=file)
+            except Exception:
+                meta = None
+            self._log(f"Nexus: found downloaded archive → {path}")
+            safe_emit(self._download_done, str(path), meta, dl_key)
+            safe_emit(self._manual_watch_ended, mod_id)
+
+        def on_progress(done, total):
+            safe_emit(self._download_progress, dl_key, name, int(done), int(total))
+
+        def on_timeout():
+            watchers.pop(mod_id, None)
+            self._log(f"Nexus: stopped waiting for a browser download of "
+                      f"{name} (nothing arrived — install it from the "
+                      f"Downloads tab once downloaded).")
+            safe_emit(self._download_done, None, None, dl_key)
+            safe_emit(self._manual_watch_ended, mod_id)
+
+        watcher = ManualDownloadWatcher(
+            mod_id=mod_id, files=files, on_found=on_found,
+            on_progress=on_progress, on_timeout=on_timeout)
+        watchers[mod_id] = (watcher, dl_key)
+        watcher.start()
+        self._set_card_watching(mod_id, True)
+
+    def cancel_manual_watch(self, mod_id: int):
+        """Stop a pending browser-download watch (no-op if none). Called on
+        re-click, and by the app when an nxm:// download for the same mod
+        arrives — the nxm flow installs it, so the watch must not."""
+        t = self._manual_watchers.pop(int(mod_id or 0), None)
+        if t is not None:
+            watcher, dl_key = t
+            watcher.stop()
+            self._progress_fn(dl_key, "", 0, -1)
+            self._set_card_watching(int(mod_id or 0), False)
+
+    def _cancel_manual_watches(self):
+        for mod_id in list(self._manual_watchers):
+            self.cancel_manual_watch(mod_id)
+
+    def _set_card_watching(self, mod_id: int, watching: bool):
+        for card in self._cards:
+            if card.entry.mod_id == mod_id:
+                card.set_watching(watching)
+
     def _on_files_ready(self, entry, files):
-        """UI thread: pick the file to install. >1 MAIN → in-window chooser."""
-        mains = [f for f in files if f.category_name == "MAIN"] or list(files)
-        if not mains:
+        """UI thread: pick the file to install. Main/optional/misc; >1 → chooser."""
+        from gui_qt.nexus_file_chooser import NexusFileChooser, installable_files
+        picks = installable_files(files)
+        if not picks:
             self._log("Nexus: no downloadable files found.")
             self._installing = False
             return
-        mains.sort(key=lambda f: getattr(f, "uploaded_timestamp", 0), reverse=True)
-        if len(mains) > 1:
-            from gui_qt.nexus_file_chooser import NexusFileChooser
-
+        if len(picks) > 1:
             def _picked(chosen):
                 if chosen is None:
                     self._log("Nexus: install cancelled.")
@@ -829,9 +1169,9 @@ class NexusBrowserView(QWidget):
                 self._start_download(entry, chosen)
 
             NexusFileChooser.show_over(
-                self, entry.name or f"Mod {entry.mod_id}", mains, _picked)
+                self, entry.name or f"Mod {entry.mod_id}", picks, _picked)
         else:
-            self._start_download(entry, mains[0])
+            self._start_download(entry, picks[0])
 
     def _start_download(self, entry, file):
         domain = getattr(entry, "domain_name", "") or self._domain

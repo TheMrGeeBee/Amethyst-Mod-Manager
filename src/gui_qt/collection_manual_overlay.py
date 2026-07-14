@@ -331,6 +331,9 @@ class CollectionManualOverlay(QWidget):
     def extract_queue(self, file_id: int, name: str):
         pass
 
+    def extract_update(self, file_id: int, cur: int, tot: int):
+        pass
+
     def extract_remove(self, file_id: int):
         pass
 

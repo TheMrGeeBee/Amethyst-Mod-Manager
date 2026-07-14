@@ -24,7 +24,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget,
 )
@@ -155,7 +155,9 @@ class WizardViewBase(QWidget):
         b.setStyleSheet(button_qss("BTN_INFO"))
         return b
 
-    def _green_btn(self, text: str = "Done") -> QPushButton:
+    def _green_btn(self, text: str | None = None) -> QPushButton:
+        if text is None:
+            text = self.tr("Done")
         b = QPushButton(text)
         b.setCursor(Qt.PointingHandCursor)
         b.setStyleSheet(button_qss("BTN_SUCCESS"))
@@ -170,8 +172,12 @@ class WizardViewBase(QWidget):
     # ---- common page: manual download -------------------------------------------
     def _build_manual_download_page(self, heading: str, note: str,
                                     url: str, on_next,
-                                    button_text: str = "Open Download Page",
-                                    next_text: str = "Next →") -> QWidget:
+                                    button_text: str | None = None,
+                                    next_text: str | None = None) -> QWidget:
+        if button_text is None:
+            button_text = self.tr("Open Download Page")
+        if next_text is None:
+            next_text = self.tr("Next →")
         page, lay = self._step_page(heading)
         self._make_note(lay, note)
         lay.addSpacing(8)
@@ -189,10 +195,12 @@ class WizardViewBase(QWidget):
         open_url(url)
 
     # ---- common page: locate archive in ~/Downloads ------------------------------
-    def _build_locate_page(self, heading: str = "Locate the Archive",
+    def _build_locate_page(self, heading: str | None = None,
                            *, with_next: bool = False) -> QWidget:
         """Creates self._locate_status (+ optional gated self._locate_next_btn
         instead of auto-advance). Configure the scan with _enter_locate()."""
+        if heading is None:
+            heading = self.tr("Locate the Archive")
         page, lay = self._step_page(heading)
         self._locate_status = self._make_status(lay)
         lay.addStretch(1)
@@ -234,7 +242,7 @@ class WizardViewBase(QWidget):
         from Utils.wizard_archives import find_archive, get_downloads_dir
         found = find_archive(get_downloads_dir(), self._locate_keywords)
         if found:
-            self._archive_found(found, f"Found: {found.name}")
+            self._archive_found(found, self.tr("Found: {0}").format(found.name))
         else:
             self._archive_path = None
             if self._locate_next_btn is not None:
@@ -249,7 +257,9 @@ class WizardViewBase(QWidget):
 
     def _on_picked(self, path):
         if path and Path(path).is_file():
-            self._archive_found(Path(path), f"Selected: {Path(path).name}")
+            self._archive_found(
+                Path(path),
+                self.tr("Selected: {0}").format(Path(path).name))
 
     def _archive_found(self, path: Path, label: str):
         self._archive_path = path
@@ -286,11 +296,11 @@ class WizardViewBase(QWidget):
             from Utils.xedit_tools import applications_dir, flatten_subdirs
             try:
                 if archive is None or not archive.is_file():
-                    raise RuntimeError("Archive not found.")
+                    raise RuntimeError(self.tr("Archive not found."))
                 dest = applications_dir(game, app_dir)
                 dest.mkdir(parents=True, exist_ok=True)
                 safe_emit(self._extract_status_sig,
-                          f"Extracting {archive.name}…", "")
+                          self.tr("Extracting {0}…").format(archive.name), "")
                 self._log(f"{tool_label} Wizard: extracting {archive.name} → {dest}")
                 paths = extract_archive(archive, dest)
                 file_count = len([p for p in paths if p.is_file()])
@@ -312,23 +322,27 @@ class WizardViewBase(QWidget):
                         else:
                             break
                     if not (dest / marker).is_dir():
-                        raise RuntimeError(
-                            f"'{marker}' folder not found after extraction.\n"
-                            f"Check that the archive contains {tool_label}.")
+                        raise RuntimeError(self.tr(
+                            "'{0}' folder not found after extraction.\n"
+                            "Check that the archive contains {1}.").format(
+                                marker, tool_label))
                     self._exe = dest / exe_name if exe_name else None
                 else:
                     flatten_subdirs(dest, exe_name)
                     exe = dest / exe_name
                     if not exe.is_file():
-                        raise RuntimeError(
-                            f"{exe_name} not found after extraction.\n"
-                            f"Check that the archive contains {exe_name}.")
+                        raise RuntimeError(self.tr(
+                            "{0} not found after extraction.\n"
+                            "Check that the archive contains {0}.").format(
+                                exe_name))
                     self._exe = exe
                 safe_emit(self._extract_status_sig,
-                          f"Extracted {file_count} file(s).", ok_text())
+                          self.tr("Extracted {0} file(s).").format(file_count),
+                          ok_text())
                 safe_emit(self._extract_done_sig, True)
             except Exception as exc:
-                safe_emit(self._extract_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._extract_status_sig,
+                          self.tr("Error: {0}").format(exc), err_text())
                 self._log(f"{tool_label} Wizard: extract error: {exc}")
                 safe_emit(self._extract_done_sig, False)
 
@@ -364,9 +378,11 @@ class WizardViewBase(QWidget):
             )
             from Utils.xedit_tools import applications_dir, flatten_subdirs
             try:
-                safe_emit(status_sig, "Fetching latest release from GitHub…", "")
+                safe_emit(status_sig,
+                          self.tr("Fetching latest release from GitHub…"), "")
                 tag, dl_url = fetch_latest_github_asset(api_url, keywords)
-                safe_emit(status_sig, f"Downloading {tag}…", "")
+                safe_emit(status_sig,
+                          self.tr("Downloading {0}…").format(tag), "")
                 self._log(f"{tool_label} Wizard: downloading {tag} from {dl_url}")
 
                 suffix = Path(dl_url).suffix or ".7z"
@@ -382,7 +398,7 @@ class WizardViewBase(QWidget):
                 download_file(dl_url, tmp_path, reporthook=hook)
                 if progress_sig is not None:
                     safe_emit(progress_sig, 100)
-                safe_emit(status_sig, "Extracting…", "")
+                safe_emit(status_sig, self.tr("Extracting…"), "")
 
                 dest = applications_dir(game, app_dir)
                 dest.mkdir(parents=True, exist_ok=True)
@@ -392,14 +408,19 @@ class WizardViewBase(QWidget):
                 file_count = len([p for p in paths if p.is_file()])
                 flatten_subdirs(dest, exe_name)
                 if not (dest / exe_name).is_file():
-                    raise RuntimeError(f"{exe_name} not found after extraction.")
+                    raise RuntimeError(
+                        self.tr("{0} not found after extraction.").format(
+                            exe_name))
                 self._exe = dest / exe_name
 
                 self._log(f"{tool_label} Wizard: extracted {file_count} file(s).")
-                safe_emit(status_sig, f"Downloaded and extracted {tag}.", ok_text())
+                safe_emit(status_sig,
+                          self.tr("Downloaded and extracted {0}.").format(tag),
+                          ok_text())
                 safe_emit(done_sig, True)
             except Exception as exc:
-                safe_emit(status_sig, f"Error: {exc}", err_text())
+                safe_emit(status_sig,
+                          self.tr("Error: {0}").format(exc), err_text())
                 self._log(f"{tool_label} Wizard: download error: {exc}")
                 safe_emit(done_sig, False)
 
@@ -415,10 +436,12 @@ class WizardViewBase(QWidget):
     def _enter_proton(self, exe, exe_name: str, display_name: str, on_chosen,
                       *, allow_game_prefix: bool = True,
                       isolated_prefix_dir_fn=None,
-                      title: str = "Choose Proton Version",
+                      title: str | None = None,
                       missing_text: str = ""):
         """(Re)build the Proton step on entry — the exe may only exist after
         an earlier extract step. on_chosen(proton_name, prefix_mode)."""
+        if title is None:
+            title = self.tr("Choose Proton Version")
         lay = self._proton_holder.layout()
         while lay.count():
             item = lay.takeAt(0)
@@ -427,7 +450,8 @@ class WizardViewBase(QWidget):
                 w.deleteLater()
         if exe is None:
             err = QLabel(missing_text or
-                         f"{exe_name} was not found.\nReopen this wizard.")
+                         self.tr("{0} was not found.\nReopen this wizard.")
+                         .format(exe_name))
             err.setAlignment(Qt.AlignCenter)
             err.setWordWrap(True)
             err.setStyleSheet(f"color:{err_text()};")

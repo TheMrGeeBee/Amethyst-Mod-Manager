@@ -40,7 +40,7 @@ class ScriptMergerView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run Script Merger — {game.name}")
+                         title=self.tr("Run Script Merger — {0}").format(game.name))
         self._proton_name = ""
         self._prefix_mode = ""
         self._prefix_env = None
@@ -63,18 +63,18 @@ class ScriptMergerView(WizardViewBase):
         self._stack.addWidget(page)
         # page 1: manual download
         self._stack.addWidget(self._build_manual_download_page(
-            "Step 2: Download Script Merger",
-            "Click the button below to open the Script Merger download page\n"
+            self.tr("Step 2: Download Script Merger"),
+            self.tr("Click the button below to open the Script Merger download page\n"
             "on Nexus Mods, then download the archive.\n\n"
-            "Once downloaded, click Next.",
+            "Once downloaded, click Next."),
             _NEXUS_URL,
             lambda: self._goto_step(_PG_LOCATE)))
         # page 2: locate
         self._stack.addWidget(self._build_locate_page(
-            "Step 3: Locate the Archive"))
+            self.tr("Step 3: Locate the Archive")))
         # page 3: extract
         self._stack.addWidget(self._build_extract_page(
-            "Step 4: Extract Script Merger"))
+            self.tr("Step 4: Extract Script Merger")))
         # page 4: proton
         self._stack.addWidget(self._build_proton_holder())
         # page 5: .NET 8
@@ -83,7 +83,8 @@ class ScriptMergerView(WizardViewBase):
         lay.addStretch(1)
         self._stack.addWidget(page)
         # page 6: run
-        self._stack.addWidget(self._build_run_page("Step 7: Run Script Merger"))
+        self._stack.addWidget(self._build_run_page(
+            self.tr("Step 7: Run Script Merger")))
 
         self._goto_step(_PG_DEPLOY)
 
@@ -93,10 +94,10 @@ class ScriptMergerView(WizardViewBase):
             self._run_ctx_deploy(self._deploy_status, self._advance_from_deploy)
         elif idx == _PG_LOCATE:
             self._enter_locate(
-                ["sm-fae"], "Select the Script Merger archive",
-                "Script Merger archive not found in Downloads.\n"
+                ["sm-fae"], self.tr("Select the Script Merger archive"),
+                self.tr("Script Merger archive not found in Downloads.\n"
                 "Make sure you downloaded it, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                "or use Browse to select it manually."),
                 lambda _p: self._goto_step(_PG_EXTRACT))
         elif idx == _PG_EXTRACT:
             self._extract_to_applications(_MERGER_DIR, _MERGER_EXE,
@@ -106,10 +107,10 @@ class ScriptMergerView(WizardViewBase):
             self._enter_proton(
                 self._exe, _MERGER_EXE, "Script Merger",
                 self._on_proton_chosen,
-                title="Step 5: Choose Proton Version",
-                missing_text=f"{_MERGER_EXE} was not found.\n"
+                title=self.tr("Step 5: Choose Proton Version"),
+                missing_text=self.tr("{0} was not found.\n"
                              "Please restart the wizard and install "
-                             "Script Merger first.")
+                             "Script Merger first.").format(_MERGER_EXE))
         elif idx == _PG_NET8:
             self._set_status(self._net8_status, self.tr("Checking .NET 8…"))
             self._start_net8()
@@ -144,14 +145,14 @@ class ScriptMergerView(WizardViewBase):
             _wlog = lambda m: self._log(f"Script Merger Wizard: {m}")
             try:
                 safe_emit(self._net8_status_sig,
-                          "Preparing Script Merger's Wine prefix…", "")
+                          self.tr("Preparing Script Merger's Wine prefix…"), "")
                 result = resolve_tool_prefix(
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._net8_status_sig,
-                              f"Could not find Proton '{proton_name}' — check "
+                              self.tr("Could not find Proton '{0}' — check "
                               "that it is installed in Steam, then reopen this "
-                              "wizard.", RED)
+                              "wizard.").format(proton_name), RED)
                     safe_emit(self._net8_done_sig, False)
                     return
                 self._prefix_env = result
@@ -161,7 +162,8 @@ class ScriptMergerView(WizardViewBase):
                 net8_key = dotnet_dep_key("8")
                 if is_dep_installed(prefix_path, net8_key):
                     safe_emit(self._net8_status_sig,
-                              ".NET 8 already installed — skipping.", GREEN)
+                              self.tr(".NET 8 already installed — skipping."),
+                              GREEN)
                     safe_emit(self._net8_done_sig, True)
                     return
 
@@ -171,12 +173,14 @@ class ScriptMergerView(WizardViewBase):
                     log_fn=_wlog,
                     status_fn=lambda m: safe_emit(self._net8_status_sig, m, ""))
                 if not ok:
-                    raise RuntimeError(".NET 8 install failed (see log).")
+                    raise RuntimeError(
+                        self.tr(".NET 8 install failed (see log)."))
                 safe_emit(self._net8_status_sig,
-                          ".NET 8 ready.", GREEN)
+                          self.tr(".NET 8 ready."), GREEN)
                 safe_emit(self._net8_done_sig, True)
             except Exception as exc:
-                safe_emit(self._net8_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._net8_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
                 self._log(f"Script Merger Wizard: .NET 8 install error: {exc}")
                 safe_emit(self._net8_done_sig, False)
 
@@ -286,8 +290,9 @@ class ScriptMergerView(WizardViewBase):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — check "
-                              "that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — check "
+                              "that it is installed in Steam.").format(
+                                  proton_name), RED)
                     return
                 proton_script, compat_data, env = result
 
@@ -314,8 +319,8 @@ class ScriptMergerView(WizardViewBase):
 
                 _wlog(f"launching {exe} via Proton")
                 safe_emit(self._run_status_sig,
-                          "WitcherScriptMerger is running.\nMerge your "
-                          "conflicts, then close it and click Done.", GREEN)
+                          self.tr("WitcherScriptMerger is running.\nMerge your "
+                          "conflicts, then close it and click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 label="WitcherScriptMerger")
@@ -323,10 +328,11 @@ class ScriptMergerView(WizardViewBase):
                                            log_fn=_wlog)
                 _wlog("WitcherScriptMerger closed.")
                 safe_emit(self._run_status_sig,
-                          "WitcherScriptMerger closed.", GREEN)
+                          self.tr("WitcherScriptMerger closed."), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig,
+                          self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"Script Merger Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="tw3sm-run").start()

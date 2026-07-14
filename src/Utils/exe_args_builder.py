@@ -478,7 +478,10 @@ def _bootstrap_pandora_settings(
     entry = games.setdefault(pandora_game_key, {})
     entry["outputPath"] = _to_wine_path(output_mod_dir, pfx)
     if game_path is not None:
-        entry.setdefault("gameDataPath", _to_wine_path(game_path / "Data", pfx))
+        # Force-set (not setdefault): the tool prefix is shared across
+        # profiles, so a first-run path must not stick when the active
+        # profile points at a different game install.
+        entry["gameDataPath"] = _to_wine_path(game_path / "Data", pfx)
 
     try:
         settings_file.parent.mkdir(parents=True, exist_ok=True)

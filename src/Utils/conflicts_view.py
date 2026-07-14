@@ -36,6 +36,7 @@ def compute_mod_conflicts(
     archive_exts: frozenset = frozenset(),
     plugin_order: Optional[list] = None,
     plugin_exts: Optional[frozenset] = None,
+    archive_name_ordering: bool = False,
     modlist_path: Optional[Path] = None,
     ckfn: Optional[Callable[[str], str]] = None,
 ) -> "tuple[list, list, list]":
@@ -220,7 +221,7 @@ def compute_mod_conflicts(
             bsa_winner, bsa_losers = compute_bsa_winner_map(
                 bsa_index, priority_low_to_high,
                 plugin_order or None, plugin_exts or None,
-                modindex_path,
+                modindex_path, archive_name_ordering,
             )
 
             my_archives = bsa_index.get(mod_name, [])

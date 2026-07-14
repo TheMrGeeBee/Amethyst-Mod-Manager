@@ -11,11 +11,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PySide6.QtCore import (
+    Qt, QAbstractItemModel, QModelIndex, QT_TRANSLATE_NOOP)
 
 COL_NAME = 0
 COL_SOURCE = 1
-COLUMNS = ["Name", "Source"]
+# Translated at display time in headerData; register literals for lupdate.
+COLUMNS = [
+    QT_TRANSLATE_NOOP("TextFilesModel", "Name"),
+    QT_TRANSLATE_NOOP("TextFilesModel", "Source"),
+]
 
 NodeRole = Qt.UserRole + 1
 
@@ -81,7 +86,7 @@ class TextFilesModel(QAbstractItemModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            return self.tr(COLUMNS[section])
         return None
 
     def flags(self, index):

@@ -10,7 +10,7 @@ Colours come from the active palette so themes carry over.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QRect, QSize, QEvent
+from PySide6.QtCore import Qt, QRect, QSize, QEvent, QT_TRANSLATE_NOOP
 from PySide6.QtGui import QColor, QFont, QPen, QBrush
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QToolTip
 
@@ -57,20 +57,21 @@ _ROOT_FLAGS = (FLAG_ROOT, FLAG_ROOT_RULE)
 # Flag bit → hover tooltip text (verbatim from the Tk modlist, ~5114). The two
 # root sources have DISTINCT text (meta root_folder vs a custom routing rule);
 # the note/xedit/missing tips are per-mod dynamic (see _flag_tip in the delegate).
+# Wrapped in self.tr() at show time (see _flag_tip); registered here for lupdate.
 _FLAG_TIPS = {
-    FLAG_NOTE: "Note",
-    FLAG_BUNDLE: "Click here to open bundle settings",
-    FLAG_MISSING_REQS: "Missing requirements",
-    FLAG_UPDATE: "Update available on Nexus Mods",
-    FLAG_MODIO_UPDATE: "Update available on mod.io",
-    FLAG_ENDORSED: "Endorsed",
-    FLAG_PRERTX: "Pre-RTX mod",
-    FLAG_COLLECTION_BUNDLED: "This mod is a collection bundled mod",
-    FLAG_COLLECTION_PATCHED: "This mod has diff patches applied by the collection install",
-    FLAG_MODIFIED_MF: "Modified in Mod Files tab",
-    FLAG_XEDIT: "Contains a plugin modified in xEdit",
-    FLAG_ROOT: "This mod is sent to the root folder",
-    FLAG_ROOT_RULE: "This mod contains files that route to the game root",
+    FLAG_NOTE: QT_TRANSLATE_NOOP("ModRowDelegate", "Note"),
+    FLAG_BUNDLE: QT_TRANSLATE_NOOP("ModRowDelegate", "Click here to open bundle settings"),
+    FLAG_MISSING_REQS: QT_TRANSLATE_NOOP("ModRowDelegate", "Missing requirements"),
+    FLAG_UPDATE: QT_TRANSLATE_NOOP("ModRowDelegate", "Update available on Nexus Mods"),
+    FLAG_MODIO_UPDATE: QT_TRANSLATE_NOOP("ModRowDelegate", "Update available on mod.io"),
+    FLAG_ENDORSED: QT_TRANSLATE_NOOP("ModRowDelegate", "Endorsed"),
+    FLAG_PRERTX: QT_TRANSLATE_NOOP("ModRowDelegate", "Pre-RTX mod"),
+    FLAG_COLLECTION_BUNDLED: QT_TRANSLATE_NOOP("ModRowDelegate", "This mod is a collection bundled mod"),
+    FLAG_COLLECTION_PATCHED: QT_TRANSLATE_NOOP("ModRowDelegate", "This mod has diff patches applied by the collection install"),
+    FLAG_MODIFIED_MF: QT_TRANSLATE_NOOP("ModRowDelegate", "Modified in Mod Files tab"),
+    FLAG_XEDIT: QT_TRANSLATE_NOOP("ModRowDelegate", "Contains a plugin modified in xEdit"),
+    FLAG_ROOT: QT_TRANSLATE_NOOP("ModRowDelegate", "This mod is sent to the root folder"),
+    FLAG_ROOT_RULE: QT_TRANSLATE_NOOP("ModRowDelegate", "This mod contains files that route to the game root"),
 }
 
 # Conflict code → icon (lightning), painted in the Conflicts column (Tk parity).
@@ -92,15 +93,15 @@ _BSA_CONFLICT_ICONS = {
 # and BSA conflicts each get their own text; static so lupdate can extract them
 # (wrapped in self.tr() at show time — see _conflict_tip).
 _LOOSE_CONFLICT_TIPS = {
-    1:  "Loose file conflict - Winning",
-    -1: "Loose file conflict - Losing",
-    2:  "Loose file conflict - Partial",
-    3:  "Loose file conflict - Full",
+    1:  QT_TRANSLATE_NOOP("ModRowDelegate", "Loose file conflict - Winning"),
+    -1: QT_TRANSLATE_NOOP("ModRowDelegate", "Loose file conflict - Losing"),
+    2:  QT_TRANSLATE_NOOP("ModRowDelegate", "Loose file conflict - Partial"),
+    3:  QT_TRANSLATE_NOOP("ModRowDelegate", "Loose file conflict - Full"),
 }
 _BSA_CONFLICT_TIPS = {
-    1:  "BSA conflict - Winning",
-    -1: "BSA conflict - Losing",
-    2:  "BSA conflict - Partial",
+    1:  QT_TRANSLATE_NOOP("ModRowDelegate", "Archive conflict - Winning"),
+    -1: QT_TRANSLATE_NOOP("ModRowDelegate", "Archive conflict - Losing"),
+    2:  QT_TRANSLATE_NOOP("ModRowDelegate", "Archive conflict - Partial"),
 }
 
 def _contrasting_text_color(hex_bg: str) -> str:
@@ -524,7 +525,8 @@ class ModRowDelegate(QStyledItemDelegate):
                     return note if len(note) <= 500 else note[:500] + "…"
             except Exception:
                 pass
-        return _FLAG_TIPS.get(hit)
+        tip = _FLAG_TIPS.get(hit)
+        return self.tr(tip) if tip else None
 
     def helpEvent(self, event, view, opt, index):
         """Show the per-flag tooltip when hovering a flag icon (Tk parity —

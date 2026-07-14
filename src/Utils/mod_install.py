@@ -18,6 +18,7 @@ Public API:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -656,7 +657,8 @@ def _fix_nonutf8_names_extracted_tree(extract_dir: str, log_fn: LogFn) -> int:
 
 
 def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
-                     cancel=None, error_sink: "list[str] | None" = None) -> bool:
+                     cancel=None, error_sink: "list[str] | None" = None,
+                     progress_cb: "Callable[[int], None] | None" = None) -> bool:
     """Extract *archive_path* into *dest_dir*. Native 7z → bsdtar → py7zr →
     Python zipfile/tarfile, mirroring gui.install_mod's fallback chain. After a
     successful native/zip extraction, backslash-named members are normalised
@@ -668,7 +670,12 @@ def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
 
     *error_sink* — optional list; each extractor's failure text is appended so
     the caller can classify the overall failure (e.g. disk-full → retry on a
-    bigger filesystem)."""
+    bigger filesystem).
+
+    *progress_cb* — optional ``cb(percent)`` with real extraction progress.
+    Only the 7z (``-bsp1``) and zipfile paths report; the rare fallbacks
+    (bsdtar/py7zr/tarfile) never fire it, leaving the caller's indeterminate
+    bar in place."""
     ext = Path(archive_path).suffix.lower()
 
     def _note(err) -> None:
@@ -704,11 +711,24 @@ def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
     if _cancelled():
         return False
 
+    # Extraction resource limits (Settings ▸ Downloads & Collections). Read per
+    # archive so a settings change applies to the next extraction without a
+    # restart — the INI parse is trivial next to the extractor spawn it gates.
+    try:
+        from Utils.ui_config import load_extraction_settings
+        _limits = load_extraction_settings()
+    except Exception:
+        _limits = {}
+    _threads = int(_limits.get("cpu_threads", 0) or 0)
+    _low_prio = bool(_limits.get("low_priority", False))
+    _mmt = f"-mmt={_threads}" if _threads > 0 else "-mmt=on"
+
     _7z = (shutil.which("7zzs") or shutil.which("7zz")
            or shutil.which("7z") or shutil.which("7za"))
     if _7z:
         rc, err, killed = _run_extractor_cancellable(
-            [_7z, "x", archive_path, f"-o{dest_dir}", "-y", "-mmt=on"], cancel)
+            [_7z, "x", archive_path, f"-o{dest_dir}", "-y", _mmt, "-bsp1"],
+            cancel, progress_cb=progress_cb, low_priority=_low_prio)
         if killed:
             log_fn("Extraction cancelled (7z terminated).")
             return False
@@ -721,7 +741,8 @@ def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
         return False
     if shutil.which("bsdtar"):
         rc, err, killed = _run_extractor_cancellable(
-            ["bsdtar", "-xf", archive_path, "-C", dest_dir], cancel)
+            ["bsdtar", "-xf", archive_path, "-C", dest_dir], cancel,
+            low_priority=_low_prio)
         if killed:
             log_fn("Extraction cancelled (bsdtar terminated).")
             return False
@@ -745,7 +766,21 @@ def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
         return False
     try:
         with zipfile.ZipFile(archive_path, "r") as z:
-            z.extractall(dest_dir)
+            infos = z.infolist()
+            total = sum(i.file_size for i in infos) or 1
+            done = 0
+            last_pct = -1
+            for info in infos:
+                if _cancelled():
+                    log_fn("Extraction cancelled (zipfile).")
+                    return False
+                z.extract(info, dest_dir)
+                done += info.file_size
+                if progress_cb is not None:
+                    pct = min(100, int(done * 100 / total))
+                    if pct != last_pct:
+                        last_pct = pct
+                        progress_cb(pct)
         log_fn("Extracted with zipfile.")
         return _ok()
     except Exception as exc:
@@ -754,34 +789,94 @@ def _extract_archive(archive_path: str, dest_dir: str, log_fn: LogFn,
     return False
 
 
-def _run_extractor_cancellable(cmd: list, cancel) -> "tuple[int, str, bool]":
+def _run_extractor_cancellable(cmd: list, cancel,
+                               progress_cb=None,
+                               low_priority=False) -> "tuple[int, str, bool]":
     """Run *cmd* (7z/bsdtar), polling *cancel* so a pause/cancel kills the
     extractor promptly instead of waiting for it to finish. Returns
     ``(returncode, stderr, killed)`` — *killed* is True if we terminated it on a
-    cancel request. When *cancel* is None this behaves like a blocking run."""
-    if cancel is None:
-        r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.PIPE, text=True)
-        return r.returncode, r.stderr or "", False
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE, text=True)
+    cancel request. When *cancel* is None this behaves like a blocking run.
+
+    *progress_cb* — optional ``cb(percent)``; when given, stdout is kept (7z is
+    invoked with ``-bsp1``) and scanned for percent updates. 7z redraws its
+    progress line in place with backspaces rather than newlines, so the scan is
+    a regex over raw chunks, not line reads. Both pipes are drained on
+    background threads — waiting for the process first and reading after would
+    deadlock once a pipe buffer fills.
+
+    *low_priority* — run the extractor at low CPU and disk priority so it
+    yields to foreground applications. CPU niceness is set post-spawn with
+    ``os.setpriority`` (a ``preexec_fn`` is unsafe in this heavily-threaded
+    process); disk priority via an ``ionice`` prefix when available — ionice
+    exec()s the target without forking, so the PID (and thus terminate/renice)
+    still reaches the extractor itself."""
+    if low_priority and shutil.which("ionice"):
+        # best-effort class 2 (lowest level) rather than idle class 3, which
+        # can starve the extraction outright under sustained foreground I/O
+        cmd = ["ionice", "-c2", "-n7"] + list(cmd)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE if progress_cb is not None else subprocess.DEVNULL,
+        stderr=subprocess.PIPE)
+    if low_priority:
+        try:
+            os.setpriority(os.PRIO_PROCESS, proc.pid, 19)
+        except (OSError, AttributeError):
+            pass
+    err_parts: "list[bytes]" = []
+
+    def _drain_stderr():
+        err_parts.append(proc.stderr.read() or b"")
+
+    def _scan_stdout():
+        pct_re = re.compile(rb"(\d{1,3})%")
+        last = -1
+        tail = b""
+        while True:
+            chunk = proc.stdout.read1(4096)
+            if not chunk:
+                break
+            hits = pct_re.findall(tail + chunk)
+            # keep a few trailing bytes so a percent split across chunks
+            # ("4" | "7%") still matches next round
+            tail = chunk[-8:]
+            if hits:
+                pct = min(100, int(hits[-1]))
+                if pct != last:
+                    last = pct
+                    try:
+                        progress_cb(pct)
+                    except Exception:
+                        pass
+
+    readers = [threading.Thread(target=_drain_stderr, daemon=True)]
+    if progress_cb is not None:
+        readers.append(threading.Thread(target=_scan_stdout, daemon=True))
+    for t in readers:
+        t.start()
+
+    killed = False
     while True:
         try:
-            _out, err = proc.communicate(timeout=0.25)
-            return proc.returncode, err or "", False
+            proc.wait(timeout=0.25 if cancel is not None else None)
+            break
         except subprocess.TimeoutExpired:
             if cancel.is_set():
                 proc.terminate()
                 try:
-                    _out, err = proc.communicate(timeout=3)
+                    proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     try:
-                        _out, err = proc.communicate(timeout=3)
+                        proc.wait(timeout=3)
                     except subprocess.TimeoutExpired:
-                        err = ""
-                return (proc.returncode if proc.returncode is not None else -1,
-                        err or "", True)
+                        pass
+                killed = True
+                break
+    for t in readers:
+        t.join(timeout=5)
+    err = b"".join(err_parts).decode("utf-8", "replace")
+    return (proc.returncode if proc.returncode is not None else -1, err, killed)
 
 
 # ---------------------------------------------------------------- root detection
@@ -883,6 +978,14 @@ class PreparedInstall:
     def is_fomod(self) -> bool:
         return self.fomod_base is not None and self.fomod_config is not None
 
+    def fomod_has_steps(self) -> bool:
+        """True when the FOMOD config has at least one install step (i.e. the
+        wizard has something to show). A config with only requiredInstallFiles /
+        conditionalFileInstalls and no <installSteps> installs headlessly — the
+        wizard would open on an empty step list and crash."""
+        return self.is_fomod() and bool(
+            getattr(self.fomod_config, "steps", None))
+
     def is_bain(self) -> bool:
         return bool(self.bain_subpkgs)
 
@@ -917,14 +1020,42 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
     if staging_root is None:
         log_fn("Install: no staging folder configured.")
         return None
-    mod_name = preferred_name or _nexus_mod_name(prebuilt_meta) \
-        or _clean_mod_name(archive.stem, game)
+    # Name the mod folder. Priority:
+    #   1. preferred_name  — the caller forces it (Nexus browser, collections).
+    #   2. prebuilt_meta   — the caller already resolved the Nexus file → use its
+    #                        per-file display name if it has one.
+    #   3. Nexus MD5/filename lookup — when logged in, name the folder after the
+    #                        file's Nexus display name (e.g. "Engine Fixes - Main
+    #                        File") and reuse the resolved meta as prebuilt_meta so
+    #                        finish_install doesn't look it up a second time.
+    #   4. _clean_mod_name — strip the archive stem (offline / not on Nexus).
+    if preferred_name:
+        mod_name = preferred_name
+    else:
+        nexus_name = _nexus_file_display_name(prebuilt_meta, game)
+        if not nexus_name:
+            # Not supplied by the caller — try a live lookup ourselves. Reuse the
+            # resolved meta downstream so the MD5 hash isn't recomputed later.
+            resolved = _resolve_nexus_meta_for_naming(archive, game, log_fn)
+            if resolved is not None:
+                if prebuilt_meta is None:
+                    prebuilt_meta = resolved
+                nexus_name = _nexus_file_display_name(resolved, game)
+        mod_name = nexus_name or _clean_mod_name(archive.stem, game)
+        if nexus_name:
+            log_fn(f"Naming mod folder from Nexus: '{mod_name}'.")
 
     def _p(done, total, phase=None):
         if progress_fn is not None:
             progress_fn(done, total, phase)
 
     _p(0, 0, "Extracting")
+
+    def _extract_progress(pct: int) -> None:
+        # Real percent from 7z/zipfile; the fallback extractors never call this,
+        # so the (0, 0) indeterminate bar above stays for them.
+        _p(pct, 100, "Extracting")
+
     # Pick a temp parent big enough — /tmp is a RAM-backed tmpfs on the Deck, so
     # a large mod must extract to the staging disk instead (Tk parity).
     parent, tmp_reserved = _choose_extract_parent(str(archive),
@@ -934,7 +1065,8 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
     _log_extract_location(extract_dir, log_fn)
     extract_errors: list[str] = []
     extracted = _extract_archive(str(archive), str(extract_dir), log_fn,
-                                 cancel=cancel, error_sink=extract_errors)
+                                 cancel=cancel, error_sink=extract_errors,
+                                 progress_cb=_extract_progress)
     if not extracted and (cancel is None or not cancel.is_set()):
         # The size estimate can undershoot (a solid .7z with no `7z` binary to
         # probe falls back to 15× compressed — extreme texture packs reach 30×),
@@ -960,7 +1092,8 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
                 _log_extract_location(extract_dir, log_fn)
                 extracted = _extract_archive(str(archive), str(extract_dir),
                                              log_fn, cancel=cancel,
-                                             error_sink=extract_errors)
+                                             error_sink=extract_errors,
+                                             progress_cb=_extract_progress)
     if not extracted:
         if cancel is not None and cancel.is_set():
             log_fn("Install: extraction cancelled — removing temp files.")
@@ -986,7 +1119,9 @@ def prepare_archive(archive_path: str, game, profile_dir: Path, *,
         log_fn(f"Archive contains a .fomod wrapper — extracting {fomod_wrapper.name}…")
         inner_dir = Path(tempfile.mkdtemp(prefix="mm_install_",
                                           dir=str(extract_dir.parent)))
-        if _extract_archive(str(fomod_wrapper), str(inner_dir), log_fn, cancel=cancel):
+        _p(0, 0, "Extracting")   # back to indeterminate for the second pass
+        if _extract_archive(str(fomod_wrapper), str(inner_dir), log_fn,
+                            cancel=cancel, progress_cb=_extract_progress):
             shutil.rmtree(extract_dir, ignore_errors=True)
             extract_dir = inner_dir
         else:
@@ -1298,6 +1433,10 @@ def finish_install(prepared: "PreparedInstall", fomod_selections, *,
     _add_to_modlist(p.profile_dir, p.mod_name, log_fn,
                     preserve_position=getattr(p, "_preserve_position", False))
     _add_plugins(p.game, p.profile_dir, dest_root, log_fn)
+    # Stamp missing-requirements + endorsed flags now (one GraphQL call, no
+    # rate-limit cost) so the modlist flags appear immediately without pressing
+    # "Check updates".
+    _check_nexus_flags_after_install(p.game, p.mod_name, log_fn)
     log_fn(f"Installed '{p.mod_name}'.")
     return p.mod_name
 
@@ -1516,7 +1655,13 @@ def install_collection_archive(
             except Exception:
                 resolve_files = None  # type: ignore
 
-            if fomod_auto_selections is None and defer_interactive_fomod:
+            # A FOMOD with no <installSteps> has nothing for the user to choose
+            # (only requiredInstallFiles / conditionalFileInstalls) — never open
+            # the wizard (it crashes on an empty step list) and no need to defer;
+            # install defaults inline.
+            has_steps = bool(getattr(config, "steps", None))
+
+            if fomod_auto_selections is None and defer_interactive_fomod and has_steps:
                 log_fn("FOMOD installer detected — deferring until dependencies "
                        "are installed.")
                 prepared.cleanup()
@@ -1526,7 +1671,7 @@ def install_collection_archive(
                 log_fn("FOMOD installer detected — applying collection author's "
                        "choices automatically.")
                 final_selections = fomod_auto_selections
-            elif resolve_fomod is not None:
+            elif resolve_fomod is not None and has_steps:
                 log_fn("FOMOD installer detected — opening wizard...")
                 saved_sel = _read_saved_fomod_selections(
                     game, prepared.mod_name, log_fn)
@@ -1943,17 +2088,53 @@ def _persist_bain_selection(game, mod_name: str, result, profile_dir=None) -> No
 
 
 # ---------------------------------------------------------------- helpers
-def _nexus_mod_name(prebuilt_meta) -> str:
-    """Sanitized display name from a prebuilt Nexus meta's ``nexus_name``, or
-    "" if unavailable. Preferred over parsing the archive filename — Nexus
-    archive filenames are author-chosen and often unrelated to (or a generic
-    truncation of) the mod's actual title, while ``nexus_name`` comes straight
-    from the Nexus API and is what NexusMods.com shows as the mod's name."""
-    name = getattr(prebuilt_meta, "nexus_name", "") if prebuilt_meta is not None else ""
-    if not name:
+def _nexus_domain_for(game) -> str:
+    """The Nexus API domain for *game* (e.g. "skyrimspecialedition")."""
+    return getattr(game, "nexus_game_domain", None) or getattr(game, "game_id", "") or ""
+
+
+def _nexus_file_display_name(meta, game) -> str:
+    """The sanitized per-file Nexus display name from *meta*, or "" if absent.
+
+    Uses ``file_details.name`` (NexusModMeta.nexus_file_name, e.g. "Engine Fixes
+    - Main File") — the label shown against the download on the mod's Files tab —
+    to name the staging folder. Sanitized to a valid folder name; returns "" so
+    the caller falls back to the archive-stem name when the meta has no file name.
+    """
+    if meta is None:
         return ""
-    from Utils.mod_name_utils import sanitize_mod_folder_name
-    return sanitize_mod_folder_name(name) or ""
+    raw = (getattr(meta, "nexus_file_name", "") or "").strip()
+    if not raw:
+        return ""
+    try:
+        from Utils.mod_name_utils import sanitize_mod_folder_name
+        cleaned = sanitize_mod_folder_name(raw) or raw
+    except Exception:
+        import re
+        cleaned = re.sub(r'[<>:"/\\|?*]', "_", raw).rstrip(". ")
+    return cleaned.strip()
+
+
+def _resolve_nexus_meta_for_naming(archive: Path, game, log_fn: LogFn):
+    """Look up *archive* on Nexus (filename → MD5) so its folder can be named
+    after the file's Nexus display name. Returns a NexusModMeta or None.
+
+    Requires the user to be logged in (a live API) — offline / not-logged-in
+    returns None and the caller falls back to the stripped archive stem. Failures
+    are swallowed: naming from the archive name is always an acceptable fallback.
+    """
+    try:
+        api = _build_nexus_api()
+        if api is None:
+            return None
+        domain = _nexus_domain_for(game)
+        if not domain:
+            return None
+        from Nexus.nexus_meta import resolve_nexus_meta_for_archive
+        return resolve_nexus_meta_for_archive(archive, domain, api=api, log_fn=log_fn)
+    except Exception as exc:
+        log_fn(f"Nexus name lookup skipped ({exc}).")
+        return None
 
 
 def _clean_mod_name(stem: str, game) -> str:
@@ -2085,6 +2266,8 @@ def _install_multi_mod(p: "PreparedInstall", log_fn: LogFn, _pp) -> str | None:
     if not installed:
         log_fn(f"Install failed: nothing was staged for '{p.mod_name}'.")
         return None
+    for m_name in installed:
+        _check_nexus_flags_after_install(p.game, m_name, log_fn)
     log_fn(f"Installed {len(installed)} mod(s) from archive.")
     return installed[0]
 
@@ -2152,6 +2335,77 @@ def _write_install_meta(dest_root: Path, archive: Path, game, log_fn: LogFn,
         log_fn(f"meta.ini write skipped ({exc}).")
 
 
+def _check_nexus_flags_after_install(game, mod_name: str, log_fn: LogFn) -> None:
+    """Stamp the freshly installed mod's missing requirements + endorsed flag.
+
+    Both come from a SINGLE Nexus GraphQL v2 request (``modRequirements`` +
+    ``viewerEndorsed``) via ``graphql_mod_update_info_batch``, which does NOT
+    consume the REST hourly rate limit — so this runs on every install at zero
+    rate-limit cost. Results are written to the mod's ``missingRequirements`` and
+    ``endorsed`` meta.ini fields, the same fields the "Check updates" flow
+    populates and the modlist UI already reads, so the warning/★ flags appear
+    immediately without the user pressing Check updates.
+
+    Best-effort: offline / not-logged-in / any failure is swallowed — this must
+    never break or delay a successful install.
+    """
+    try:
+        api = _build_nexus_api()
+        if api is None:
+            return
+        domain = _nexus_domain_for(game)
+        if not domain:
+            return
+        try:
+            staging_root = Path(game.get_effective_mod_staging_path())
+        except Exception:
+            return
+        from Nexus.nexus_meta import scan_installed_mods, read_meta, write_meta
+        from Nexus.nexus_requirements import check_requirements_from_gql
+
+        all_installed = scan_installed_mods(staging_root)
+        # The mod we just installed must have a Nexus mod_id to have flags.
+        this_mod = next(
+            (m for m in all_installed
+             if m.mod_name == mod_name and m.mod_id > 0), None)
+        if this_mod is None:
+            return
+
+        # One GraphQL request for just this mod — fetches modRequirements AND
+        # viewerEndorsed (rate-limit-free). The batch helper parses both.
+        gql_info = api.graphql_mod_update_info_batch([(domain, this_mod.mod_id)])
+        if not gql_info:
+            return
+
+        # Reuse the update flow's data-driven checker: it cross-references the
+        # requirements against ALL installed mod ids (so already-installed
+        # dependencies aren't flagged), applies the external-tool/alternative
+        # filters, and stamps missingRequirements into meta.ini.
+        check_requirements_from_gql(
+            gql_info,
+            all_installed,
+            game_domain=domain,
+            staging_root=staging_root,
+            progress_cb=log_fn,
+            save_results=True,
+            enabled_only={mod_name},
+        )
+
+        # Endorsement: viewerEndorsed is None when unauthenticated/unknown — only
+        # touch the flag when the API returned a definite True/False.
+        info = gql_info.get(this_mod.mod_id)
+        ven = getattr(info, "viewer_endorsed", None) if info is not None else None
+        if ven is not None:
+            meta_path = staging_root / mod_name / "meta.ini"
+            if meta_path.is_file():
+                meta = read_meta(meta_path)
+                if meta.endorsed != bool(ven):
+                    meta.endorsed = bool(ven)
+                    write_meta(meta_path, meta)
+    except Exception as exc:
+        log_fn(f"Nexus flag check after install skipped ({exc}).")
+
+
 def _update_indexes(game, profile_dir: Path, mod_name: str, dest_root: Path,
                     log_fn: LogFn) -> None:
     try:
@@ -2203,15 +2457,31 @@ def _update_indexes(game, profile_dir: Path, mod_name: str, dest_root: Path,
 
 def _add_to_modlist(profile_dir: Path, mod_name: str, log_fn: LogFn,
                     preserve_position: bool = False) -> None:
+    # The user-configurable default state for a freshly installed mod (Downloads
+    # tab option). Collection installs never route through here, so they are
+    # unaffected. Only applies to brand-new entries — reinstalls/updates keep
+    # their existing state via preserve_existing_state below.
+    try:
+        from Utils.ui_config import load_install_mods_disabled
+        default_enabled = not load_install_mods_disabled()
+    except Exception:
+        default_enabled = True
     try:
         if preserve_position:
-            # Replacing an existing mod — keep its load-order position.
+            # Replacing an existing mod — keep its load-order position and its
+            # existing enabled/disabled state (a reinstall/update must not
+            # silently re-enable a disabled mod).
             from Utils.modlist import ensure_mod_preserving_position
             ensure_mod_preserving_position(
-                profile_dir / "modlist.txt", mod_name, enabled=True)
+                profile_dir / "modlist.txt", mod_name, enabled=default_enabled,
+                preserve_existing_state=True)
         else:
+            # New mods land at the top with the configured default state; but if
+            # this name already exists (reinstall without position-preservation)
+            # keep its current state.
             from Utils.modlist import prepend_mod
-            prepend_mod(profile_dir / "modlist.txt", mod_name, enabled=True)
+            prepend_mod(profile_dir / "modlist.txt", mod_name,
+                        enabled=default_enabled, preserve_existing_state=True)
     except Exception as exc:
         log_fn(f"modlist update failed ({exc}).")
 

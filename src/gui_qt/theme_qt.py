@@ -15,7 +15,7 @@ from Utils.themes import load_palettes
 from Utils.ui_config import get_appearance_mode
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QColor
+    from PySide6.QtGui import QColor, QPalette
 
 
 # Fallback used if a palette is missing a key, so QSS never renders with an
@@ -559,9 +559,11 @@ def build_qss(pal: dict | None = None) -> str:
     """
 
 
-def _apply_qpalette(app, p: dict) -> None:
-    """Seed a role-based QPalette so stock widgets (menus, combos, tooltips,
-    disabled states) read the theme colours even where QSS doesn't reach."""
+def build_qpalette(p: dict) -> "QPalette":
+    """Role-based QPalette for palette *p* so stock widgets (menus, combos,
+    tooltips, disabled states) read the theme colours even where QSS doesn't
+    reach. Applied app-wide at startup; also set on the theme editor's preview
+    subtree so its stock-widget bits track the working palette."""
     from PySide6.QtGui import QPalette, QColor
 
     c = lambda k: QColor(_c(p, k))
@@ -597,7 +599,11 @@ def _apply_qpalette(app, p: dict) -> None:
     for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText,
                  QPalette.ToolTipText):
         pal.setColor(QPalette.Disabled, role, dim)
-    app.setPalette(pal)
+    return pal
+
+
+def _apply_qpalette(app, p: dict) -> None:
+    app.setPalette(build_qpalette(p))
 
 
 def _make_proxy_style(base):

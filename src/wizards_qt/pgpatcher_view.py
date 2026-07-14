@@ -49,7 +49,7 @@ class PGPatcherView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run PGPatcher — {game.name}")
+                         title=self.tr("Run PGPatcher — {0}").format(game.name))
         self._exe = tool_exe_path(game, _PATCHER_EXE, _PATCHER_DIR)
         self._proton_name = ""
         self._prefix_mode = ""
@@ -93,7 +93,7 @@ class PGPatcherView(WizardViewBase):
         # page 4: deploy + MO2 parity checkbox
         self._stack.addWidget(self._build_pg_deploy_page())
         # page 5: run
-        self._stack.addWidget(self._build_run_page("Step 6: Run PGPatcher"))
+        self._stack.addWidget(self._build_run_page(self.tr("Step 6: Run PGPatcher")))
 
         if self._exe is not None:
             self._goto_step(_PG_PROTON)
@@ -137,10 +137,10 @@ class PGPatcherView(WizardViewBase):
         elif idx == _PG_PROTON:
             self._enter_proton(
                 self._exe, _PATCHER_EXE, "PGPatcher", self._on_proton_chosen,
-                title="Step 2: Choose Proton Version",
-                missing_text=f"{_PATCHER_EXE} was not found.\n"
+                title=self.tr("Step 2: Choose Proton Version"),
+                missing_text=self.tr("{0} was not found.\n"
                              "Please restart the wizard and download "
-                             "PGPatcher first.")
+                             "PGPatcher first.").format(_PATCHER_EXE))
         elif idx == _PG_DEPS:
             self._set_status(self._d3d_status, self.tr("Checking d3dcompiler_47…"))
             self._start_deps()
@@ -174,14 +174,14 @@ class PGPatcherView(WizardViewBase):
             _wlog = lambda m: self._log(f"PGPatcher Wizard: {m}")
             try:
                 safe_emit(self._d3d_status_sig,
-                          "Preparing PGPatcher's Wine prefix…", "")
+                          self.tr("Preparing PGPatcher's Wine prefix…"), "")
                 result = resolve_tool_prefix(
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._d3d_status_sig,
-                              f"Could not find Proton '{proton_name}' — check "
+                              self.tr("Could not find Proton '{0}' — check "
                               "that it is installed in Steam, then reopen this "
-                              "wizard.", RED)
+                              "wizard.").format(proton_name), RED)
                     safe_emit(self._deps_done_sig, False)
                     return
                 self._prefix_env = result
@@ -191,28 +191,28 @@ class PGPatcherView(WizardViewBase):
                 # --- d3dcompiler_47 ---
                 if is_dep_installed(prefix_path, D3D_DEP_KEY):
                     safe_emit(self._d3d_status_sig,
-                              "d3dcompiler_47 already installed — skipping.",
+                              self.tr("d3dcompiler_47 already installed — skipping."),
                               GREEN)
                 else:
                     safe_emit(self._d3d_status_sig,
-                              "Installing d3dcompiler_47… (may take a minute)",
+                              self.tr("Installing d3dcompiler_47… (may take a minute)"),
                               "")
                     # steam_id deliberately omitted: the protontricks fallback
                     # installs by app id into the game prefix, not this one.
                     ok = install_d3dcompiler_47("", log_fn=_wlog,
                                                 prefix_path=prefix_path)
                     safe_emit(self._d3d_status_sig,
-                              "d3dcompiler_47 installed." if ok else
-                              "d3dcompiler_47 install failed — continuing "
-                              "anyway.",
+                              self.tr("d3dcompiler_47 installed.") if ok else
+                              self.tr("d3dcompiler_47 install failed — continuing "
+                              "anyway."),
                               GREEN if ok else _AMBER)
 
                 # --- .NET 8 ---
-                safe_emit(self._net8_status_sig, "Checking .NET 8…", "")
+                safe_emit(self._net8_status_sig, self.tr("Checking .NET 8…"), "")
                 net8_key = dotnet_dep_key("8")
                 if is_dep_installed(prefix_path, net8_key):
                     safe_emit(self._net8_status_sig,
-                              ".NET 8 already installed — skipping.", GREEN)
+                              self.tr(".NET 8 already installed — skipping."), GREEN)
                     safe_emit(self._deps_done_sig, True)
                     return
 
@@ -222,11 +222,12 @@ class PGPatcherView(WizardViewBase):
                     log_fn=_wlog,
                     status_fn=lambda m: safe_emit(self._net8_status_sig, m, ""))
                 if not ok:
-                    raise RuntimeError(".NET 8 install failed (see log).")
-                safe_emit(self._net8_status_sig, ".NET 8 ready.", GREEN)
+                    raise RuntimeError(self.tr(".NET 8 install failed (see log)."))
+                safe_emit(self._net8_status_sig, self.tr(".NET 8 ready."), GREEN)
                 safe_emit(self._deps_done_sig, True)
             except Exception as exc:
-                safe_emit(self._net8_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._net8_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
                 self._log(f"PGPatcher Wizard: .NET 8 install error: {exc}")
                 safe_emit(self._deps_done_sig, False)
 
@@ -244,8 +245,9 @@ class PGPatcherView(WizardViewBase):
             _wlog = lambda m: self._log(f"PGPatcher Wizard: {m}")
             try:
                 if exe is None:
-                    raise RuntimeError(
-                        f"{_PATCHER_EXE} not found — please restart the wizard.")
+                    raise RuntimeError(self.tr(
+                        "{0} not found — please restart the wizard.").format(
+                            _PATCHER_EXE))
                 from Utils.exe_args_builder import _bootstrap_pgpatcher_settings
                 _bootstrap_pgpatcher_settings(
                     exe,
@@ -254,10 +256,11 @@ class PGPatcherView(WizardViewBase):
                     log_fn=_wlog,
                     update=True,
                 )
-                safe_emit(self._config_status_sig, "Config applied.", GREEN)
+                safe_emit(self._config_status_sig, self.tr("Config applied."), GREEN)
                 safe_emit(self._config_done_sig, True)
             except Exception as exc:
-                safe_emit(self._config_status_sig, f"Config error: {exc}", RED)
+                safe_emit(self._config_status_sig,
+                          self.tr("Config error: {0}").format(exc), RED)
                 self._log(f"PGPatcher Wizard: config error: {exc}")
                 safe_emit(self._config_done_sig, False)
 
@@ -304,7 +307,7 @@ class PGPatcherView(WizardViewBase):
             self._maybe_build_mo2_dummy()
         except Exception as exc:
             safe_emit(self._deploy_status_sig,
-                      f"MO2 instance error: {exc}", RED)
+                      self.tr("MO2 instance error: {0}").format(exc), RED)
             self._log(f"PGPatcher Wizard: MO2 dummy error: {exc}")
             return
         safe_emit(self._goto_run_sig)
@@ -357,8 +360,9 @@ class PGPatcherView(WizardViewBase):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(
+                                  proton_name), RED)
                     return
                 proton_script, compat_data, env = result
 
@@ -395,18 +399,19 @@ class PGPatcherView(WizardViewBase):
 
                 _wlog(f"launching {exe} via Proton")
                 safe_emit(self._run_status_sig,
-                          "PGPatcher is running.\nWait for it to finish, then "
-                          "click Done.", GREEN)
+                          self.tr("PGPatcher is running.\nWait for it to finish, then "
+                          "click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 extra_args=extra_args, label="PGPatcher")
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 _wlog("PGPatcher closed.")
-                safe_emit(self._run_status_sig, "PGPatcher finished.", GREEN)
+                safe_emit(self._run_status_sig, self.tr("PGPatcher finished."), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig,
+                          self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"PGPatcher Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="pgpatcher-run").start()

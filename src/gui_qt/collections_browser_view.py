@@ -24,15 +24,24 @@ import threading
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QScrollArea, QFrame, QToolButton, QMenu,
+    QScrollArea, QFrame, QToolButton, QMenu, QCheckBox,
 )
 
 from gui_qt.theme_qt import active_palette, _c
 from gui_qt.safe_emit import safe_emit
 from gui_qt.nexus_mod_card import ThumbnailLoader
 from gui_qt.collection_card import CollectionCard, CARD_W, IMG_W, IMG_H
+from gui_qt.selector_button import SelectorButton
 
 PAGE_SIZE = 20            # Tk parity (collections_dialog PAGE_SIZE)
+
+# label → API sort key (see NexusAPI.COLLECTION_SORTS)
+SORT_KEYS = [
+    ("Most downloaded", "downloads"),
+    ("Most endorsed", "endorsements"),
+    ("Highest rated", "rating"),
+    ("Recently listed", "recent"),
+]
 
 
 class CollectionsBrowserView(QWidget):
@@ -56,8 +65,10 @@ class CollectionsBrowserView(QWidget):
         self._on_remove_appended = on_remove_appended
 
         # state
+        self._show_adult = self._load_show_adult()
         self._page = 0
         self._query = ""
+        self._sort = "downloads"
         self._entries = []
         self._cards: list[CollectionCard] = []
         self._appended_cards: list[CollectionCard] = []
@@ -90,6 +101,18 @@ class CollectionsBrowserView(QWidget):
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         tb.addWidget(title)
         tb.addStretch(1)
+
+        self._sort_sel = SelectorButton(
+            items=[self.tr(lbl) for lbl, _ in SORT_KEYS],
+            current=self.tr("Most downloaded"),
+            prefix=self.tr("Sort: "), min_width=170,
+            on_select=self._on_sort_changed)
+        tb.addWidget(self._sort_sel)
+
+        self._adult_cb = QCheckBox(self.tr("Show adult"))
+        self._adult_cb.setChecked(self._show_adult)
+        self._adult_cb.toggled.connect(self._on_adult_toggled)
+        tb.addWidget(self._adult_cb)
 
         open_btn = QToolButton()
         open_btn.setText(self.tr("Open on Nexus"))
@@ -203,6 +226,30 @@ class CollectionsBrowserView(QWidget):
 
         outer.addWidget(footer)
 
+    # -- adult filter -------------------------------------------------------
+    @staticmethod
+    def _load_show_adult() -> bool:
+        try:
+            from Utils.ui_config import load_nexus_show_adult
+            return bool(load_nexus_show_adult())
+        except Exception:
+            return False
+
+    def _on_adult_toggled(self, on: bool):
+        self._show_adult = bool(on)
+        try:
+            from Utils.ui_config import save_nexus_show_adult
+            save_nexus_show_adult(self._show_adult)
+        except Exception:
+            pass
+        self._rebuild_cards()       # filter is applied at card-build time
+
+    def _visible_entries(self):
+        if self._show_adult:
+            return self._entries
+        return [e for e in self._entries
+                if not getattr(e, "contains_adult_content", False)]
+
     # -- search -------------------------------------------------------------
     def _on_search_text(self, text: str):
         t = getattr(self, "_search_timer", None)
@@ -219,6 +266,18 @@ class CollectionsBrowserView(QWidget):
         if q == self._query:
             return
         self._query = q
+        self._page = 0
+        self._reload()
+
+    # -- sort ---------------------------------------------------------------
+    def _on_sort_changed(self, label: str):
+        # Map the (possibly translated) menu label back to its API sort key.
+        key = next((k for lbl, k in SORT_KEYS if self.tr(lbl) == label), None)
+        if key is None:
+            key = dict(SORT_KEYS).get(label, "downloads")
+        if key == self._sort:
+            return
+        self._sort = key
         self._page = 0
         self._reload()
 
@@ -273,6 +332,7 @@ class CollectionsBrowserView(QWidget):
         size = self._page_size()
         query = self._query
         domain = self._domain
+        sort = self._sort
 
         def worker():
             entries = []
@@ -280,19 +340,21 @@ class CollectionsBrowserView(QWidget):
             try:
                 if query:
                     entries = self._api.search_collections(
-                        domain, query, count=size, offset=page * size)
-                    status = (f"Search '{query}': page {page + 1} "
-                              f"({len(entries)} result(s))")
+                        domain, query, count=size, offset=page * size, sort=sort)
+                    status = self.tr("Search '{0}': page {1} "
+                                     "({2} result(s))").format(
+                                         query, page + 1, len(entries))
                 else:
                     entries = self._api.get_collections(
-                        domain, count=size, offset=page * size)
-                    status = f"Collections: page {page + 1}"
+                        domain, count=size, offset=page * size, sort=sort)
+                    status = self.tr("Collections: page {0}").format(page + 1)
                 if not entries and page == 0:
-                    status = ("No collections found."
-                              if not query else f"No matches for '{query}'.")
+                    status = (self.tr("No collections found.")
+                              if not query
+                              else self.tr("No matches for '{0}'.").format(query))
             except Exception as exc:
                 self._log(f"Nexus: collections error: {exc}")
-                status = f"Error: {exc}"
+                status = self.tr("Error: {0}").format(exc)
                 entries = []
             safe_emit(self._results_ready, entries, status, token)
 
@@ -310,7 +372,8 @@ class CollectionsBrowserView(QWidget):
         self._update_page_buttons()
 
     def _set_loading(self, on: bool):
-        for w in (self._prev_btn, self._next_btn, self._page_edit):
+        for w in (self._prev_btn, self._next_btn, self._page_edit,
+                  self._sort_sel):
             w.setEnabled(not on)
         if on:
             self._status.setText(self.tr("Loading…"))
@@ -320,10 +383,9 @@ class CollectionsBrowserView(QWidget):
 
     def _update_page_buttons(self):
         self._prev_btn.setEnabled(self._page > 0)
-        # Search over-fetches a single capped batch (no real server paging), so
-        # only paginate the unfiltered browse list.
-        self._next_btn.setEnabled(
-            (not self._query) and len(self._entries) >= self._page_size())
+        # Both browse and search page server-side via count/offset, so a full
+        # page implies there may be a next one.
+        self._next_btn.setEnabled(len(self._entries) >= self._page_size())
 
     # -- appended-collections section ----------------------------------------
     def refresh_appended(self):
@@ -390,7 +452,7 @@ class CollectionsBrowserView(QWidget):
             c.setParent(None)
         self._cards.clear()
         primary_view = self._on_open_detail or self._on_view
-        for e in self._entries:
+        for e in self._visible_entries():
             card = CollectionCard(e, primary_view,
                                   on_context=self._show_card_menu)
             self._cards.append(card)

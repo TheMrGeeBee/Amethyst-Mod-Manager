@@ -13,12 +13,18 @@ algorithms live in Utils.mod_files. The view drives saves on checkbox clicks.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PySide6.QtCore import (
+    Qt, QAbstractItemModel, QModelIndex, QT_TRANSLATE_NOOP)
 
 COL_NAME = 0
 COL_TOPLEVEL = 1
 COL_DISABLE = 2
-COLUMNS = ["File name", "Top Level", "Disable"]
+# Translated at display time in headerData; register literals for lupdate.
+COLUMNS = [
+    QT_TRANSLATE_NOOP("ModFilesModel", "File name"),
+    QT_TRANSLATE_NOOP("ModFilesModel", "Top Level"),
+    QT_TRANSLATE_NOOP("ModFilesModel", "Disable"),
+]
 
 # Custom roles.
 NodeRole = Qt.UserRole + 1       # the _Node
@@ -108,7 +114,7 @@ class ModFilesModel(QAbstractItemModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            return self.tr(COLUMNS[section])
         return None
 
     def flags(self, index):

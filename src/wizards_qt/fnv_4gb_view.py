@@ -36,7 +36,7 @@ class Fnv4GbView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"4GB Patch — {game.name}")
+                         title=self.tr("4GB Patch — {0}").format(game.name))
         self._game_root = game.get_game_path()
         self._busy = False
 
@@ -96,31 +96,33 @@ class Fnv4GbView(WizardViewBase):
             try:
                 info = inspect_exe(game_root)
             except Exception as exc:
-                safe_emit(self._exe_status_sig, f"Error reading exe: {exc}", RED)
+                safe_emit(self._exe_status_sig, self.tr("Error reading exe: {0}").format(exc), RED)
                 return
             state = info["state"]
             if state == "missing":
                 safe_emit(self._exe_status_sig,
-                          f"{EXE_NAME} not found in the game folder.", RED)
+                          self.tr("{0} not found in the game folder.").format(EXE_NAME), RED)
             elif state == "patched":
                 safe_emit(self._exe_status_sig,
-                          f"{EXE_NAME} is already 4GB patched.", GREEN)
+                          self.tr("{0} is already 4GB patched.").format(EXE_NAME), GREEN)
             elif state == "patchable":
+                variant = info['variant']
                 safe_emit(self._exe_status_sig,
-                          f"Unpatched {EXE_NAME} detected ({info['variant']} "
-                          "version) — ready to patch.", "")
+                          self.tr("Unpatched {0} detected ({1} "
+                          "version) — ready to patch.").format(EXE_NAME, variant), "")
             else:
+                exe_hash = info['hash']
                 safe_emit(self._exe_status_sig,
-                          f"Unrecognised {EXE_NAME} version.\n"
-                          f"SHA-1: {info['hash']}\n"
+                          self.tr("Unrecognised {0} version.\n"
+                          "SHA-1: {1}\n"
                           "It may already be modified. Verify game files in "
-                          "Steam/Heroic to get a clean exe, then try again.",
+                          "Steam/Heroic to get a clean exe, then try again.").format(EXE_NAME, exe_hash),
                           _AMBER)
             if info["backup_exists"]:
                 safe_emit(self._backup_status_sig,
-                          f"Backup found: {BACKUP_NAME}", "")
+                          self.tr("Backup found: {0}").format(BACKUP_NAME), "")
             else:
-                safe_emit(self._backup_status_sig, "No backup present.", "")
+                safe_emit(self._backup_status_sig, self.tr("No backup present."), "")
             safe_emit(self._buttons_sig,
                       state == "patchable", info["backup_exists"])
 
@@ -143,7 +145,7 @@ class Fnv4GbView(WizardViewBase):
                           f"version), original saved as {BACKUP_NAME}.")
             except Exception as exc:
                 self._log(f"4GB patch wizard: patch failed: {exc}")
-                safe_emit(self._exe_status_sig, f"Patch failed: {exc}", RED)
+                safe_emit(self._exe_status_sig, self.tr("Patch failed: {0}").format(exc), RED)
             finally:
                 self._busy = False
                 safe_emit(self._refresh_sig)
@@ -165,7 +167,7 @@ class Fnv4GbView(WizardViewBase):
                 self._log(f"4GB patch wizard: restored {EXE_NAME} from {BACKUP_NAME}.")
             except Exception as exc:
                 self._log(f"4GB patch wizard: restore failed: {exc}")
-                safe_emit(self._exe_status_sig, f"Restore failed: {exc}", RED)
+                safe_emit(self._exe_status_sig, self.tr("Restore failed: {0}").format(exc), RED)
             finally:
                 self._busy = False
                 safe_emit(self._refresh_sig)

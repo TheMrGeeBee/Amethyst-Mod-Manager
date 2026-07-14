@@ -38,7 +38,7 @@ def register_as_mod_neutral(
     """GUI-neutral core of :func:`register_as_mod`.
 
     Writes meta.ini with rootFolder=*root_folder* and prepends the mod to
-    *modlist_path* (defaults to the game's ``profiles/default/modlist.txt``).
+    *modlist_path* (defaults to the ACTIVE profile's ``modlist.txt``).
     Does NO UI refresh — callers that have a panel/app refresh it themselves.
 
     *archive* is optional — pass ``None`` for payloads built directly in the
@@ -63,7 +63,18 @@ def register_as_mod_neutral(
     write_meta(mod_dir / "meta.ini", meta)
 
     if modlist_path is None:
-        modlist_path = game.get_profile_root() / "profiles" / "default" / "modlist.txt"
+        # Register into the ACTIVE profile's modlist. Hardcoding profiles/default
+        # here put wizard installs in the WRONG modlist whenever another profile
+        # was active: the mod then reached the active modlist only via the
+        # refresh's sync_modlist_with_mods_folder — as a DISABLED entry — and a
+        # disabled root-flagged mod is skipped by collect_root_flagged_mods, so
+        # the index rescan stripped its Data/ prefix (SKSE wizard → Scripts/
+        # deployed to the game root once the user enabled it).
+        prof_dir = getattr(game, "_active_profile_dir", None)
+        if prof_dir is not None:
+            modlist_path = Path(prof_dir) / "modlist.txt"
+        else:
+            modlist_path = game.get_profile_root() / "profiles" / "default" / "modlist.txt"
 
     prepend_mod(modlist_path, mod_name, enabled=True)
     log_fn(f"Wizard: added '{mod_name}' to modlist with rootFolder={str(root_folder).lower()}.")
@@ -129,35 +140,55 @@ def index_installed_mod(
     Mirrors ``gui/install_mod.py``'s indexing block.  No-op-safe: failures are
     logged, and a later Refresh (full ``rebuild_mod_index``) still recovers.
     """
-    from Utils.filemap import _scan_dir, update_mod_index
-
     try:
+        from Utils.filemap import rescan_mods_in_index
+        from Utils.deploy import load_per_mod_strip_prefixes
+
         staging = game.get_effective_mod_staging_path()
         if staging is None:
             return
         mod_dir = staging / mod_name
         if not mod_dir.is_dir():
             return
-        strip_fs = frozenset(
-            s.lower() for s in (getattr(game, "mod_folder_strip_prefixes", set()) or [])
-        )
-        # Canonical attr is mod_install_extensions (NOT install_extensions,
-        # which doesn't exist → getattr None → no extension filtering, so the
-        # index over-includes files vs a Refresh). root_deploy_folders is a
-        # removed/ignored _scan_dir param, kept only for call-site compat.
-        exts_fs = frozenset(
-            e.lower() for e in (getattr(game, "mod_install_extensions", None) or [])
-        )
-        root_fs = frozenset()
-        _, normal_files, root_files, _ = _scan_dir(
-            mod_name, str(mod_dir), strip_fs, exts_fs, root_fs
-        )
+        # Delegate to rescan_mods_in_index — the SAME helper the Install Mod
+        # path (_update_indexes) and a full Refresh (rebuild_mod_index) use, so
+        # the single-mod entry is written with identical strip-prefix /
+        # extension / per-mod / root-folder rules. A raw _scan_dir +
+        # update_mod_index here had no notion of the root flag: a
+        # root_folder=true mod (e.g. SKSE, which ships Data/Scripts/…) had its
+        # Data/ prefix stripped and deployed Scripts/ into the game ROOT
+        # instead of Data/ until a Refresh re-read the flag. Read the flag from
+        # the just-written meta.ini exactly like _update_indexes does.
+        root_mods = None
+        try:
+            from Nexus.nexus_meta import read_meta
+            if read_meta(mod_dir / "meta.ini").root_folder:
+                root_mods = {mod_name}
+        except Exception:
+            root_mods = None
+        # Per-mod strip prefixes come from the active profile (best-effort —
+        # an unset/missing profile just yields no per-mod overrides).
+        try:
+            profile_dir = getattr(game, "_active_profile_dir", None)
+            if profile_dir is None:
+                profile_dir = game.get_profile_root() / "profiles" / "default"
+            per_mod = load_per_mod_strip_prefixes(profile_dir)
+        except Exception:
+            per_mod = None
+        # Canonical attrs are mod_folder_strip_prefixes / mod_install_extensions
+        # (the older strip_prefixes / install_extensions names don't exist on
+        # the game classes → getattr None → an entry inconsistent with Refresh).
         index_path = staging.parent / "modindex.bin"
-        norm_case = getattr(game, "normalize_folder_case", True)
-        update_mod_index(
-            index_path, mod_name, normal_files, root_files,
-            normalize_folder_case=norm_case,
+        rescan_mods_in_index(
+            index_path, staging, [mod_name],
+            strip_prefixes=set(getattr(game, "mod_folder_strip_prefixes", None) or ()) or None,
+            per_mod_strip_prefixes=per_mod,
+            allowed_extensions=set(getattr(game, "mod_install_extensions", None) or ()) or None,
+            normalize_folder_case=getattr(game, "normalize_folder_case", True),
+            root_folder_mods=root_mods,
+            log_fn=log_fn,
         )
-        log_fn(f"Wizard: indexed '{mod_name}' ({len(normal_files)} file(s)) for deploy.")
+        log_fn(f"Wizard: indexed '{mod_name}' for deploy"
+               + (" (root-folder mod)." if root_mods else "."))
     except Exception as exc:
         log_fn(f"Wizard: could not index '{mod_name}': {exc}")

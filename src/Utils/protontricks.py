@@ -211,6 +211,32 @@ def _get_proton_bin() -> str | None:
     return None
 
 
+def wine_bin_dir_for_prefix(prefix_path, env: dict | None = None) -> str | None:
+    """bin/ dir of the lutris-wine runner when *prefix_path* is a Lutris
+    classic-wine prefix, else None (callers fall back to ``_get_proton_bin``).
+
+    winetricks runs ``wine`` off PATH, so the runner whose libraries built the
+    prefix must come first. When *env* is given, the runner's lib dirs are
+    also prepended to its LD_LIBRARY_PATH (Lutris injects those itself when
+    it launches the runner).
+    """
+    try:
+        from Utils.lutris_finder import (
+            is_lutris_prefix, find_lutris_wine_for_prefix, lutris_wine_env)
+        if not is_lutris_prefix(prefix_path):
+            return None
+        wine_bin = find_lutris_wine_for_prefix(prefix_path)
+        if wine_bin is None:
+            return None
+        if env is not None:
+            extra = lutris_wine_env(wine_bin, prefix_path)
+            if "LD_LIBRARY_PATH" in extra:
+                env["LD_LIBRARY_PATH"] = extra["LD_LIBRARY_PATH"]
+        return str(wine_bin.parent)
+    except Exception:
+        return None
+
+
 def _host_spawn_prefix() -> list[str] | None:
     """Command prefix to run a program on the host system.
 
@@ -288,7 +314,7 @@ def _install_via_winetricks(
     env["WINEPREFIX"] = str(prefix_path)
 
     path_prefix = str(_get_tools_dir())
-    proton_bin = _get_proton_bin()
+    proton_bin = wine_bin_dir_for_prefix(prefix_path, env) or _get_proton_bin()
     if proton_bin:
         path_prefix = proton_bin + os.pathsep + path_prefix
     env["PATH"] = path_prefix + os.pathsep + env.get("PATH", "")
@@ -521,6 +547,13 @@ def build_proton_env_for_game(game) -> "tuple[Path, dict] | tuple[None, None]":
     if prefix_path is None or not prefix_path.is_dir():
         return None, None
 
+    # Classic lutris-wine prefixes run the installer with the Lutris runner's
+    # own wine binary (proton_run_command handles the wine-binary form).
+    from Utils.proton_tools import _resolve_lutris_wine_env
+    wine_bin, wenv = _resolve_lutris_wine_env(prefix_path)
+    if wine_bin is not None:
+        return wine_bin, wenv
+
     steam_id = game_steam_id(game)
     proton_script = find_proton_for_game(steam_id) if steam_id else None
 
@@ -534,6 +567,15 @@ def build_proton_env_for_game(game) -> "tuple[Path, dict] | tuple[None, None]":
             proton_script = find_heroic_proton_for_prefix(prefix_path)
         except Exception:
             proton_script = None
+
+    if proton_script is None:
+        try:
+            from Utils.lutris_finder import find_lutris_proton_name_for_prefix
+            lutris_runner = find_lutris_proton_name_for_prefix(prefix_path)
+        except Exception:
+            lutris_runner = None
+        if lutris_runner:
+            proton_script = find_any_installed_proton(lutris_runner)
 
     if proton_script is None:
         proton_script = find_any_installed_proton(_read_prefix_runner(compat_data))

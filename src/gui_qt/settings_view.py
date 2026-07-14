@@ -221,6 +221,37 @@ class SettingsView(QWidget):
             self._add_help(grid, help)
         return edit
 
+    def _file_row(self, grid: QGridLayout, label: str, load_fn, save_fn,
+                  filters: "list[tuple[str, list[str]]] | None" = None,
+                  help: str | None = None) -> QLineEdit:
+        """Like :meth:`_path_row` but the Browse button picks a single file
+        (e.g. an AppImage) instead of a folder."""
+        row = self._next_row(grid)
+        grid.addWidget(QLabel(label), row, 0)
+        wrap = QHBoxLayout()
+        edit = QLineEdit()
+        try:
+            edit.setText(load_fn() or "")
+        except Exception:
+            pass
+        edit.editingFinished.connect(
+            lambda: self._safe_save(save_fn, edit.text().strip()))
+        browse = QPushButton(self.tr("Browse"))
+        browse.setCursor(Qt.PointingHandCursor)
+        browse.clicked.connect(
+            lambda: self._browse_file_into(edit, save_fn, label, filters))
+        clear = QPushButton(self.tr("Clear"))
+        clear.setCursor(Qt.PointingHandCursor)
+        clear.clicked.connect(lambda: self._clear_path(edit, save_fn))
+        wrap.addWidget(edit, 1)
+        wrap.addWidget(browse)
+        wrap.addWidget(clear)
+        holder = QWidget(); holder.setLayout(wrap)
+        grid.addWidget(holder, row, 1)
+        if help:
+            self._add_help(grid, help)
+        return edit
+
     # ---- sections ---------------------------------------------------------
     def _build_user_interface(self):
         # Language, Theme and UI Scale are all applied once at startup (Qt reads
@@ -500,6 +531,12 @@ class SettingsView(QWidget):
             uc.load_keep_fomod_archives, uc.save_keep_fomod_archives,
             help=self.tr("Mods installed via a FOMOD installer keep their archive even "
                  "when 'Clear archive after install' is on."))
+        self._checkbox(
+            g, self.tr("Install new mods disabled"),
+            uc.load_install_mods_disabled, uc.save_install_mods_disabled,
+            help=self.tr("Newly installed mods start disabled in the modlist instead "
+                 "of enabled. Applies to every install path except collection "
+                 "installs."))
 
         # Collection settings — all persisted together via save_collection_settings.
         self._slider(
@@ -511,6 +548,30 @@ class SettingsView(QWidget):
         self._add_help(
             g, self.tr("Extractions are gated by available memory; the effective number "
                "may be lower than set."))
+
+        # Extraction resource limits — apply to every install (single mods,
+        # Downloads tab and collections), not just collection installs.
+        import os as _os
+        ext = uc.load_extraction_settings()
+        thr_sld, thr_lbl = self._slider(
+            g, self.tr("Extraction CPU threads"), 0, _os.cpu_count() or 8,
+            int(ext.get("cpu_threads", 0)),
+            lambda v: self._safe_save(uc.save_extraction_cpu_threads, v))
+        def _fmt_threads(v, _lbl=thr_lbl):
+            _lbl.setText(self.tr("All") if int(v) == 0 else str(v))
+        thr_sld.valueChanged.connect(_fmt_threads)
+        _fmt_threads(thr_sld.value())
+        self._add_help(
+            g, self.tr("CPU threads each extraction may use. 'All' is fastest; a "
+               "lower value keeps the system responsive while large archives "
+               "extract."))
+        self._checkbox(
+            g, self.tr("Low priority extractions"),
+            lambda: bool(uc.load_extraction_settings().get("low_priority", False)),
+            uc.save_extraction_low_priority,
+            help=self.tr("Run extractions at low CPU and disk priority so they yield "
+                 "to other applications instead of slowing them down. Extraction "
+                 "speed is unaffected while the system is otherwise idle."))
 
         # Manage Caches action.
         row = self._next_row(g)
@@ -576,6 +637,18 @@ class SettingsView(QWidget):
             help=self.tr("Folder containing Heroic's config.json. Blank = auto-detect "
                  "(Flatpak and native locations)."))
         self._path_row(
+            g, self.tr("Lutris Data Location"),
+            uc.load_lutris_data_path, uc.save_lutris_data_path,
+            help=self.tr("Folder containing Lutris's pga.db. Blank = auto-detect "
+                 "(Flatpak and native locations)."))
+        self._file_row(
+            g, self.tr("Lutris AppImage"),
+            uc.load_lutris_appimage_path, uc.save_lutris_appimage_path,
+            filters=[("AppImage", ["*.AppImage", "*.appimage"]), ("All files", ["*"])],
+            help=self.tr("Path to the Lutris AppImage, so Play can launch it "
+                 "directly. Only needed for AppImage installs — leave blank for "
+                 "Flatpak or native Lutris."))
+        self._path_row(
             g, self.tr("Steam libraryfolders.vdf"),
             uc.load_steam_libraries_vdf_path, uc.save_steam_libraries_vdf_path,
             help=self.tr("Path to libraryfolders.vdf (or its folder). Blank = auto-detect "
@@ -604,6 +677,15 @@ class SettingsView(QWidget):
         from Utils.portal_filechooser import pick_folder
         pick_folder(f"Select {title}",
                     lambda path: self._folder_picked.emit((edit, save_fn, path)))
+
+    def _browse_file_into(self, edit: QLineEdit, save_fn, title: str,
+                          filters=None):
+        # Reuse the folder-picked signal/slot — the payload shape is identical
+        # (edit, save_fn, path); pick_file just returns a file Path.
+        from Utils.portal_filechooser import pick_file
+        pick_file(f"Select {title}",
+                  lambda path: self._folder_picked.emit((edit, save_fn, path)),
+                  filters=filters)
 
     def _on_folder_picked(self, payload):
         edit, save_fn, path = payload

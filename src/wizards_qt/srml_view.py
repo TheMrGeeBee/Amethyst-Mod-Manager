@@ -6,6 +6,8 @@ folder → run ``SRMLInstaller.exe`` via Proton → clean up.
 
 from __future__ import annotations
 
+from PySide6.QtCore import QT_TRANSLATE_NOOP
+
 from wizards_qt._mod_loader_installer_view import ModLoaderInstallerView
 
 
@@ -15,4 +17,4 @@ class SRMLView(ModLoaderInstallerView):
                  "?tab=files&file_id=724")
     ARCHIVE_KEYWORDS = ["srmlinstaller"]
     INSTALLER_EXE = "SRMLInstaller.exe"
-    PICK_TITLE = "Select the SRML archive"
+    PICK_TITLE = QT_TRANSLATE_NOOP("SRMLView", "Select the SRML archive")

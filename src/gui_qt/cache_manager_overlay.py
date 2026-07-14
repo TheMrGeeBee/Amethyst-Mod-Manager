@@ -163,11 +163,11 @@ class CacheManagerOverlay(OverlayBase):
             row.addWidget(b)
             return b
 
-        _mk("All", "FormButton", self._select_all)
-        _mk("None", "FormButton", self._select_none)
-        self._clear_sel_btn = _mk("Clear Selected", "PrimaryButton",
+        _mk(self.tr("All"), "FormButton", self._select_all)
+        _mk(self.tr("None"), "FormButton", self._select_none)
+        self._clear_sel_btn = _mk(self.tr("Clear Selected"), "PrimaryButton",
                                   self._on_clear_selected)
-        self._clear_all_btn = _mk("Clear All", "DangerButton",
+        self._clear_all_btn = _mk(self.tr("Clear All"), "DangerButton",
                                   self._on_clear_all)
         v.addLayout(row)
         outer.addWidget(wrap)
@@ -204,14 +204,15 @@ class CacheManagerOverlay(OverlayBase):
         for game_dir in games:
             name = game_dir.name
             active = (name == self._active)
-            label = f"{name}  (active)" if active else name
+            label = self.tr("{0}  (active)").format(name) if active else name
             color = _c(p, "TEXT_OK_BRIGHT") if active else _c(p, "TEXT_MAIN")
             self._add_row(idx, name, label, color)
             idx += 1
 
         if n_orphans:
             self._add_row(
-                idx, _ORPHANS, f"Leftover temp folders  ({n_orphans})",
+                idx, _ORPHANS,
+                self.tr("Leftover temp folders  ({0})").format(n_orphans),
                 _c(p, "TEXT_DIM"))
 
     def _add_row(self, idx: int, key: str, label_text: str, color: str):

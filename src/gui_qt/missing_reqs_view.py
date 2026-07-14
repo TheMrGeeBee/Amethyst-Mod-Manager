@@ -66,15 +66,15 @@ class _ReqCard(QFrame):
         h.setSpacing(10)
 
         col = QVBoxLayout(); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(3)
-        name = req.mod_name or f"Mod {req.mod_id}"
+        name = req.mod_name or self.tr("Mod {0}").format(req.mod_id)
         if is_external:
-            name += "  (External)"
+            name += "  " + self.tr("(External)")
         title = QLabel(name)
         title.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         title.setWordWrap(True)
         col.addWidget(title)
 
-        notes = (req.notes or "").strip() or "No description provided."
+        notes = (req.notes or "").strip() or self.tr("No description provided.")
         desc = QLabel(notes)
         desc.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
         desc.setWordWrap(True)

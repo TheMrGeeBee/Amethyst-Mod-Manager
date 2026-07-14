@@ -226,19 +226,40 @@ _ESL_SUPPORTED_GAME_IDS: frozenset[str] = frozenset({
 })
 
 
+# Header-flags cache, mtime+size keyed like _MASTERS_CACHE. Every plugin
+# reload reads two flag bits (ESL + master) per plugin; without this, a
+# 250-plugin load order costs 500 file opens per reload — and the plugin
+# list reloads several times per profile switch.
+_HDR_FLAGS_CACHE: dict[str, tuple[int, int, "int | None"]] = {}
+
+
 def read_plugin_header_flags(plugin_path: Path) -> int | None:
     """Return the 32-bit flags from the TES4 record header (bytes 8–11).
 
     Returns ``None`` on any error or if the file is not a TES4-format plugin.
-    """
+    Results are cached by (path, mtime, size)."""
+    path_str = str(plugin_path)
     try:
-        with plugin_path.open("rb") as f:
-            hdr = f.read(12)
-            if len(hdr) < 12 or hdr[0:4] != b"TES4":
-                return None
-            return struct.unpack_from("<I", hdr, 8)[0]
+        st = os.stat(path_str)
     except OSError:
         return None
+    entry = _HDR_FLAGS_CACHE.get(path_str)
+    if (entry is not None and entry[0] == st.st_mtime_ns
+            and entry[1] == st.st_size):
+        return entry[2]
+    flags = None
+    try:
+        with open(path_str, "rb") as f:
+            hdr = f.read(12)
+            if len(hdr) >= 12 and hdr[0:4] == b"TES4":
+                flags = struct.unpack_from("<I", hdr, 8)[0]
+    except OSError:
+        return None
+    if len(_HDR_FLAGS_CACHE) >= _MASTERS_CACHE_MAX:
+        for k in list(_HDR_FLAGS_CACHE.keys())[: _MASTERS_CACHE_MAX // 4]:
+            _HDR_FLAGS_CACHE.pop(k, None)
+    _HDR_FLAGS_CACHE[path_str] = (st.st_mtime_ns, st.st_size, flags)
+    return flags
 
 
 def is_esl_flagged(plugin_path: Path) -> bool:

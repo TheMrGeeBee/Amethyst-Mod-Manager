@@ -47,7 +47,7 @@ class TTWView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Install Tale of Two Wastelands — {game.name}")
+                         title=self.tr("Install Tale of Two Wastelands — {0}").format(game.name))
         self._exe = find_ttw_installer(game)
         self._mpi_path: "Path | None" = None
         self._fo3_path: "Path | None" = find_fo3_install()
@@ -137,19 +137,22 @@ class TTWView(WizardViewBase):
                         url = asset["browser_download_url"]
                         break
                 if not url:
-                    raise RuntimeError("No Linux installer asset found in the "
-                                       f"latest TTW release ({tag}).")
+                    raise RuntimeError(self.tr(
+                        "No Linux installer asset found in the "
+                        "latest TTW release ({0}).").format(tag))
 
                 _wlog(f"downloading TTW installer {tag} from {url}")
                 safe_emit(self._dl_status_sig,
-                          f"Downloading TTW installer {tag}…", "")
+                          self.tr("Downloading TTW installer {0}…").format(tag),
+                          "")
                 tmp_dir = Path(tempfile.mkdtemp())
                 archive = tmp_dir / Path(url).name
                 try:
                     download_file(url, archive)
                     dest = applications_dir(game)
                     dest.mkdir(parents=True, exist_ok=True)
-                    safe_emit(self._dl_status_sig, "Extracting installer…", "")
+                    safe_emit(self._dl_status_sig,
+                              self.tr("Extracting installer…"), "")
                     _wlog(f"extracting {archive.name} → {dest}")
                     paths = extract_archive(archive, dest)
                     _wlog(f"extracted {len([p for p in paths if p.is_file()])} "
@@ -159,17 +162,20 @@ class TTWView(WizardViewBase):
 
                 exe = dest / EXE_NAME
                 if not exe.is_file():
-                    raise RuntimeError(
-                        f"{EXE_NAME} not found after extraction at {dest}.")
+                    raise RuntimeError(self.tr(
+                        "{0} not found after extraction at {1}.").format(
+                            EXE_NAME, dest))
                 try:
                     os.chmod(exe, 0o755)
                 except OSError:
                     pass
                 self._exe = exe
-                safe_emit(self._dl_status_sig, "Installer ready.", GREEN)
+                safe_emit(self._dl_status_sig,
+                          self.tr("Installer ready."), GREEN)
                 safe_emit(self._dl_done_sig, True)
             except Exception as exc:
-                safe_emit(self._dl_status_sig, f"Install error: {exc}", RED)
+                safe_emit(self._dl_status_sig,
+                          self.tr("Install error: {0}").format(exc), RED)
                 _wlog(f"install error: {exc}")
                 safe_emit(self._dl_done_sig, False)
 
@@ -227,15 +233,16 @@ class TTWView(WizardViewBase):
         lay.addWidget(modpub, 0, Qt.AlignHCenter)
 
         self._fnv_label = self._path_row(
-            lay, "Fallout New Vegas:", self._fnv_path,
-            lambda: self._browse_folder("fnv",
-                                        "Select the Fallout New Vegas folder"))
+            lay, self.tr("Fallout New Vegas:"), self._fnv_path,
+            lambda: self._browse_folder(
+                "fnv", self.tr("Select the Fallout New Vegas folder")))
         self._fo3_label = self._path_row(
-            lay, "Fallout 3:", self._fo3_path,
-            lambda: self._browse_folder("fo3", "Select the Fallout 3 folder"))
+            lay, self.tr("Fallout 3:"), self._fo3_path,
+            lambda: self._browse_folder(
+                "fo3", self.tr("Select the Fallout 3 folder")))
         self._mpi_label = self._path_row(
-            lay, "TTW .mpi package:", self._mpi_path, self._browse_mpi,
-            browse_text="Choose .mpi…")
+            lay, self.tr("TTW .mpi package:"), self._mpi_path, self._browse_mpi,
+            browse_text=self.tr("Choose .mpi…"))
 
         self._paths_status = self._make_status(lay)
         lay.addStretch(1)
@@ -244,7 +251,9 @@ class TTWView(WizardViewBase):
         lay.addWidget(cont, 0, Qt.AlignHCenter)
         return page
 
-    def _path_row(self, lay, label, value, browse_cmd, browse_text="Browse…"):
+    def _path_row(self, lay, label, value, browse_cmd, browse_text=None):
+        if browse_text is None:
+            browse_text = self.tr("Browse…")
         p = active_palette()
         row = QWidget()
         row.setStyleSheet(f"background:{_c(p,'BG_PANEL')}; border-radius:6px;")
@@ -274,10 +283,10 @@ class TTWView(WizardViewBase):
 
     def _browse_mpi(self):
         from Utils.portal_filechooser import pick_file
-        pick_file("Select the TTW .mpi package",
+        pick_file(self.tr("Select the TTW .mpi package"),
                   lambda p: safe_emit(self._paths_picked_sig, "mpi", p),
-                  filters=[("TTW Package (*.mpi)", ["*.mpi"]),
-                           ("All files", ["*"])])
+                  filters=[(self.tr("TTW Package (*.mpi)"), ["*.mpi"]),
+                           (self.tr("All files"), ["*"])])
 
     def _on_path_picked(self, attr: str, path):
         if path is None:
@@ -340,8 +349,8 @@ class TTWView(WizardViewBase):
         exe = self._exe
         if exe is None or not exe.is_file():
             safe_emit(self._run_status_sig2,
-                      "Installer binary is missing. Restart the wizard and "
-                      "let it install first.", RED)
+                      self.tr("Installer binary is missing. Restart the wizard "
+                      "and let it install first."), RED)
             safe_emit(self._run_done_sig)
             return
 
@@ -349,14 +358,16 @@ class TTWView(WizardViewBase):
             self._log(f"TTW Wizard: {m}")
             safe_emit(self._run_log_sig, str(m))
 
-        safe_emit(self._run_status_sig2, "Restoring game to vanilla…", "")
+        safe_emit(self._run_status_sig2,
+                  self.tr("Restoring game to vanilla…"), "")
         safe_emit(self._run_log_sig,
-                  "Restoring game to a vanilla state before install…")
+                  self.tr("Restoring game to a vanilla state before install…"))
         ok, fnv_root = restore_to_vanilla(game, self._profile, log_fn=_rlog)
         if not ok:
             safe_emit(self._run_status_sig2,
-                      "Restore failed — see the log. Fix the issue (or restore "
-                      "manually via the Restore button) and retry.", RED)
+                      self.tr("Restore failed — see the log. Fix the issue (or "
+                      "restore manually via the Restore button) and retry."),
+                      RED)
             safe_emit(self._run_done_sig)
             return
         if fnv_root is not None:
@@ -365,7 +376,7 @@ class TTWView(WizardViewBase):
         staging = game.get_effective_mod_staging_path()
         if staging is None:
             safe_emit(self._run_status_sig2,
-                      "Mod staging path is not configured.", RED)
+                      self.tr("Mod staging path is not configured."), RED)
             safe_emit(self._run_done_sig)
             return
         dest = staging / _ON
@@ -376,19 +387,22 @@ class TTWView(WizardViewBase):
         if fnv_missing or fo3_missing:
             parts = []
             if fnv_missing:
-                parts.append("Fallout New Vegas: " + ", ".join(fnv_missing))
+                parts.append(self.tr("Fallout New Vegas: {0}").format(
+                    ", ".join(fnv_missing)))
             if fo3_missing:
-                parts.append("Fallout 3: " + ", ".join(fo3_missing))
+                parts.append(self.tr("Fallout 3: {0}").format(
+                    ", ".join(fo3_missing)))
             detail = "\n".join(parts)
             _rlog(f"missing vanilla esms after restore — {detail}")
             safe_emit(self._run_log_sig,
-                      "ERROR: missing vanilla plugin files:\n" + detail)
+                      self.tr("ERROR: missing vanilla plugin files:\n{0}").format(
+                          detail))
             safe_emit(self._run_status_sig2,
-                      "Missing vanilla plugin files even after restoring to "
-                      "vanilla — these were never backed up.\nIn Steam, "
+                      self.tr("Missing vanilla plugin files even after restoring "
+                      "to vanilla — these were never backed up.\nIn Steam, "
                       "right-click each game → Properties → Installed Files → "
-                      "Verify integrity of game files, then retry.\n\n"
-                      + detail, RED)
+                      "Verify integrity of game files, then retry.\n\n{0}")
+                      .format(detail), RED)
             safe_emit(self._run_done_sig)
             return
 
@@ -396,7 +410,8 @@ class TTWView(WizardViewBase):
                "--fo3", str(self._fo3_path), "--fnv", str(self._fnv_path),
                "--dest", str(dest)]
         self._log("TTW Wizard: running " + " ".join(cmd))
-        safe_emit(self._run_status_sig2, "Installing… (see log below)", "")
+        safe_emit(self._run_status_sig2,
+                  self.tr("Installing… (see log below)"), "")
         activity_re = re.compile(
             r"\b(Building ready BSA|Extracting|Patching|Cleaning up)[^\r\n]*")
 
@@ -406,7 +421,8 @@ class TTWView(WizardViewBase):
                 cmd, cwd=str(exe.parent), stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, bufsize=1)
         except Exception as exc:
-            safe_emit(self._run_status_sig2, f"Launch error: {exc}", RED)
+            safe_emit(self._run_status_sig2,
+                      self.tr("Launch error: {0}").format(exc), RED)
             self._log(f"TTW Wizard: launch error: {exc}")
             safe_emit(self._run_done_sig)
             return
@@ -428,21 +444,21 @@ class TTWView(WizardViewBase):
         rc = proc.wait()
         if rc != 0:
             safe_emit(self._run_status_sig2,
-                      f"Installer exited with error (code {rc}). See the log "
-                      "for details.", RED)
+                      self.tr("Installer exited with error (code {0}). See the "
+                      "log for details.").format(rc), RED)
             self._log(f"TTW Wizard: installer exited with code {rc}.")
             safe_emit(self._run_done_sig)
             return
 
         safe_emit(self._run_status_sig2,
-                  "Install complete — registering mod…", GREEN)
+                  self.tr("Install complete — registering mod…"), GREEN)
         self._log("TTW Wizard: install complete.")
         try:
             register_output(game, dest, log_fn=_rlog)
         except Exception as exc:
             safe_emit(self._run_status_sig2,
-                      f"Install finished but registering the mod failed: {exc}",
-                      RED)
+                      self.tr("Install finished but registering the mod failed: "
+                      "{0}").format(exc), RED)
             self._log(f"TTW Wizard: register error: {exc}")
             safe_emit(self._run_done_sig)
             return
@@ -464,7 +480,8 @@ class TTWView(WizardViewBase):
         if callable(setup):
             try:
                 safe_emit(self._run_log_sig,
-                          "Setting up profile INIs + FalloutCustom.ini for TTW…")
+                          self.tr("Setting up profile INIs + FalloutCustom.ini "
+                          "for TTW…"))
                 setup(self._profile, log_fn=_ilog)
             except Exception as exc:
                 _ilog(f"FalloutCustom.ini setup failed: {exc}")
@@ -472,23 +489,24 @@ class TTWView(WizardViewBase):
         try:
             seed_required_mods(game, log_fn=_ilog)
             safe_emit(self._run_log_sig,
-                      "Recommended Nexus mods are flagged on the TTW mod via "
-                      "the 'missing requirements' marker (installed ones are "
-                      "hidden automatically).")
+                      self.tr("Recommended Nexus mods are flagged on the TTW mod "
+                      "via the 'missing requirements' marker (installed ones "
+                      "are hidden automatically)."))
         except Exception as exc:
             _ilog(f"Seeding requirements failed: {exc}")
 
         self._ran = True
         done_msg = (
-            f"Done! '{_ON}' was added to your mod list. Enable it and deploy."
+            self.tr("Done! '{0}' was added to your mod list. Enable it and "
+                    "deploy.").format(_ON)
             if rebuilt else
-            f"Setup re-applied for the existing '{_ON}' mod. Enable it and "
-            "deploy.")
+            self.tr("Setup re-applied for the existing '{0}' mod. Enable it and "
+                    "deploy.").format(_ON))
         safe_emit(self._run_status_sig2,
-                  done_msg + "\n\nTTW needs several supporting mods (script "
-                  "extender plugins, patches, etc.). These are flagged on the "
-                  "TTW mod via the red 'missing requirements' marker — click "
-                  "it to install them, then deploy.", GREEN)
+                  done_msg + self.tr("\n\nTTW needs several supporting mods "
+                  "(script extender plugins, patches, etc.). These are flagged "
+                  "on the TTW mod via the red 'missing requirements' marker — "
+                  "click it to install them, then deploy."), GREEN)
         safe_emit(self._run_done_sig)
 
     # ---- routing helper ------------------------------------------------------------

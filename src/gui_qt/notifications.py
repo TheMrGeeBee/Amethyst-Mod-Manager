@@ -129,7 +129,7 @@ class ProgressPopup(_HoverFadeMixin, QFrame):
         if title:
             self._title.setText(title)
         if phase is not None:
-            self._phase.setText(phase or "Working…")
+            self._phase.setText(phase or self.tr("Working…"))
         if total > 0:
             # QProgressBar is int32 — summed byte totals (e.g. two 1.1 GB
             # downloads) overflow it. Scale the bar values down to fit; the

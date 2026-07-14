@@ -9,7 +9,7 @@ Mod structure:
 
 from pathlib import Path
 
-from Games.Bethesda.Bethesda import Fallout_3
+from Games.Bethesda.fallout_3 import Fallout_3
 from Games.base_game import WizardTool, MODERN_DIRECTX_DEPS
 from Utils.deploy import LinkMode, deploy_core, deploy_custom_rules, deploy_filemap, load_per_mod_strip_prefixes, load_separator_deploy_paths, expand_separator_deploy_paths, expand_separator_link_modes, expand_separator_raw_deploy, cleanup_custom_deploy_dirs, restore_custom_rules, restore_data_core, move_to_core
 from Utils.modlist import read_modlist

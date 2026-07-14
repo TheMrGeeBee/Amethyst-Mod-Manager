@@ -167,9 +167,9 @@ class ScriptExtenderView(QWidget):
         head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
         bv.addWidget(head)
         group = QButtonGroup(self)
-        for val, label in (("game", "Game folder (restores to vanilla first)"),
-                           ("root", "Root_Folder (staging)"),
-                           ("mod", "As a managed mod (root-flagged)")):
+        for val, label in (("game", self.tr("Game folder (restores to vanilla first)")),
+                           ("root", self.tr("Root_Folder (staging)")),
+                           ("mod", self.tr("As a managed mod (root-flagged)"))):
             rb = QRadioButton(label)
             rb.setProperty("mode", val)
             if val == "game":
@@ -271,15 +271,17 @@ class ScriptExtenderView(QWidget):
         def worker():
             try:
                 if api_url:
-                    safe_emit(self._dl_status_sig, "Fetching release from GitHub…", "")
+                    safe_emit(self._dl_status_sig,
+                              self.tr("Fetching release from GitHub…"), "")
                     tag, url = fetch_latest_github_asset(api_url, keywords)
                 elif direct:
-                    tag, url = "selected version", direct
+                    tag, url = self.tr("selected version"), direct
                 else:
-                    raise RuntimeError("No download URL configured.")
+                    raise RuntimeError(self.tr("No download URL configured."))
                 filename = url.split("/")[-1]
                 dest = get_downloads_dir() / filename
-                safe_emit(self._dl_status_sig, f"Downloading {tag}…", "")
+                safe_emit(self._dl_status_sig,
+                          self.tr("Downloading {0}…").format(tag), "")
                 self._log(f"Wizard: downloading {url} → {dest}")
 
                 def _reporthook(block_num, block_size, total_size):
@@ -291,14 +293,14 @@ class ScriptExtenderView(QWidget):
                 download_file(url, dest, reporthook=_reporthook)
                 self._archive_path = dest
                 safe_emit(self._dl_status_sig,
-                    f"Downloaded {filename}.\nChoose the install destination, "
-                    "then click Next.", ok_text())
+                    self.tr("Downloaded {0}.\nChoose the install destination, "
+                    "then click Next.").format(filename), ok_text())
                 safe_emit(self._dl_done_sig, True)
             except Exception as exc:
                 self._log(f"Wizard: download failed: {exc}")
                 safe_emit(self._dl_status_sig,
-                    f"Download failed:\n{exc}\n\nUse Browse… to pick an "
-                    "archive you downloaded manually.", err_text())
+                    self.tr("Download failed:\n{0}\n\nUse Browse… to pick an "
+                    "archive you downloaded manually.").format(exc), err_text())
                 safe_emit(self._dl_done_sig, False)
 
         threading.Thread(target=worker, daemon=True,
@@ -376,22 +378,24 @@ class ScriptExtenderView(QWidget):
         if found is not None:
             self._archive_path = found
             self._set_lbl(self._locate_status,
-                          f"Found: {found.name}\nClick Next to install it.",
+                          self.tr("Found: {0}\nClick Next to install it.").format(
+                              found.name),
                           ok_text())
             self._locate_next_btn.setEnabled(True)
         else:
             kw = ", ".join(self._archive_keywords) or "?"
             self._set_lbl(self._locate_status,
-                          f"No archive matching '{kw}' was found in your "
+                          self.tr("No archive matching '{0}' was found in your "
                           "Downloads folder.\nDownload it first, then Try "
-                          "Again — or Browse… to pick the file.", err_text())
+                          "Again — or Browse… to pick the file.").format(kw),
+                          err_text())
             self._locate_next_btn.setEnabled(False)
 
     # ---- browse (shared) -----------------------------------------------------------
     def _browse_archive(self):
         from Utils.portal_filechooser import pick_file
         # Portal callback fires on a WORKER thread — marshal via Signal.
-        pick_file("Select the script extender archive",
+        pick_file(self.tr("Select the script extender archive"),
                   lambda path: safe_emit(self._picked_sig, path))
 
     def _on_file_picked(self, path):
@@ -403,12 +407,13 @@ class ScriptExtenderView(QWidget):
         idx = self._stack.currentIndex()
         if idx == self._PG_DL_AUTO:
             self._set_lbl(self._dl_status,
-                          f"Selected: {name}\nChoose the install destination, "
-                          "then click Next.", ok_text())
+                          self.tr("Selected: {0}\nChoose the install destination, "
+                          "then click Next.").format(name), ok_text())
             self._dl_next_btn.setEnabled(True)
         elif idx == self._PG_LOCATE:
             self._set_lbl(self._locate_status,
-                          f"Selected: {name}\nClick Next to install it.", ok_text())
+                          self.tr("Selected: {0}\nClick Next to install it.").format(
+                              name), ok_text())
             self._locate_next_btn.setEnabled(True)
 
     # ---- page 4: extract ---------------------------------------------------------
@@ -431,7 +436,7 @@ class ScriptExtenderView(QWidget):
         mode = self._selected_mode()
         self._installed_mode = mode
         self._stack.setCurrentIndex(self._PG_EXTRACT)
-        self._set_lbl(self._ex_status, "Extracting…", "")
+        self._set_lbl(self._ex_status, self.tr("Extracting…"), "")
         game = self._game
         archive = self._archive_path
 
@@ -439,19 +444,21 @@ class ScriptExtenderView(QWidget):
             try:
                 if mode == "game":
                     safe_emit(self._ex_status_sig,
-                        "Restoring game to vanilla state…", "")
+                        self.tr("Restoring game to vanilla state…"), "")
                 dest_label, file_count, _mod = install_archive_payload(
                     game, archive, mode,
                     mod_fallback_name="Script Extender",
                     log_fn=lambda m: self._log(str(m)))
                 safe_emit(self._ex_status_sig,
-                    f"Script extender installed successfully!\n"
-                    f"{file_count} file(s) extracted to the {dest_label}.\n\n"
-                    "Click Done to close.", ok_text())
+                    self.tr("Script extender installed successfully!\n"
+                    "{0} file(s) extracted to the {1}.\n\n"
+                    "Click Done to close.").format(file_count, dest_label),
+                    ok_text())
                 safe_emit(self._ex_done_sig, True)
             except Exception as exc:
                 self._log(f"Wizard error: {exc}")
-                safe_emit(self._ex_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._ex_status_sig,
+                          self.tr("Error: {0}").format(exc), err_text())
                 safe_emit(self._ex_done_sig, False)
 
         threading.Thread(target=worker, daemon=True,

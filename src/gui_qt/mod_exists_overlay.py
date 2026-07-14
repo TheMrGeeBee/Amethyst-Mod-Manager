@@ -38,11 +38,13 @@ class ModExistsOverlay(OverlayBase):
         v.addWidget(title)
 
         if conflict:
-            body_text = (f"'{mod_name}' is also already installed.\n"
-                         "Pick a different name, or choose another option.")
+            body_text = self.tr(
+                "'{0}' is also already installed.\n"
+                "Pick a different name, or choose another option.").format(mod_name)
         else:
-            body_text = (f"'{mod_name}' is already installed.\n"
-                         "How would you like to handle the existing mod?")
+            body_text = self.tr(
+                "'{0}' is already installed.\n"
+                "How would you like to handle the existing mod?").format(mod_name)
         body = QLabel(body_text)
         body.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:13px;")
         body.setWordWrap(True)

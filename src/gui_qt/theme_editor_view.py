@@ -11,12 +11,14 @@ Grouping + derivation come from ``theme_editor_groups``: editing a *base* colour
 (e.g. ``BTN_CANCEL``) recomputes its variants (``BTN_CANCEL_HOV``) automatically
 unless "Advanced" is ticked, which reveals and unlocks every individual key.
 
-There is no live preview: ~72 widgets snapshot the palette at build time and set
-inline stylesheets, so a partial live re-style looked broken (some elements
-updated, others didn't). Instead the theme is applied on a full app restart —
-the top bar has a **Restart to apply** button, and Save offers the same. The
-swatches in the editor always reflect the working palette so the user can still
-see their choices before committing.
+The app itself is never live-restyled: ~72 widgets snapshot the palette at
+build time and set inline stylesheets, so a partial live re-style looked broken
+(some elements updated, others didn't). Instead the theme is applied on a full
+app restart — the top bar has a **Restart to apply** button, and Save offers
+the same. To still see choices before committing, the editor is split: colour
+swatches on the left, and a sandboxed dummy preview (``ThemePreviewPanel``) on
+the right that re-renders the working palette after every pick without
+touching the rest of the app.
 """
 
 from __future__ import annotations
@@ -25,10 +27,11 @@ from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea, QFrame,
-    QLabel, QComboBox, QPushButton, QCheckBox, QGroupBox,
+    QLabel, QComboBox, QPushButton, QCheckBox, QGroupBox, QSplitter,
 )
 
 from gui_qt.theme_qt import active_palette, _c
+from gui_qt.theme_preview import ThemePreviewPanel
 from gui_qt.color_picker_overlay import ColorPickerOverlay
 from gui_qt.confirm_overlay import ConfirmOverlay
 from gui_qt.wheel_guard import no_wheel
@@ -261,7 +264,18 @@ class ThemeEditorView(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
-        outer.addWidget(self._scroll, 1)
+
+        # Left: colour swatches. Right: sandboxed live preview of the working
+        # palette (only the preview subtree is restyled, never the app).
+        self._preview = ThemePreviewPanel()
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(self._scroll)
+        split.addWidget(self._preview)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        split.setSizes([600, 500])
+        split.setChildrenCollapsible(True)   # either side can be hidden
+        outer.addWidget(split, 1)
 
         # Seed from the current active theme.
         start_id = uc.get_appearance_mode() or "dark"
@@ -376,6 +390,7 @@ class ThemeEditorView(QWidget):
                                else self.tr("Save As New…"))
         self._dirty = False
         self._rebuild_body()
+        self._preview.refresh(self._working)
 
     def _rebuild_body(self):
         body = QWidget()
@@ -463,6 +478,7 @@ class ThemeEditorView(QWidget):
                 self._working[k] = v
                 self._paint_swatch(k)
         self._dirty = True
+        self._preview.refresh(self._working)
 
     def _on_advanced_toggled(self, on: bool):
         self._advanced = bool(on)

@@ -49,7 +49,11 @@ class TheSims4(BaseGame):
 
     @property
     def exe_name(self) -> str:
-        return "TS4_x64.exe"
+        return "Game/Bin/TS4_x64.exe"
+    
+    @property
+    def exe_name_alts(self) -> list[str]:
+        return ["Game/Bin/TS4_Launcher_x64.exe"]
 
     @property
     def steam_id(self) -> str:

@@ -762,6 +762,68 @@ def save_collection_settings(max_concurrent: int,
 
 
 # ---------------------------------------------------------------------------
+# Extraction resource limits
+# ---------------------------------------------------------------------------
+# Applies to EVERY archive extraction (single installs, Downloads tab and
+# collection installs) — unlike [collections] max_extract_workers, which only
+# caps how many extractions run at once during a collection install.
+_EXTRACTION_SECTION = "extraction"
+
+# 0 = no cap (7z -mmt=on, all cores). Clamp guards a hand-edited INI.
+_EXTRACTION_THREADS_CEILING = 128
+
+
+def load_extraction_settings() -> dict:
+    """Return extraction resource settings with keys:
+
+    * ``cpu_threads`` — int; max CPU threads per extractor process
+      (0 = use all cores).
+    * ``low_priority`` — bool; run extractor processes at low CPU + disk
+      priority so foreground applications stay responsive.
+    """
+    path = get_ui_config_path()
+    defaults = {"cpu_threads": 0, "low_priority": False}
+    if not path.is_file():
+        return defaults
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        if not parser.has_section(_EXTRACTION_SECTION):
+            return defaults
+        s = parser[_EXTRACTION_SECTION]
+        cpu_threads = int(s.get("cpu_threads", "0"))
+        cpu_threads = max(0, min(_EXTRACTION_THREADS_CEILING, cpu_threads))
+        low_priority = s.getboolean("low_priority", False)
+        return {"cpu_threads": cpu_threads, "low_priority": low_priority}
+    except Exception:
+        return defaults
+
+
+def _save_extraction_option(key: str, value: str) -> None:
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _EXTRACTION_SECTION not in parser:
+        parser[_EXTRACTION_SECTION] = {}
+    parser[_EXTRACTION_SECTION][key] = value
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def save_extraction_cpu_threads(threads: int) -> None:
+    """Persist the per-extraction CPU thread cap (0 = use all cores)."""
+    threads = max(0, min(_EXTRACTION_THREADS_CEILING, int(threads)))
+    _save_extraction_option("cpu_threads", str(threads))
+
+
+def save_extraction_low_priority(value: bool) -> None:
+    """Persist whether extractor processes run at low CPU/disk priority."""
+    _save_extraction_option("low_priority", "true" if value else "false")
+
+
+# ---------------------------------------------------------------------------
 # Nexus browser settings
 # ---------------------------------------------------------------------------
 _NEXUS_SECTION = "nexus"
@@ -991,6 +1053,51 @@ def save_window_geometry(geometry: str) -> None:
         parser.write(f)
 
 
+def load_qt_window_state() -> dict:
+    """Return the saved Qt main-window state from amethyst.ini [window]:
+
+    * ``geometry`` — base64 str of QMainWindow.saveGeometry() (position, size
+      and maximized flag), or None if never saved.
+    * ``body_split`` — [left, right] pixel sizes of the modlist ║ plugins
+      splitter, or None if never saved / unparseable.
+    """
+    result = {"geometry": None, "body_split": None}
+    path = get_ui_config_path()
+    if not path.is_file():
+        return result
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        geo = parser.get(_WINDOW_SECTION, "qt_geometry", fallback="").strip()
+        if geo:
+            result["geometry"] = geo
+        raw = parser.get(_WINDOW_SECTION, "body_split", fallback="").strip()
+        if raw:
+            sizes = [int(x) for x in raw.split(",")]
+            if len(sizes) == 2 and all(s >= 0 for s in sizes) and sum(sizes) > 0:
+                result["body_split"] = sizes
+    except Exception:
+        pass
+    return result
+
+
+def save_qt_window_state(geometry_b64: str, body_split: "list[int] | None") -> None:
+    """Persist the Qt main-window geometry (base64 of saveGeometry()) and the
+    modlist ║ plugins splitter sizes to amethyst.ini [window] in one write."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _WINDOW_SECTION not in parser:
+        parser[_WINDOW_SECTION] = {}
+    parser[_WINDOW_SECTION]["qt_geometry"] = geometry_b64
+    if body_split and len(body_split) == 2:
+        parser[_WINDOW_SECTION]["body_split"] = ",".join(str(int(s)) for s in body_split)
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 # ---------------------------------------------------------------------------
 # Dev mode
 # ---------------------------------------------------------------------------
@@ -1156,6 +1263,35 @@ def save_clear_archive_after_install(value: bool) -> None:
     if _FILEMAP_SECTION not in parser:
         parser[_FILEMAP_SECTION] = {}
     parser[_FILEMAP_SECTION]["clear_archive_after_install"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_install_mods_disabled() -> bool:
+    """Return the install_mods_disabled setting (default False). When True,
+    newly installed mods land in the modlist disabled instead of enabled.
+    Applies to every install path except collection installs."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return False
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.getboolean(_FILEMAP_SECTION, "install_mods_disabled", fallback=False)
+    except Exception:
+        return False
+
+
+def save_install_mods_disabled(value: bool) -> None:
+    """Persist the install_mods_disabled setting to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _FILEMAP_SECTION not in parser:
+        parser[_FILEMAP_SECTION] = {}
+    parser[_FILEMAP_SECTION]["install_mods_disabled"] = "true" if value else "false"
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 
@@ -1381,6 +1517,60 @@ def save_heroic_config_path(value: str) -> None:
     if _PATHS_SECTION not in parser:
         parser[_PATHS_SECTION] = {}
     parser[_PATHS_SECTION]["heroic_config_path"] = value.strip()
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_lutris_data_path() -> str:
+    """Return the user-configured Lutris data directory path, or '' if unset."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return ""
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.get(_PATHS_SECTION, "lutris_data_path", fallback="").strip()
+    except Exception:
+        return ""
+
+
+def save_lutris_data_path(value: str) -> None:
+    """Persist the Lutris data directory path to amethyst.ini. Pass '' to clear."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _PATHS_SECTION not in parser:
+        parser[_PATHS_SECTION] = {}
+    parser[_PATHS_SECTION]["lutris_data_path"] = value.strip()
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
+def load_lutris_appimage_path() -> str:
+    """Return the user-configured Lutris AppImage path, or '' if unset."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return ""
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.get(_PATHS_SECTION, "lutris_appimage_path", fallback="").strip()
+    except Exception:
+        return ""
+
+
+def save_lutris_appimage_path(value: str) -> None:
+    """Persist the Lutris AppImage path to amethyst.ini. Pass '' to clear."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _PATHS_SECTION not in parser:
+        parser[_PATHS_SECTION] = {}
+    parser[_PATHS_SECTION]["lutris_appimage_path"] = value.strip()
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)
 

@@ -1,10 +1,14 @@
 """
 bsa_filemap.py
-BSA archive conflict detection — index cache and conflict engine.
+Archive conflict detection — index cache and conflict engine.
 
-Scans BSA files across enabled mods, caches the file lists in
-bsa_index.bin (msgpack), and computes BSA-vs-BSA conflicts using the
-same priority-merge algorithm as the loose-file filemap builder.
+Scans archive files (Bethesda BSA/BA2, Unreal Engine .pak/.utoc) across
+enabled mods, caches the contained file lists in bsa_index.bin (msgpack),
+and computes archive-vs-archive conflicts using the same priority-merge
+algorithm as the loose-file filemap builder. The archive formats a game
+uses come from ``game.archive_extensions``; UE archives are scanned
+recursively (mods stage paks in nested folders like Content/Paks/~mods/)
+while BSAs keep the top-level-only scan.
 
 Cache format — msgpack binary, v1:
     {
@@ -37,6 +41,7 @@ if TYPE_CHECKING:
 
 from Utils.atomic_write import atomic_writer
 from Utils.bsa_reader import read_bsa_file_list
+from Utils.ue_pak_reader import UE_ARCHIVE_EXTENSIONS, read_ue_archive_file_list
 from Utils.filemap import (
     CONFLICT_NONE,
     _compute_conflict_status,
@@ -136,48 +141,76 @@ def _write_bsa_index(index_path: Path, index: _BsaIndex) -> None:
 # Scanning
 # ---------------------------------------------------------------------------
 
+def _read_archive_file_list(path: str, ext: str) -> list[str]:
+    """Dispatch to the right TOC parser for the archive extension."""
+    if ext in UE_ARCHIVE_EXTENSIONS:
+        return read_ue_archive_file_list(path)
+    return read_bsa_file_list(path)
+
+
 def _scan_mod_bsas(
     mod_name: str,
     mod_dir: str,
     archive_extensions: frozenset[str],
     cached_archives: dict[str, tuple[str, float, list[str]]] | None = None,
 ) -> tuple[str, list[tuple[str, float, list[str]]], int]:
-    """Scan a single mod directory for BSA files and parse their TOCs.
+    """Scan a single mod directory for archive files and parse their TOCs.
 
-    If ``cached_archives`` is provided (keyed by BSA filename), any BSA whose
-    mtime matches the cache is returned directly from cache without parsing.
+    Bethesda archives load from the Data folder root, so BSA/BA2 games scan
+    only the mod folder's top level. UE pak/utoc mods routinely nest their
+    archives (Content/Paks/~mods/foo.pak), so those are scanned recursively;
+    the archive key becomes the mod-relative path instead of the bare name.
 
-    Returns (mod_name, [(bsa_filename, mtime, [file_paths])], parse_count)
-    where ``parse_count`` is the number of BSAs actually parsed (cache misses).
-    Thread-safe — no shared mutable state.
+    If ``cached_archives`` is provided (keyed by that archive key), any
+    archive whose mtime matches the cache is returned directly from cache
+    without parsing.
+
+    Returns (mod_name, [(archive_key, mtime, [file_paths])], parse_count)
+    where ``parse_count`` is the number of archives actually parsed (cache
+    misses). Thread-safe — no shared mutable state.
     """
     results: list[tuple[str, float, list[str]]] = []
     parse_count = 0
+    recursive = bool(archive_extensions & UE_ARCHIVE_EXTENSIONS)
+    candidates: list[tuple[str, str, str]] = []  # (archive_key, path, ext)
     try:
-        with os.scandir(mod_dir) as it:
-            for entry in it:
-                if not entry.is_file(follow_symlinks=False):
-                    continue
-                ext = os.path.splitext(entry.name)[1].lower()
-                if ext not in archive_extensions:
-                    continue
-                try:
-                    mtime = entry.stat().st_mtime
-                except OSError:
-                    continue
-                # Cache check happens *before* parsing — a match skips the
-                # expensive BSA TOC read entirely.
-                if cached_archives is not None:
-                    cached = cached_archives.get(entry.name)
-                    if cached is not None and cached[1] == mtime:
-                        results.append(cached)
+        if recursive:
+            for root, dirnames, filenames in os.walk(mod_dir, followlinks=False):
+                # FOMOD metadata never deploys — don't index archives in it.
+                dirnames[:] = [d for d in dirnames if d.lower() != "fomod"]
+                for fn in filenames:
+                    ext = os.path.splitext(fn)[1].lower()
+                    if ext not in archive_extensions:
                         continue
-                paths = read_bsa_file_list(entry.path)
-                parse_count += 1
-                if paths:
-                    results.append((entry.name, mtime, paths))
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, mod_dir).replace(os.sep, "/")
+                    candidates.append((rel, full, ext))
+        else:
+            with os.scandir(mod_dir) as it:
+                for entry in it:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    ext = os.path.splitext(entry.name)[1].lower()
+                    if ext in archive_extensions:
+                        candidates.append((entry.name, entry.path, ext))
     except OSError:
-        pass
+        return (mod_name, results, parse_count)
+    for key, full_path, ext in candidates:
+        try:
+            mtime = os.stat(full_path).st_mtime
+        except OSError:
+            continue
+        # Cache check happens *before* parsing — a match skips the
+        # expensive TOC read entirely.
+        if cached_archives is not None:
+            cached = cached_archives.get(key)
+            if cached is not None and cached[1] == mtime:
+                results.append(cached)
+                continue
+        paths = _read_archive_file_list(full_path, ext)
+        parse_count += 1
+        if paths:
+            results.append((key, mtime, paths))
     return (mod_name, results, parse_count)
 
 
@@ -329,26 +362,60 @@ def _bsa_owning_plugin(
         end = dash
 
 
+def _pak_name_rank(archive_key: str) -> tuple[int, str]:
+    """UE pak mount rank component: (patch_flag, basename).
+
+    The engine mounts paks alphabetically and the most-recently-mounted pak
+    wins conflicts, so a later basename beats an earlier one ("zzz_" beats
+    "aaa_"). A stem ending in ``_P`` additionally gets a mount-priority
+    boost, so any ``_P`` pak beats any non-``_P`` pak regardless of name.
+    """
+    base = archive_key.rsplit("/", 1)[-1].lower()
+    stem = base.rsplit(".", 1)[0]
+    return (1 if stem.endswith("_p") else 0, base)
+
+
 def _compute_bsa_load_order(
     index: _BsaIndex,
     mods_low_to_high: list[str],
     plugin_order_low_to_high: list[str] | None,
     plugin_extensions: frozenset[str] | None,
     loose_index_path: Path | None,
+    archive_name_ordering: bool = False,
 ) -> list[tuple[str, list[tuple[str, float, list[str]]]]]:
     """Return BSA scan units ordered low→high by engine load rank.
+
+    ``archive_name_ordering`` selects the UE pak mount rule: rank by
+    (``_P`` boost, basename alphabetical), matching how the engine itself
+    resolves two paks shipping the same asset — mod priority only breaks
+    exact-basename ties (where the deploy step dedupes to the higher-
+    priority mod's copy, so it is also what actually lands on disk).
 
     Each element is (mod_name, [(bsa_name, mtime, paths)...]). A mod may
     appear multiple times — once per BSA — so different BSAs from the same
     mod can interleave with BSAs from other mods by plugin load order.
 
-    Rank rules:
+    Rank rules (Bethesda):
       * A BSA tied to a plugin uses that plugin's load index (higher = later).
       * A BSA with no matching plugin (orphan / sArchiveList-style) loads
         *before* any plugin-tied BSA — that matches how the engine loads
         sArchiveList entries first and then plugin-tied archives. Within
         the orphan group, ties break on mod priority then BSA filename.
     """
+    if archive_name_ordering:
+        mod_priority = {name: i for i, name in enumerate(mods_low_to_high)}
+        units_ue: list[tuple[int, str, int, str, list]] = []
+        for mod_name in mods_low_to_high:
+            archives = index.get(mod_name)
+            if not archives:
+                continue
+            mp = mod_priority[mod_name]
+            for entry in archives:
+                p_flag, base = _pak_name_rank(entry[0])
+                units_ue.append((p_flag, base, mp, mod_name, [entry]))
+        units_ue.sort(key=lambda u: (u[0], u[1], u[2]))
+        return [(u[3], u[4]) for u in units_ue]
+
     if not plugin_order_low_to_high or not plugin_extensions:
         # No plugin load order available — fall back to pure mod order.
         return [(m, index.get(m) or []) for m in mods_low_to_high if index.get(m)]
@@ -423,6 +490,7 @@ def compute_bsa_winner_map(
     plugin_order_low_to_high: list[str] | None,
     plugin_extensions: frozenset[str] | None,
     loose_index_path: Path | None,
+    archive_name_ordering: bool = False,
 ) -> tuple[dict[str, str], dict[str, list[str]]]:
     """Return (bsa_winner, bsa_losers) by replaying the engine load order.
 
@@ -436,7 +504,7 @@ def compute_bsa_winner_map(
     scan_order = _compute_bsa_load_order(
         index, priority_low_to_high,
         plugin_order_low_to_high, plugin_extensions,
-        loose_index_path,
+        loose_index_path, archive_name_ordering,
     )
     bsa_winner: dict[str, str] = {}
     seen_by_path: dict[str, list[str]] = {}
@@ -466,6 +534,7 @@ def build_bsa_conflicts(
     loose_index_path: Path | None = None,
     plugin_order: list[str] | None = None,
     plugin_extensions: frozenset[str] | None = None,
+    archive_name_ordering: bool = False,
     log_fn: "Callable[[str], None] | None" = None,
 ) -> tuple[
     dict[str, int],
@@ -515,7 +584,8 @@ def build_bsa_conflicts(
         return empty_map, empty_a, empty_b, {}, {}
 
     scan_order = _compute_bsa_load_order(
-        index, priority_order, plugin_order, plugin_extensions, loose_index_path,
+        index, priority_order, plugin_order, plugin_extensions,
+        loose_index_path, archive_name_ordering,
     )
 
     # Single-pass merge in engine load order (low → high). Using defaultdicts
@@ -550,7 +620,11 @@ def build_bsa_conflicts(
     # fight never reaches the game and shouldn't be marked as overriding a BSA.
     loose_overrides_bsa: dict[str, set[str]] = {}
     loose_overridden_by_bsa: dict[str, set[str]] = {}
-    if loose_index_path is not None and bsa_winner:
+    # "Loose beats archive" is a Bethesda engine rule; UE games (name
+    # ordering) never load loose assets over pak contents, so skip the
+    # cross-check there — a loose file whose staged path happens to match a
+    # pak-internal asset path must not fake an override.
+    if loose_index_path is not None and bsa_winner and not archive_name_ordering:
         loose_index = read_mod_index(loose_index_path)
         if loose_index:
             # Only paths the BSAs actually ship can possibly be overridden by

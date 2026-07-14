@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, Signal
 
 from gui_qt.safe_emit import safe_emit
 from wizards_qt._view_base import GREEN, RED, WizardViewBase
@@ -36,7 +36,8 @@ class ModLoaderInstallerView(WizardViewBase):
     NEXUS_URL: str = ""
     ARCHIVE_KEYWORDS: list[str] = []
     INSTALLER_EXE: str = ""
-    PICK_TITLE: str = "Select the archive"
+    PICK_TITLE: str = QT_TRANSLATE_NOOP(
+        "ModLoaderInstallerView", "Select the archive")
 
     _extract_status_sig2 = Signal(str, str)
     _extract_next_sig = Signal()
@@ -44,7 +45,8 @@ class ModLoaderInstallerView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Install {self.TOOL_LABEL} — {game.name}")
+                         title=self.tr("Install {0} — {1}").format(
+                             self.TOOL_LABEL, game.name))
         self._game_root = game.get_game_path()
         self._extracted_paths: list[Path] = []
 
@@ -61,15 +63,15 @@ class ModLoaderInstallerView(WizardViewBase):
         self._steps.append("run")
 
         self._stack.addWidget(self._build_manual_download_page(
-            f"Step 1: Download {self.TOOL_LABEL}",
-            f"Click the button below to open the {self.TOOL_LABEL}\n"
+            self.tr("Step 1: Download {0}").format(self.TOOL_LABEL),
+            self.tr("Click the button below to open the {0}\n"
             "download page on Nexus Mods.\n\n"
             "Download the archive manually (do NOT use the Mod Manager\n"
-            "download button), then click Next.",
+            "download button), then click Next.").format(self.TOOL_LABEL),
             self.NEXUS_URL,
             lambda: self._goto_named("locate")))
         self._stack.addWidget(self._build_locate_page(
-            "Step 2: Locate the Archive", with_next=True))
+            self.tr("Step 2: Locate the Archive"), with_next=True))
 
         # extract page (status + Next)
         page, lay = self._step_page(self.tr("Step 3: Extract to Game Folder"))
@@ -86,7 +88,8 @@ class ModLoaderInstallerView(WizardViewBase):
             self._stack.addWidget(self._build_extra_page())
 
         self._stack.addWidget(self._build_run_page(
-            f"Step {len(self._steps)}: Run {self.INSTALLER_EXE}"))
+            self.tr("Step {0}: Run {1}").format(
+                len(self._steps), self.INSTALLER_EXE)))
 
         self._stack.setCurrentIndex(self._idx("download"))
 
@@ -116,10 +119,10 @@ class ModLoaderInstallerView(WizardViewBase):
         self._stack.setCurrentIndex(self._idx(name))
         if name == "locate":
             self._enter_locate(
-                self.ARCHIVE_KEYWORDS, self.PICK_TITLE,
-                f"{self.TOOL_LABEL} archive not found in Downloads.\n"
+                self.ARCHIVE_KEYWORDS, self.tr(self.PICK_TITLE),
+                self.tr("{0} archive not found in Downloads.\n"
                 "Make sure you downloaded it, then press Try Again,\n"
-                "or use Browse to select it manually.",
+                "or use Browse to select it manually.").format(self.TOOL_LABEL),
                 lambda _p: self._goto_named("extract"))
         elif name == "extract":
             self._set_status(self._extract_status,
@@ -139,10 +142,10 @@ class ModLoaderInstallerView(WizardViewBase):
         from Utils.wizard_archives import extract_archive
         try:
             if self._game_root is None:
-                raise RuntimeError("Game path is not configured.")
+                raise RuntimeError(self.tr("Game path is not configured."))
             archive = self._archive_path
             if archive is None or not archive.is_file():
-                raise RuntimeError("Archive not found.")
+                raise RuntimeError(self.tr("Archive not found."))
 
             self._log(f"{self.TOOL_LABEL} Wizard: extracting {archive.name} "
                       f"→ {self._game_root}")
@@ -151,10 +154,12 @@ class ModLoaderInstallerView(WizardViewBase):
             file_count = len([p for p in paths if p.is_file()])
             self._log(f"{self.TOOL_LABEL} Wizard: extracted {file_count} file(s).")
             safe_emit(self._extract_status_sig2,
-                      f"Extracted {file_count} file(s).\n\nClick Next to continue.",
+                      self.tr("Extracted {0} file(s).\n\nClick Next to continue.")
+                      .format(file_count),
                       GREEN)
         except Exception as exc:
-            safe_emit(self._extract_status_sig2, f"Error: {exc}", RED)
+            safe_emit(self._extract_status_sig2,
+                      self.tr("Error: {0}").format(exc), RED)
             self._log(f"{self.TOOL_LABEL} Wizard extract error: {exc}")
         finally:
             safe_emit(self._extract_next_sig)
@@ -166,20 +171,21 @@ class ModLoaderInstallerView(WizardViewBase):
         from Utils.steam_finder import proton_run_command
         try:
             if self._game_root is None:
-                raise RuntimeError("Game path is not configured.")
+                raise RuntimeError(self.tr("Game path is not configured."))
             exe = self._game_root / self.INSTALLER_EXE
             if not exe.is_file():
                 raise RuntimeError(
-                    f"{self.INSTALLER_EXE} was not found in the game folder.\n"
-                    "Check that the archive extracted correctly.")
+                    self.tr("{0} was not found in the game folder.\n"
+                    "Check that the archive extracted correctly.").format(
+                        self.INSTALLER_EXE))
 
             result = get_game_prefix_env(
                 self._game,
                 log_fn=lambda m: self._log(f"{self.TOOL_LABEL} Wizard: {m}"),
                 allow_runner_fallback=True)
             if result is None:
-                raise RuntimeError(
-                    "Could not find Proton — check that the prefix is configured.")
+                raise RuntimeError(self.tr(
+                    "Could not find Proton — check that the prefix is configured."))
             proton_script, _compat_data, env = result
 
             self._log(f"{self.TOOL_LABEL} Wizard: launching {exe} via Proton")
@@ -188,16 +194,18 @@ class ModLoaderInstallerView(WizardViewBase):
                 env=env, cwd=str(exe.parent),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             safe_emit(self._run_status_sig,
-                      f"{self.INSTALLER_EXE} is running.\n"
-                      "Close it when you are done, then click Done.", GREEN)
+                      self.tr("{0} is running.\n"
+                      "Close it when you are done, then click Done.").format(
+                          self.INSTALLER_EXE), GREEN)
             safe_emit(self._run_started_sig)   # enable Done
             proc.wait()
             self._log(f"{self.TOOL_LABEL} Wizard: {self.INSTALLER_EXE} closed.")
             safe_emit(self._run_status_sig,
-                      f"{self.INSTALLER_EXE} finished.\n\nClick Done to close.",
+                      self.tr("{0} finished.\n\nClick Done to close.").format(
+                          self.INSTALLER_EXE),
                       GREEN)
         except Exception as exc:
-            safe_emit(self._run_status_sig, f"Error: {exc}", RED)
+            safe_emit(self._run_status_sig, self.tr("Error: {0}").format(exc), RED)
             self._log(f"{self.TOOL_LABEL} Wizard launch error: {exc}")
             safe_emit(self._run_started_sig)   # enable Done to close anyway
 

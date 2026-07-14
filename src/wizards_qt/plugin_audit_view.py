@@ -42,7 +42,7 @@ class PluginAuditView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Plugin Audit — {game.name}")
+                         title=self.tr("Plugin Audit — {0}").format(game.name))
         self._entries: dict = {}
         self._checks: dict = {}   # plugin_name -> QCheckBox (safe entries only)
 
@@ -92,7 +92,8 @@ class PluginAuditView(WizardViewBase):
                 safe_emit(self._scan_done_sig, entries)
             except Exception as exc:
                 _wlog(f"scan error: {exc}")
-                safe_emit(self._scan_status_sig, f"Error: {exc}", RED)
+                safe_emit(self._scan_status_sig,
+                          self.tr("Error: {0}").format(exc), RED)
                 safe_emit(self._scan_done_sig, None)
 
         threading.Thread(target=worker, daemon=True, name="audit-scan").start()
@@ -191,17 +192,18 @@ class PluginAuditView(WizardViewBase):
             iv.addWidget(row)
 
         if safe:
-            _section(f"Safe to disable ({len(safe)})", GREEN)
+            _section(self.tr("Safe to disable ({0})").format(len(safe)), GREEN)
             for e in safe:
                 _row(e, selectable=True)
         if blocked_new:
-            _section(f"Blocked — adds new records ({len(blocked_new)})",
+            _section(self.tr("Blocked — adds new records ({0})").format(
+                     len(blocked_new)),
                      "#e0a83c")
             for e in blocked_new:
                 _row(e, selectable=False)
         if blocked_dep:
-            _section(f"Blocked — required by other plugins "
-                     f"({len(blocked_dep)})", RED)
+            _section(self.tr("Blocked — required by other plugins "
+                     "({0})").format(len(blocked_dep)), RED)
             for e in blocked_dep:
                 _row(e, selectable=False)
         iv.addStretch(1)
@@ -224,11 +226,12 @@ class PluginAuditView(WizardViewBase):
         if len(selected) > 5:
             preview += "\n  • …"
         ConfirmOverlay.show_over(
-            self, "Disable Selected Plugins",
-            (f"Disable {len(selected)} plugin(s)?\n\n{preview}\n\n"
-             "The patches for these plugins will still apply at runtime."),
+            self, self.tr("Disable Selected Plugins"),
+            (self.tr("Disable {0} plugin(s)?\n\n{1}\n\n"
+             "The patches for these plugins will still apply at runtime.")
+             .format(len(selected), preview)),
             lambda ok: self._do_disable(selected) if ok else None,
-            confirm_label="Disable")
+            confirm_label=self.tr("Disable"))
 
     def _do_disable(self, selected):
         disabled, msg = core.disable_plugins(self._game, selected)
@@ -245,13 +248,13 @@ class PluginAuditView(WizardViewBase):
             return
         from gui_qt.confirm_overlay import ConfirmOverlay
         ConfirmOverlay.show_over(
-            self, "Clean Orphaned INIs",
-            (f"Delete SkyGen-generated INI files for {len(targets)} plugin(s) "
+            self, self.tr("Clean Orphaned INIs"),
+            (self.tr("Delete SkyGen-generated INI files for {0} plugin(s) "
              "that cannot be disabled?\n\nThis removes INIs in the SkyGen BOS "
              "and SkyGen SkyPatcher output mods. INIs that ship with original "
-             "mods are not affected."),
+             "mods are not affected.").format(len(targets))),
             lambda ok: self._run_cleanup(targets) if ok else None,
-            confirm_label="Clean")
+            confirm_label=self.tr("Clean"))
 
     def _run_cleanup(self, targets):
         self._clean_btn.setEnabled(False)

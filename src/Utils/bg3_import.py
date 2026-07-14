@@ -128,8 +128,13 @@ def plan_reorder(
     JSON's Order array; a folder with several paks sorts to the earliest
     position among them; a folder with no pak UUID falls back to a
     case-insensitive Name match.  Installed mods absent from the JSON are placed
-    above the imported run and DISABLED.  The matched run is reversed (JSON is
-    lowest-priority-first, modlist.txt is highest-priority-first).
+    above the imported run, UNTOUCHED (enabled state is left exactly as it was).
+    A BG3MM/Vortex order export only lists pak-module UUIDs it tracks — script
+    extender/native-loader/config installs never have a pak at all, and some
+    override-only paks are excluded too, so "absent from the JSON" carries no
+    information about the user's intent and must not be treated as "disable
+    this." The matched run is reversed (JSON is lowest-priority-first,
+    modlist.txt is highest-priority-first).
     """
     separators = [e for e in existing if e.is_separator]
     mods = {e.name: e for e in existing if not e.is_separator}
@@ -172,10 +177,9 @@ def plan_reorder(
 
     new_entries: list[ModEntry] = list(separators)
     for n in extra:
-        e = mods[n]
-        e.enabled = False
-        e.locked = False
-        new_entries.append(e)
+        # Not in the JSON — keep its current enabled/disabled state as-is;
+        # the JSON has no opinion on it (see plan_reorder docstring).
+        new_entries.append(mods[n])
     for n in reversed(ordered_names):
         e = mods[n]
         e.enabled = True
@@ -223,7 +227,7 @@ def format_preview(plan: ImportPlan) -> tuple[str, str]:
     matched = plan.order_count - len(plan.missing)
     summary = (f"{matched} of {plan.order_count} order entries matched "
                f"installed mods.   {len(plan.extra)} extra installed mod(s) "
-               f"DISABLED (not in the order).   {len(plan.missing)} not "
+               f"not in the order (left as-is).   {len(plan.missing)} not "
                f"installed.")
 
     lines: list[str] = ["=== NEW LOAD ORDER (top = highest priority) ==="]
@@ -233,7 +237,8 @@ def format_preview(plan: ImportPlan) -> tuple[str, str]:
         if e.is_separator:
             lines.append(f"   --- {e.display_name} ---")
         elif e.name in extra_set:
-            lines.append(f"   ✗ {e.name}   [not in JSON – DISABLED]")
+            state = "enabled" if e.enabled else "disabled"
+            lines.append(f"   • {e.name}   [not in JSON – left {state}]")
         else:
             idx += 1
             lines.append(f"{idx:>3}. {e.name}")

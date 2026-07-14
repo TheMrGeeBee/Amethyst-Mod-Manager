@@ -258,6 +258,9 @@ class GameState:
         plugin_exts = tuple(e.lower() for e in
                             (getattr(g, "plugin_extensions", []) or [])) \
             or (".esp", ".esm", ".esl")
+        archive_exts = tuple(e.lower() for e in
+                             (getattr(g, "archive_extensions", None) or ())) \
+            or (".bsa", ".ba2")
         try:
             fw_basenames = {
                 str(p).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
@@ -274,7 +277,7 @@ class GameState:
                     base = rel_key.rsplit("/", 1)[-1]
                     if base.endswith(plugin_exts):
                         plugin_mods.add(mod_name)
-                    if base.endswith((".bsa", ".ba2")):
+                    if base.endswith(archive_exts):
                         bsa_mods.add(mod_name)
                     if fw_basenames and base in fw_basenames:
                         framework_mods.add(mod_name)
@@ -327,17 +330,22 @@ class GameState:
         mod → set(mods). Empty triple for non-archive games or on failure.
 
         The "Hide BSA conflicts" setting empties the pipeline entirely (Tk
-        parity) so the expensive parse is skipped and no codes are produced."""
+        parity) so the expensive parse is skipped and no codes are produced.
+        It only applies to Bethesda BSA/BA2 games — UE pak conflicts are
+        always shown (two paks touching the same asset is exactly the signal
+        pak-game users need; there's no vanilla-BSA noise to hide there)."""
         empty = ({}, {}, {})
-        try:
-            from Utils.ui_config import load_hide_bsa_conflicts
-            if load_hide_bsa_conflicts():
-                return empty
-        except Exception:
-            pass
         exts = frozenset(getattr(g, "archive_extensions", frozenset()) or frozenset())
         if not exts:
             return empty
+        from Utils.ue_pak_reader import UE_ARCHIVE_EXTENSIONS
+        if not (exts & UE_ARCHIVE_EXTENSIONS):
+            try:
+                from Utils.ui_config import load_hide_bsa_conflicts
+                if load_hide_bsa_conflicts():
+                    return empty
+            except Exception:
+                pass
         staging = self.staging_dir()
         ml = self.modlist_path()
         if staging is None or ml is None or not ml.is_file():
@@ -353,14 +361,19 @@ class GameState:
             if not bsa_index.is_file():
                 rebuild_bsa_index(bsa_index, staging, exts, log_fn=log)
             pdir = self.profile_dir()
+            # UE pak mounting is not plugin-driven — winners follow pure mod
+            # priority there, so skip the plugin load-order refinement.
+            use_plugin_order = getattr(g, "archive_plugin_ordering", True)
             plugin_order = (read_loadorder(pdir / "loadorder.txt")
-                            if pdir is not None else None)
+                            if (use_plugin_order and pdir is not None) else None)
             plugin_exts = frozenset(getattr(g, "plugin_extensions", []) or [])
             (bsa_map, bsa_over, bsa_overby, lob, bol) = build_bsa_conflicts(
                 ml, bsa_index, exts,
                 loose_index_path=out_dir / "modindex.bin",
                 plugin_order=plugin_order or None,
                 plugin_extensions=plugin_exts or None,
+                # UE paks resolve by (_P boost, basename) mount order.
+                archive_name_ordering=bool(exts & UE_ARCHIVE_EXTENSIONS),
                 log_fn=log,
             )
         except Exception as exc:
@@ -375,9 +388,13 @@ class GameState:
         for name, c in bsa_map.items():
             if c == CONFLICT_WINS:
                 codes[name] = 1
-            elif c == CONFLICT_LOSES:
+            elif c in (CONFLICT_LOSES, CONFLICT_FULL):
+                # FULL = every contested file overridden — that's a loss, not
+                # a "partial": the loser icon must match the Show Conflicts
+                # tab reporting 0 wins. (Archives have no white-dot FULL icon
+                # like loose files, so both map to the loser icon.)
                 codes[name] = -1
-            elif c in (CONFLICT_PARTIAL, CONFLICT_FULL):
+            elif c == CONFLICT_PARTIAL:
                 codes[name] = 2
         # Fold loose↔BSA cross relationships so highlights match the engine's
         # "loose beats BSA" rule (lob: loose_mod→{bsa_mod}, bol: bsa_mod→{loose}).
@@ -444,6 +461,8 @@ class GameState:
             # every profile switch). Without this the previous profile's paths
             # stay live on the game object.
             try:
-                g.load_paths()
+                from Utils.perftrace import span
+                with span("game.load_paths"):
+                    g.load_paths()
             except Exception:
                 pass

@@ -32,7 +32,7 @@ _RADIUS = 18
 class Splash(QWidget):
     """Frameless, translucent splash showing the app logo and a status line."""
 
-    def __init__(self, message: str = "") -> None:
+    def __init__(self, message: str | None = None) -> None:
         super().__init__(
             None,
             Qt.SplashScreen | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
@@ -41,7 +41,7 @@ class Splash(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
 
         self._pal = active_palette()
-        self._message = message
+        self._message = message if message is not None else self.tr("Starting Amethyst…")
 
         self._logo = QPixmap(str(_LOGO)) if _LOGO.exists() else QPixmap()
         if not self._logo.isNull():
@@ -117,7 +117,7 @@ class Splash(QWidget):
         p.end()
 
 
-def show_splash(message: str = "Starting Amethyst…") -> Splash:
+def show_splash(message: str | None = None) -> Splash:
     """Build, centre and show a splash. Call after the QApplication exists.
 
     Returns the widget; the caller must keep a reference and call ``.close()``

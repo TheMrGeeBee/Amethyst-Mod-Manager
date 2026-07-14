@@ -328,7 +328,7 @@ class OnboardingView(QWidget):
             self._sso_btn.setEnabled(False)
             self._sso_btn.setText(self.tr("Waiting for browser..."))
         self._set_nexus_status(
-            "Browser login started — complete it in your browser.",
+            self.tr("Browser login started — complete it in your browser."),
             _c(self._pal, "TEXT_DIM"))
         self._on_login()
 
@@ -339,7 +339,7 @@ class OnboardingView(QWidget):
             self._sso_btn.setEnabled(True)
             self._sso_btn.setText(self.tr("Log in via Nexus Mods"))
         self._set_nexus_status(
-            "✓ Logged in to Nexus Mods!", _c(self._pal, "TEXT_OK_BRIGHT"))
+            self.tr("✓ Logged in to Nexus Mods!"), _c(self._pal, "TEXT_OK_BRIGHT"))
         # Upgrade the footer from Skip → Next if we're on the Nexus page.
         if self._page == 1:
             self._apply_footer_style()

@@ -23,9 +23,11 @@ class ConfirmOverlay(OverlayBase):
     MIN_H = 180
     ESC_RESULT = False
 
+    _NO_CANCEL = object()  # sentinel: distinguish "OK-only" from "use default"
+
     def __init__(self, host: QWidget, title: str, body: str, on_done,
-                 confirm_label: str = "Remove",
-                 cancel_label: str | None = "Cancel",
+                 confirm_label: str | None = None,
+                 cancel_label=_NO_CANCEL,
                  danger: bool = True,
                  card_h: int | None = None):
         super().__init__(host, on_done=on_done, card_h=card_h)
@@ -54,12 +56,15 @@ class ConfirmOverlay(OverlayBase):
         bar = QHBoxLayout()
         bar.addStretch(1)
         if cancel_label is not None:
-            cancel = QPushButton(cancel_label)
+            cancel_text = (self.tr("Cancel")
+                           if cancel_label is self._NO_CANCEL else cancel_label)
+            cancel = QPushButton(cancel_text)
             cancel.setObjectName("FormButton")
             cancel.setCursor(Qt.PointingHandCursor)
             cancel.clicked.connect(lambda: self._finish(False))
             bar.addWidget(cancel)
-        confirm = QPushButton(confirm_label)
+        confirm = QPushButton(
+            confirm_label if confirm_label is not None else self.tr("Remove"))
         confirm.setObjectName("DangerButton" if danger else "PrimaryButton")
         confirm.setCursor(Qt.PointingHandCursor)
         confirm.clicked.connect(lambda: self._finish(True))
@@ -74,8 +79,11 @@ class ConfirmOverlay(OverlayBase):
         return cls(top or host, title, body, on_done, **kw)
 
     @classmethod
-    def show_message(cls, host, title, body, on_done=None, ok_label="OK"):
+    def show_message(cls, host, title, body, on_done=None, ok_label=None):
         """OK-only message card (QMessageBox.warning/critical replacement)."""
+        from PySide6.QtCore import QCoreApplication
+        if ok_label is None:
+            ok_label = QCoreApplication.translate("ConfirmOverlay", "OK")
         return cls.show_over(host, title, body, on_done,
                              confirm_label=ok_label, cancel_label=None,
                              danger=False)

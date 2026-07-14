@@ -34,7 +34,7 @@ class ESLifierView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Run ESLifier — {game.name}")
+                         title=self.tr("Run ESLifier — {0}").format(game.name))
         self._exe = find_eslifier_exe(game)
         self._proton_name = ""
         self._prefix_mode = ""
@@ -78,10 +78,10 @@ class ESLifierView(WizardViewBase):
         if idx == _PG_PROTON:
             self._enter_proton(
                 self._exe, EXE_NAME, "ESLifier", self._on_proton_chosen,
-                title="Step 2: Choose Proton Version",
-                missing_text=f"{EXE_NAME} was not found.\n"
+                title=self.tr("Step 2: Choose Proton Version"),
+                missing_text=self.tr("{0} was not found.\n"
                              "Please restart the wizard and let it install "
-                             "ESLifier first.")
+                             "ESLifier first.").format(EXE_NAME))
         elif idx == _PG_RUN:
             self._set_status(self._run_status, self.tr("Launching ESLifier…"))
             self._start_run()
@@ -125,8 +125,8 @@ class ESLifierView(WizardViewBase):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(proton_name), RED)
                     return
                 proton_script, compat_data, env = result
                 pfx = compat_data / "pfx"
@@ -136,14 +136,14 @@ class ESLifierView(WizardViewBase):
                                                  log_fn=_wlog)
                 except Exception as exc:
                     safe_emit(self._run_status_sig,
-                              f"Could not write settings: {exc}", RED)
+                              self.tr("Could not write settings: {0}").format(exc), RED)
                     _wlog(f"settings error: {exc}")
                     return
 
                 _wlog(f"launching {exe} via Proton")
                 safe_emit(self._run_status_sig,
-                          "ESLifier is running.\nClose it when you are done, "
-                          "then click Done.", GREEN)
+                          self.tr("ESLifier is running.\nClose it when you are done, "
+                          "then click Done."), GREEN)
                 safe_emit(self._run_started_sig)
                 run_tool_logged(proton_script, exe, env, log_fn=_wlog,
                                 label="ESLifier")
@@ -153,10 +153,10 @@ class ESLifierView(WizardViewBase):
                 cleanup_scan_mirror(scan_mirror, log_fn=_wlog)
                 scan_mirror = None
                 safe_emit(self._run_status_sig,
-                          "ESLifier finished. Click Done to close.", GREEN)
+                          self.tr("ESLifier finished. Click Done to close."), GREEN)
             except Exception as exc:
                 cleanup_scan_mirror(scan_mirror, log_fn=_wlog)
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig, self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"ESLifier Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="eslifier-run").start()

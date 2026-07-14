@@ -32,22 +32,28 @@ class FrameworkStatus:
     message: str      # ready-to-show banner text (with ✔/●/✘ prefix)
 
 
-def file_exists_ci(base: Path, rel: Path) -> bool:
-    """Case-insensitive file existence check — walk each component of *rel*
-    under *base*, matching names case-insensitively (framework DLLs may live in
-    differently-cased folders on a case-sensitive filesystem). Port of the Tk
-    ``_file_exists_ci``."""
+def resolve_file_ci(base: Path, rel: Path) -> "Path | None":
+    """Case-insensitive file resolution — walk each component of *rel* under
+    *base*, matching names case-insensitively (framework files may live in
+    differently-cased folders on a case-sensitive filesystem). Returns the
+    actual on-disk Path, or None when any component is missing."""
     current = base
     for part in rel.parts:
         try:
             entries = {e.name.lower(): e for e in current.iterdir()}
         except OSError:
-            return False
+            return None
         match = entries.get(part.lower())
         if match is None:
-            return False
+            return None
         current = match
-    return current.is_file()
+    return current if current.is_file() else None
+
+
+def file_exists_ci(base: Path, rel: Path) -> bool:
+    """Case-insensitive file existence check. Port of the Tk
+    ``_file_exists_ci``."""
+    return resolve_file_ci(base, rel) is not None
 
 
 def exe_in_staged(exe: str, staged_keys: set[str], mods_dir: str) -> bool:

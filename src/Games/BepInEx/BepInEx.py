@@ -114,23 +114,6 @@ class Subnautica(BaseGame):
     def reshade_dll(self) -> str:
         return "dxgi.dll"
 
-    @property
-    def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
-            WizardTool(
-                id="install_bepinex_subnautica",
-                label="Install BepInEx",
-                description="Download and install BepInEx into the game folder.",
-                dialog_class_path="wizards.bepinex.BepInExWizard",
-                extra={
-                    "download_url": "https://www.nexusmods.com/subnautica/mods/1108?tab=files",
-                    "archive_keywords": ["bepinex", "subnautica"],
-                    "inner_folder": "",
-                    "chmod_files": [],
-                },
-            ),
-        ]
-
     # -----------------------------------------------------------------------
     # Paths
     # -----------------------------------------------------------------------
@@ -336,24 +319,6 @@ class Subnautica_Below_Zero(Subnautica):
     def nexus_game_domain(self) -> str:
         return "subnauticabelowzero"
 
-    @property
-    def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
-            WizardTool(
-                id="install_bepinex_subnautica_below_zero",
-                label="Install BepInEx",
-                description="Download and install BepInEx into the game folder.",
-                dialog_class_path="wizards.bepinex.BepInExWizard",
-                extra={
-                    "download_url": "https://www.nexusmods.com/subnauticabelowzero/mods/344?tab=files",
-                    "archive_keywords": ["bepinex", "subnautica", "below"],
-                    "inner_folder": "",
-                    "chmod_files": [],
-                },
-            ),
-        ]
-
-
 class TCG_Card_Shop_Simulator(Subnautica):
 
     @property
@@ -380,23 +345,6 @@ class TCG_Card_Shop_Simulator(Subnautica):
     def default_deploy_mode(self) -> str:
         # Not yet verified for hardlink; keep the base symlink default.
         return "symlink"
-
-    @property
-    def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
-            WizardTool(
-                id="install_bepinex_tcg",
-                label="Install BepInEx",
-                description="Download and install BepInEx into the game folder.",
-                dialog_class_path="wizards.bepinex.BepInExWizard",
-                extra={
-                    "download_url": "https://www.nexusmods.com/tcgcardshopsimulator/mods/2?tab=files",
-                    "archive_keywords": ["bepinex", "configuration"],
-                    "inner_folder": "",
-                    "chmod_files": [],
-                },
-            ),
-        ]
 
 class Lethal_Company(Subnautica):
 
@@ -425,23 +373,6 @@ class Lethal_Company(Subnautica):
         # Not yet verified for hardlink; keep the base symlink default.
         return "symlink"
 
-    @property
-    def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
-            WizardTool(
-                id="install_bepinex_lethal_company",
-                label="Install BepInEx",
-                description="Download and install BepInEx into the game folder.",
-                dialog_class_path="wizards.bepinex.BepInExWizard",
-                extra={
-                    "download_url": "https://www.nexusmods.com/lethalcompany/mods/42?tab=files",
-                    "archive_keywords": ["bepinex"],
-                    "inner_folder": "",
-                    "chmod_files": [],
-                },
-            ),
-        ]
-
 class Valheim(Subnautica):
     @property
     def name(self) -> str:
@@ -467,26 +398,6 @@ class Valheim(Subnautica):
     def default_deploy_mode(self) -> str:
         # Not yet verified for hardlink; keep the base symlink default.
         return "symlink"
-
-    @property
-    def wizard_tools(self) -> list[WizardTool]:
-        return self._base_wizard_tools() + [
-            WizardTool(
-                id="install_bepinex_valheim",
-                label="Install BepInEx",
-                description="Download and install BepInEx into the game folder.",
-                dialog_class_path="wizards.bepinex.BepInExWizard",
-                extra={
-                    "download_url": "https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2333/",
-                    "archive_keywords": ["denikson-bepinexpack_valheim"],
-                    "inner_folder": "BepInExPack_Valheim",
-                    "chmod_files": [
-                        "start_server_bepinex.sh",
-                        "start_game_bepinex.sh",
-                    ],
-                },
-            ),
-        ]
 
     def deploy(self, log_fn=None, mode: LinkMode = LinkMode.HARDLINK,
                 profile: str = "default", progress_fn=None) -> None:
@@ -519,3 +430,32 @@ class Valheim(Subnautica):
             "You must add this manually in Steam (right-click Valheim > Properties > Launch Options)."
         )
         
+class HNSS(Subnautica):
+    @property
+    def name(self) -> str:
+        return "Hollow Knight: Silksong"
+
+    @property
+    def game_id(self) -> str:
+        return "Hollow_Knight_Silksong"
+
+    @property
+    def exe_name(self) -> str:
+        return "Hollow Knight Silksong.exe"
+
+    @property
+    def steam_id(self) -> str:
+        return "1030300"
+
+    @property
+    def nexus_game_domain(self) -> str:
+        return "hollowknightsilksong"
+    
+    @property
+    def exe_name_alts(self) -> list[str]:
+        return ["Hollow Knight Silksong"]
+
+    @property
+    def default_deploy_mode(self) -> str:
+        # Not yet verified for hardlink; keep the base symlink default.
+        return "symlink"

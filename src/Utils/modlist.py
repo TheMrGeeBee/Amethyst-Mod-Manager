@@ -119,15 +119,27 @@ def write_modlist(modlist_path: Path, entries: list[ModEntry]) -> None:
                       "\n".join(lines) + ("\n" if lines else ""))
 
 
-def prepend_mod(modlist_path: Path, mod_name: str, enabled: bool = True) -> None:
+def prepend_mod(modlist_path: Path, mod_name: str, enabled: bool = True,
+                preserve_existing_state: bool = False) -> None:
     """
     Add a new mod at the top of modlist.txt (highest priority).
     If an entry with the same name already exists it is moved to the top.
+
+    When ``preserve_existing_state`` is True and an entry with the same name
+    already exists, its current enabled/locked flags are kept (so reinstalling
+    or updating a disabled mod does not silently re-enable it). ``enabled`` is
+    only used for brand-new entries in that case.
     """
     entries = read_modlist(modlist_path)
+    existing = next((e for e in entries if e.name == mod_name), None)
     # Remove any existing entry with the same name
     entries = [e for e in entries if e.name != mod_name]
-    entries.insert(0, ModEntry(name=mod_name, enabled=enabled, locked=False))
+    if preserve_existing_state and existing is not None:
+        new_entry = ModEntry(name=mod_name, enabled=existing.enabled,
+                             locked=existing.locked)
+    else:
+        new_entry = ModEntry(name=mod_name, enabled=enabled, locked=False)
+    entries.insert(0, new_entry)
     write_modlist(modlist_path, entries)
 
 
@@ -135,18 +147,23 @@ def ensure_mod_preserving_position(
     modlist_path: Path,
     mod_name: str,
     enabled: bool = True,
+    preserve_existing_state: bool = True,
 ) -> None:
     """
     Ensure a mod exists in modlist.txt without changing its existing position.
 
-    If an entry with the same name already exists, its order is preserved and
-    only the enabled flag is updated. If no entry exists, the mod is added at
-    the top (highest priority), matching prepend_mod's behaviour for new mods.
+    If an entry with the same name already exists, its order is preserved. When
+    ``preserve_existing_state`` is True (the default for reinstalls/updates) the
+    existing entry's enabled/locked flags are left untouched, so updating a
+    disabled mod does not silently re-enable it. Otherwise the enabled flag is
+    set to ``enabled``. If no entry exists, the mod is added at the top (highest
+    priority), matching prepend_mod's behaviour for new mods.
     """
     entries = read_modlist(modlist_path)
     for e in entries:
         if e.name == mod_name:
-            e.enabled = enabled
+            if not preserve_existing_state:
+                e.enabled = enabled
             write_modlist(modlist_path, entries)
             return
 

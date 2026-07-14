@@ -237,7 +237,7 @@ class PluginRulesView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
 
-        plugin_label = self._selected_plugin or "— no plugin selected —"
+        plugin_label = self._selected_plugin or self.tr("— no plugin selected —")
         self._rules_title = QLabel(self.tr("Rules for: {0}").format(plugin_label))
         self._rules_title.setStyleSheet(
             f"color:{self._c_text}; font-weight:bold;")

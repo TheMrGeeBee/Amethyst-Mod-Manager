@@ -1,9 +1,9 @@
 """Modlist model — QAbstractTableModel over the ModEntry list.
 
-Columns: Mod Name, Flags, Conflicts, Installed, Version, Priority (the checkbox
-is painted into column 0 by the delegate). Fed by read_modlist; version /
-installed / flags / conflicts are optional dicts keyed by mod name (blank when
-absent). Index 0 = highest priority; the Priority column shows a descending
+Columns: Mod Name, Category, Flags, Conflicts, Installed, Version, Author,
+Priority, Size (the checkbox is painted into column 0 by the delegate). Fed by
+read_modlist; version / installed / flags / conflicts / authors are optional
+dicts keyed by mod name (blank when absent). Index 0 = highest priority; the Priority column shows a descending
 number (highest-priority row = largest value).
 """
 
@@ -34,10 +34,11 @@ COL_FLAGS = 2
 COL_CONFLICTS = 3
 COL_INSTALLED = 4
 COL_VERSION = 5
-COL_PRIORITY = 6
-COL_SIZE = 7
+COL_AUTHOR = 6
+COL_PRIORITY = 7
+COL_SIZE = 8
 COLUMNS = ["Mod Name", "Category", "Flags", "Conflicts", "Installed",
-           "Version", "Priority", "Size"]
+           "Version", "Author", "Priority", "Size"]
 
 # COLUMNS doubles as canonical persistence keys, so it must stay untranslated;
 # headerData() translates each label at display time via self.tr(COLUMNS[i]).
@@ -51,6 +52,7 @@ _COLUMN_TR_MARKERS = [
     QT_TRANSLATE_NOOP("ModListModel", "Conflicts"),
     QT_TRANSLATE_NOOP("ModListModel", "Installed"),
     QT_TRANSLATE_NOOP("ModListModel", "Version"),
+    QT_TRANSLATE_NOOP("ModListModel", "Author"),
     QT_TRANSLATE_NOOP("ModListModel", "Priority"),
     QT_TRANSLATE_NOOP("ModListModel", "Size"),
 ]
@@ -92,12 +94,19 @@ class ModListModel(QAbstractTableModel):
         # Active column sort ("name"/"category"/…/"priority") + direction.
         self._sort_key: str | None = None
         self._sort_ascending: bool = True
+        # True while the "hide separators" filter is active — makes a column
+        # sort flatten all mods into one list instead of sorting within each
+        # separator group (which would leave mods clustered under the hidden
+        # separators). Set by the app when the filter state changes.
+        self._separators_hidden: bool = False
         # Reverse-mode divider entry, reused across rebuilds so an unchanged
         # layout compares identical (no spurious layoutChanged).
         self._divider: ModEntry = make_divider()
         self._versions = versions or {}
         self._installed = installed or {}
         self._categories: dict[str, str] = {}
+        # Nexus uploader per mod (meta.ini uploadedBy — Author column).
+        self._authors: dict[str, str] = {}
         # Nexus summary per mod — backs the name-column hover tooltip only
         # (no column of its own). Populated with the other meta on reload.
         self._descriptions: dict[str, str] = {}
@@ -179,6 +188,17 @@ class ModListModel(QAbstractTableModel):
     def sort_state(self) -> tuple[str | None, bool]:
         return self._sort_key, self._sort_ascending
 
+    def set_separators_hidden(self, hidden: bool) -> None:
+        """Tell the model whether the 'hide separators' filter is active. When
+        it flips while a (non-priority) column sort is live, the display is
+        re-derived so mods sort as one flat list instead of within groups."""
+        hidden = bool(hidden)
+        if hidden == self._separators_hidden:
+            return
+        self._separators_hidden = hidden
+        if self._sort_key and self._sort_key != "priority":
+            self._rebuild_display()
+
     @property
     def reverse_mode_active(self) -> bool:
         """True in reverse-priority mode (priority ascending, 0 at top)."""
@@ -201,6 +221,7 @@ class ModListModel(QAbstractTableModel):
             "categories": self._categories,
             "versions": self._versions,
             "installed": self._installed,
+            "authors": self._authors,
             "size_bytes": self._size_bytes,
             "flags": flags,
             "conflicts": self._conflicts,
@@ -211,7 +232,8 @@ class ModListModel(QAbstractTableModel):
             return self._natural
         return build_display(self._natural, self._sort_key,
                              self._sort_ascending, self._sort_ctx(),
-                             divider=self._divider)
+                             divider=self._divider,
+                             flatten_groups=self._separators_hidden)
 
     def _rebuild_display(self) -> None:
         """Re-derive the display list from the natural order + active sort.
@@ -244,10 +266,11 @@ class ModListModel(QAbstractTableModel):
 
     def set_meta(self, versions: dict[str, str], installed: dict[str, str],
                  categories: dict[str, str],
-                 descriptions: "dict[str, str] | None" = None) -> None:
+                 descriptions: "dict[str, str] | None" = None,
+                 authors: "dict[str, str] | None" = None) -> None:
         """Set the meta.ini-derived per-mod dicts (Version / Installed /
-        Category columns), repaint those columns, and re-sort if the active
-        sort reads them. The reload pushes entries first and applies the
+        Category / Author columns), repaint those columns, and re-sort if the
+        active sort reads them. The reload pushes entries first and applies the
         meta async (reading one ini per mod is disk work).
 
         *descriptions* backs the name-column hover tooltip (no column repaint)."""
@@ -255,12 +278,13 @@ class ModListModel(QAbstractTableModel):
         self._installed = installed or {}
         self._categories = categories or {}
         self._descriptions = descriptions or {}
+        self._authors = authors or {}
         if self._entries:
             self.dataChanged.emit(
                 self.index(0, COL_CATEGORY),
-                self.index(len(self._entries) - 1, COL_VERSION),
+                self.index(len(self._entries) - 1, COL_AUTHOR),
                 [Qt.DisplayRole])
-        self._resort_if_key("version", "installed", "category")
+        self._resort_if_key("version", "installed", "category", "author")
 
     def set_sizes(self, sizes: dict[str, str],
                   size_bytes: dict[str, int] | None = None) -> None:
@@ -538,6 +562,8 @@ class ModListModel(QAbstractTableModel):
                 return self._versions.get(e.name, "")
             if col == COL_INSTALLED:
                 return self._installed.get(e.name, "")
+            if col == COL_AUTHOR:
+                return self._authors.get(e.name, "")
             if col == COL_SIZE:
                 return self._sizes.get(e.name, "")
             if col == COL_PRIORITY:

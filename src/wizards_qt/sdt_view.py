@@ -39,7 +39,7 @@ class SDTView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"SSE Display Tweaks — {game.name}")
+                         title=self.tr("SSE Display Tweaks — {0}").format(game.name))
         # (section,key) -> (enable_chk, getter()->str, setter(str))
         self._rows: dict = {}
         self._stack.addWidget(self._build_form())

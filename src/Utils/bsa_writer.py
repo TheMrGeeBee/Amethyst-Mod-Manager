@@ -100,7 +100,7 @@ def _is_incompressible(name_lower: str) -> bool:
 # Bethesda-flavoured uses v104 (Oblivion / FO3 / FNV / Skyrim LE).
 # Game IDs come from each handler's `game_id` property — see src/Games/.
 _V105_GAME_IDS: frozenset[str] = frozenset({
-    "skyrim_se",   # Skyrim Special Edition (Games/Skyrim Special Edition/skyrim_se.py)
+    "skyrim_se",   # Skyrim Special Edition (Games/Bethesda/skyrim_se.py)
     "skyrimvr",    # Skyrim VR
     "enderalse",   # Enderal Special Edition
 })
@@ -109,7 +109,7 @@ _V104_GAME_IDS: frozenset[str] = frozenset({
     "Oblivion",
     "Fallout3", "Fallout3GOTY",
     "FalloutNV",
-    "skyrim",      # Skyrim Legendary Edition (Games/Bethesda/Bethesda.py:1142)
+    "skyrim",      # Skyrim Legendary Edition (Games/Bethesda/skyrim.py)
     "enderal",     # Enderal LE
 })
 

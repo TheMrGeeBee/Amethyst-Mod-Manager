@@ -50,7 +50,7 @@ class ModioSettingsView(WizardViewBase):
 
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
-        super().__init__(game, log_fn, on_close, ctx, title="mod.io API Key")
+        super().__init__(game, log_fn, on_close, ctx, title=self.tr("mod.io API Key"))
         self._busy = False
         self._modio_key = _load_bg3_modio("modio_key")
 
@@ -112,11 +112,11 @@ class ModioSettingsView(WizardViewBase):
             return
         key = self._entry.text().strip()
         if not key:
-            self._set_result("Enter a key first.", ok=False)
+            self._set_result(self.tr("Enter a key first."), ok=False)
             return
         self._busy = True
         self._save_btn.setEnabled(False)
-        self._set_result("Testing key…")
+        self._set_result(self.tr("Testing key…"))
 
         def worker():
             ok = False
@@ -134,22 +134,24 @@ class ModioSettingsView(WizardViewBase):
         self._busy = False
         self._save_btn.setEnabled(True)
         if not ok:
-            msg = "Key rejected by mod.io." if not err else f"Key test failed: {err}"
+            msg = (self.tr("Key rejected by mod.io.") if not err
+                   else self.tr("Key test failed: {0}").format(err))
             self._set_result(msg, ok=False)
             return
         try:
             self._modio_key.save_modio_key(key)
-            self._set_result("Key saved. mod.io update checks are now enabled.",
-                             ok=True)
+            self._set_result(
+                self.tr("Key saved. mod.io update checks are now enabled."),
+                ok=True)
             self._log("mod.io: API key saved.")
         except Exception as e:
-            self._set_result(f"Could not save key: {e}", ok=False)
+            self._set_result(self.tr("Could not save key: {0}").format(e), ok=False)
 
     def _on_clear(self):
         try:
             self._modio_key.clear_modio_key()
             self._entry.clear()
-            self._set_result("Key cleared.")
+            self._set_result(self.tr("Key cleared."))
             self._log("mod.io: API key cleared.")
         except Exception as e:
-            self._set_result(f"Could not clear key: {e}", ok=False)
+            self._set_result(self.tr("Could not clear key: {0}").format(e), ok=False)

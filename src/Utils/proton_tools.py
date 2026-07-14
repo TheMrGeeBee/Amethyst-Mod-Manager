@@ -118,11 +118,42 @@ def install_dotnet_runtime(
 # ---------------------------------------------------------------------------
 # Proton environment resolution
 # ---------------------------------------------------------------------------
+def _resolve_lutris_wine_env(prefix_path, log_fn: LogFn = _noop):
+    """``(wine_binary, env)`` for a classic lutris-wine prefix, or
+    ``(None, None)``.
+
+    Only fires when *prefix_path* is Lutris-managed AND the game's configured
+    runner is a lutris-wine build on disk. Proton/umu-managed Lutris games
+    return ``(None, None)`` so callers use the normal Proton machinery (their
+    prefixes are Proton-shaped). The wine binary rides in the proton_script
+    slot — ``proton_run_command`` recognises it and builds a bare wine
+    invocation.
+    """
+    try:
+        from Utils.lutris_finder import (
+            is_lutris_prefix, find_lutris_wine_for_prefix, lutris_wine_env)
+        if not is_lutris_prefix(prefix_path):
+            return None, None
+        wine_bin = find_lutris_wine_for_prefix(prefix_path)
+    except Exception:
+        return None, None
+    if wine_bin is None:
+        return None, None
+    from Utils.protontricks import strip_appimage_env
+    env = strip_appimage_env(os.environ.copy())
+    env.update(lutris_wine_env(wine_bin, prefix_path))
+    log_fn(f"Proton Tools: Lutris prefix — using Lutris wine runner "
+           f"{wine_bin.parent.parent.name}.")
+    return wine_bin, env
+
+
 def resolve_proton_env(game, log_fn: LogFn = _noop):
     """Resolve ``(proton_script, env)`` for *game*'s configured prefix.
 
     Returns ``(None, None)`` (after logging why) if no prefix / Proton tool /
     Steam root can be found. Mirrors the Tk panel's ``_get_proton_env``.
+    For classic lutris-wine prefixes the first element is the runner's wine
+    *binary* instead of a proton script (see ``_resolve_lutris_wine_env``).
     """
     from Utils.steam_finder import (
         find_any_installed_proton,
@@ -135,6 +166,10 @@ def resolve_proton_env(game, log_fn: LogFn = _noop):
     if prefix_path is None or not prefix_path.is_dir():
         log_fn("Proton Tools: prefix not configured for this game.")
         return None, None
+
+    wine_bin, wenv = _resolve_lutris_wine_env(prefix_path, log_fn)
+    if wine_bin is not None:
+        return wine_bin, wenv
 
     steam_id = game_steam_id(game)
     proton_script = find_proton_for_game(steam_id) if steam_id else None
@@ -153,6 +188,20 @@ def resolve_proton_env(game, log_fn: LogFn = _noop):
         if proton_script is not None:
             log_fn(f"Proton Tools: using Heroic-configured Proton "
                    f"{proton_script.parent.name}.")
+
+    if proton_script is None:
+        # Lutris umu/Proton games record the runner in the prefix's
+        # config_info after the first run, or in the game's yml before that.
+        try:
+            from Utils.lutris_finder import find_lutris_proton_name_for_prefix
+            lutris_runner = find_lutris_proton_name_for_prefix(prefix_path)
+        except Exception:
+            lutris_runner = None
+        if lutris_runner:
+            proton_script = find_any_installed_proton(lutris_runner)
+            if proton_script is not None:
+                log_fn(f"Proton Tools: using Lutris-configured Proton "
+                       f"{proton_script.parent.name}.")
 
     if proton_script is None:
         preferred_runner = read_prefix_runner(compat_data)
@@ -290,12 +339,13 @@ def launch_winetricks(game, log_fn: LogFn = _noop) -> None:
         log_fn("Proton Tools: cabextract not found — downloading a portable copy …")
         if not install_cabextract(log_fn=lambda m: log_fn(f"Proton Tools: {m}")):
             return
-    from Utils.protontricks import strip_appimage_env
+    from Utils.protontricks import strip_appimage_env, wine_bin_dir_for_prefix
     wt = _bundled_winetricks()
     env = strip_appimage_env(os.environ.copy())
     env["WINEPREFIX"] = str(prefix_path)
     path_prefix = str(wt.parent)
-    proton_bin = _get_proton_bin()
+    wine_bin = wine_bin_dir_for_prefix(prefix_path, env)
+    proton_bin = wine_bin or _get_proton_bin()
     if proton_bin:
         path_prefix = proton_bin + os.pathsep + path_prefix
     env["PATH"] = path_prefix + os.pathsep + env.get("PATH", "")

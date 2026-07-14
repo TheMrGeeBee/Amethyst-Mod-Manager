@@ -84,6 +84,7 @@ class FilterData:
     notes_mods: set[str] = field(default_factory=set)
     modified_mf_mods: set[str] = field(default_factory=set)
     category_names: dict[str, str] = field(default_factory=dict)        # mod -> cat
+    author_names: dict[str, str] = field(default_factory=dict)          # mod -> uploader
     # filetype membership is computed lazily from the index per query.
     filetype_counts: dict[str, int] = field(default_factory=dict)
     mod_filetypes: dict[str, set[str]] = field(default_factory=dict)    # mod -> {ext}
@@ -461,6 +462,21 @@ def compute_hidden_rows(entries, state: dict, data: FilterData) -> set[int]:
             return (cats.get(e.name, "") or "") in exc_cat
         keep = _apply_exclude(entries, keep, _cat_ex)
 
+    # Step: author (Nexus uploader) include/exclude.
+    auths = data.author_names
+    inc_auth = state.get("authors") or frozenset()
+    exc_auth = state.get("authors_exclude") or frozenset()
+    if inc_auth:
+        def _auth_in(e):
+            return (auths.get(e.name, "") or "") in inc_auth
+        keep = _apply_include(
+            entries, keep, _auth_in,
+            lambda i: _sep_block_has(entries, i, _auth_in))
+    if exc_auth:
+        def _auth_ex(e):
+            return (auths.get(e.name, "") or "") in exc_auth
+        keep = _apply_exclude(entries, keep, _auth_ex)
+
     # Step: filetype include/exclude.
     inc_ft = state.get("filetypes") or frozenset()
     exc_ft = state.get("filetypes_exclude") or frozenset()
@@ -524,6 +540,8 @@ def _any_active(state: dict) -> bool:
         if state.get(key):
             return True
     if state.get("categories") or state.get("categories_exclude"):
+        return True
+    if state.get("authors") or state.get("authors_exclude"):
         return True
     if state.get("filetypes") or state.get("filetypes_exclude"):
         return True

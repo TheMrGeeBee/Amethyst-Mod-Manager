@@ -15,7 +15,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QEvent
+from PySide6.QtCore import Qt, Signal, QEvent, QT_TRANSLATE_NOOP, QCoreApplication
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QCheckBox, QHeaderView, QFrame,
@@ -28,10 +28,10 @@ from Utils import profile_export
 
 
 _SOURCE_LABELS = {
-    "nexus":  "Nexus",
-    "direct": "Direct",
-    "bundle": "Bundle",
-    "ignore": "Ignore",
+    "nexus":  QT_TRANSLATE_NOOP("ExportProfileView", "Nexus"),
+    "direct": QT_TRANSLATE_NOOP("ExportProfileView", "Direct"),
+    "bundle": QT_TRANSLATE_NOOP("ExportProfileView", "Bundle"),
+    "ignore": QT_TRANSLATE_NOOP("ExportProfileView", "Ignore"),
 }
 
 # Per-source button colours — matched to the Tk workshop (_source_btn_style):
@@ -198,7 +198,9 @@ def _card_title(text: str) -> QLabel:
     return lbl
 
 
-def _card_button_bar(overlay, ok_text, on_ok, cancel_text="Cancel"):
+def _card_button_bar(overlay, ok_text, on_ok, cancel_text=None):
+    if cancel_text is None:
+        cancel_text = QCoreApplication.translate("ExportProfileView", "Cancel")
     bar = QHBoxLayout()
     bar.setSpacing(8)
     bar.addStretch(1)
@@ -225,15 +227,15 @@ class _SourceOverlay(_CardOverlay):
     def __init__(self, host, mod_name, current_source, current_url, on_pick):
         super().__init__(host)
         self._on_pick = on_pick
-        self._body.addWidget(_card_title(f"Source — {mod_name}"))
+        self._body.addWidget(_card_title(self.tr("Source — {0}").format(mod_name)))
 
         self._group = QButtonGroup(self)
         self._radios: dict[str, QRadioButton] = {}
         for value, label, desc in (
-            ("nexus",  "Nexus Mods", "Download mod from Nexus"),
-            ("direct", "Direct URL", "For off-site mods"),
-            ("bundle", "Bundle",     "Include mod in the output (e.g. DynDOLOD output)"),
-            ("ignore", "Ignore",     "Exclude this mod from the export entirely"),
+            ("nexus",  self.tr("Nexus Mods"), self.tr("Download mod from Nexus")),
+            ("direct", self.tr("Direct URL"), self.tr("For off-site mods")),
+            ("bundle", self.tr("Bundle"),     self.tr("Include mod in the output (e.g. DynDOLOD output)")),
+            ("ignore", self.tr("Ignore"),     self.tr("Exclude this mod from the export entirely")),
         ):
             rb = QRadioButton(self.tr("{0}   — {1}").format(label, desc))
             rb.setChecked(value == current_source)
@@ -260,7 +262,7 @@ class _SourceOverlay(_CardOverlay):
         self._url_row_w.setLayout(url_row)
         self._body.addWidget(self._url_row_w)
         self._body.addStretch(1)
-        self._body.addLayout(_card_button_bar(self, "Apply", self._apply))
+        self._body.addLayout(_card_button_bar(self, self.tr("Apply"), self._apply))
 
         self._on_toggle()
         self._show_over()
@@ -301,7 +303,7 @@ class _VersionOverlay(_CardOverlay):
     def __init__(self, host, mod_name, options, current_label, on_pick):
         super().__init__(host)
         self._on_pick = on_pick
-        self._body.addWidget(_card_title(f"Version — {mod_name}"))
+        self._body.addWidget(_card_title(self.tr("Version — {0}").format(mod_name)))
         sub = QLabel(self.tr("Preferred version (file id — version):"))
         sub.setObjectName("CardSub")
         self._body.addWidget(sub)
@@ -318,7 +320,7 @@ class _VersionOverlay(_CardOverlay):
             self._list.setCurrentRow(0)
         self._list.itemDoubleClicked.connect(lambda _i: self._apply())
         self._body.addWidget(self._list, 1)
-        self._body.addLayout(_card_button_bar(self, "Select", self._apply))
+        self._body.addLayout(_card_button_bar(self, self.tr("Select"), self._apply))
         self._show_over()
 
     def _apply(self):
@@ -348,7 +350,7 @@ class _LoadSettingsOverlay(_CardOverlay):
         super().__init__(host)
         self._on_pick = on_pick
         self._files = list(files)
-        self._body.addWidget(_card_title("Load export settings"))
+        self._body.addWidget(_card_title(self.tr("Load export settings")))
         sub = QLabel(self.tr("Select a saved settings file:"))
         sub.setObjectName("CardSub")
         self._body.addWidget(sub)
@@ -359,7 +361,7 @@ class _LoadSettingsOverlay(_CardOverlay):
             self._list.setCurrentRow(0)
         self._list.itemDoubleClicked.connect(lambda _i: self._apply())
         self._body.addWidget(self._list, 1)
-        self._body.addLayout(_card_button_bar(self, "Load", self._apply))
+        self._body.addLayout(_card_button_bar(self, self.tr("Load"), self._apply))
         self._show_over()
 
     def _apply(self):
@@ -480,7 +482,8 @@ class ExportProfileView(QWidget):
         # Table.
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(
-            ["Mod Name", "Source", "Preferred Version", "Fomod", "Optional"])
+            [self.tr("Mod Name"), self.tr("Source"), self.tr("Preferred Version"),
+             self.tr("Fomod"), self.tr("Optional")])
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -556,7 +559,7 @@ class ExportProfileView(QWidget):
             t.setItem(i, _COL_NAME, name_item)
 
             src = row.get("source", "nexus")
-            src_btn = QPushButton(_SOURCE_LABELS.get(src, "Nexus"))
+            src_btn = QPushButton(self.tr(_SOURCE_LABELS.get(src, "Nexus")))
             src_btn.setCursor(Qt.PointingHandCursor)
             src_btn.setStyleSheet(_source_button_qss(src))
             src_btn.clicked.connect(lambda _=False, di=data_idx: self._pick_source(di))
@@ -696,7 +699,7 @@ class ExportProfileView(QWidget):
         src_btn = self._table.cellWidget(vis_idx, _COL_SOURCE)
         if isinstance(src_btn, QPushButton):
             src = row.get("source", "nexus")
-            src_btn.setText(_SOURCE_LABELS.get(src, "Nexus"))
+            src_btn.setText(self.tr(_SOURCE_LABELS.get(src, "Nexus")))
             src_btn.setStyleSheet(_source_button_qss(src))
         ver_btn = self._table.cellWidget(vis_idx, _COL_VERSION)
         if isinstance(ver_btn, QPushButton):
@@ -755,8 +758,8 @@ class ExportProfileView(QWidget):
         missing = profile_export.nexus_missing_file_ids(self._all_rows)
         if missing:
             count = len(missing)
-            noun = "mod" if count == 1 else "mods"
-            verb = "is" if count == 1 else "are"
+            noun = self.tr("mod") if count == 1 else self.tr("mods")
+            verb = self.tr("is") if count == 1 else self.tr("are")
             self._notify(
                 self.tr("{0} Nexus {1} {2} missing a File ID and must be set before exporting.").format(count, noun, verb), "warning")
             return
@@ -766,11 +769,11 @@ class ExportProfileView(QWidget):
         default_name = f"{profile_name}_export.amethyst"
         from Utils.portal_filechooser import pick_save_file
         pick_save_file(
-            "Export Amethyst Manifest",
+            self.tr("Export Amethyst Manifest"),
             lambda path: self._save_path_picked.emit(path),
             current_name=default_name,
-            filters=[("Amethyst Manifest (*.amethyst)", ["*.amethyst"]),
-                     ("All files", ["*"])])
+            filters=[(self.tr("Amethyst Manifest (*.amethyst)"), ["*.amethyst"]),
+                     (self.tr("All files"), ["*"])])
 
     def _on_save_path_picked(self, path):
         if not path:

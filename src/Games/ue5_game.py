@@ -241,6 +241,24 @@ class UE5Game(BaseGame):
         """Destination for files that match no rule.  Defaults to game root."""
         return ""
 
+    # -----------------------------------------------------------------------
+    # Archive (pak) conflict detection
+    # -----------------------------------------------------------------------
+
+    @property
+    def archive_extensions(self) -> frozenset[str]:
+        """Scan UE .pak and IoStore .utoc TOCs so mods that ship the same
+        asset paths inside different archives get archive-conflict flags
+        (Utils.ue_pak_reader).  Companion .ucas files hold only bulk data
+        (no names) and are skipped."""
+        return frozenset({".pak", ".utoc"})
+
+    @property
+    def archive_plugin_ordering(self) -> bool:
+        """UE pak mounting is not plugin-driven — archive conflict winners
+        follow mod priority, not any plugin load order."""
+        return False
+
     def reshade_install_subdir(self, game_path: "Path") -> "Path | None":
         """ReShade must sit next to the real rendering binary, which in Unreal
         Engine games lives under ``<Project>/Binaries/Win64/`` rather than the

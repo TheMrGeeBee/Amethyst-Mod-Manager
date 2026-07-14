@@ -119,7 +119,7 @@ class ShareCodeImportOverlay(_CodeOverlayBase):
             "else's load order.")))
 
         self._area = self._text_area(read_only=False)
-        self._area.setPlaceholderText("AMMCODE1:…")
+        self._area.setPlaceholderText("AMMCODE1:…")  # i18n: skip — share-code format token
         self._v.addWidget(self._area, 1)
 
         # Live preview of the decoded code — profile / game / mod count / size /

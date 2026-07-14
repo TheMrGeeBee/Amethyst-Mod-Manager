@@ -26,6 +26,8 @@ This module provides:
 from __future__ import annotations
 
 import configparser
+import copy
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -45,7 +47,9 @@ class NexusModMeta:
     file_id: int = 0                   # Nexus file ID
     version: str = ""                  # mod version string
     author: str = ""                   # mod author
+    uploaded_by: str = ""              # Nexus username that uploaded the mod
     nexus_name: str = ""               # mod name on Nexus (may differ from folder)
+    nexus_file_name: str = ""          # per-file display name on Nexus (file_details.name, e.g. "Engine Fixes - Main File")
     installation_file: str = ""        # original archive filename
     file_size: int = 0                 # original archive size in bytes
     installed: str = ""                # ISO-8601 timestamp
@@ -125,7 +129,9 @@ _KEY_MAP: dict[str, str] = {
     "fileid":            "file_id",
     "version":           "version",
     "author":            "author",
+    "uploadedBy":        "uploaded_by",
     "nexusName":         "nexus_name",
+    "nexusFileName":     "nexus_file_name",
     "installationFile":  "installation_file",
     "fileSize":          "file_size",
     "installed":         "installed",
@@ -160,35 +166,59 @@ _BOOL_FIELDS = {
 }
 
 
+# Parsed meta.ini cache, keyed by path with the file's mtime as validity.
+# Several hot paths parse the SAME metas back-to-back on every reload /
+# profile switch (the modlist meta worker, the filemap build's root-flag
+# collect, flag refreshes) — hundreds of configparser runs each. A write
+# bumps the mtime, so the entry self-invalidates. A COPY is returned/stored:
+# callers mutate the result before write_meta, which must never leak into
+# the cached instance (all fields are scalars, so a shallow copy is enough).
+_META_CACHE: dict[str, tuple[int, NexusModMeta]] = {}
+_META_CACHE_MAX = 8192
+
+
 def read_meta(meta_ini_path: Path) -> NexusModMeta:
     """
     Parse a ``meta.ini`` file and return a :class:`NexusModMeta`.
 
-    Missing keys are silently defaulted.
+    Missing keys are silently defaulted. Results are cached by file mtime.
     """
+    path_str = str(meta_ini_path)
+    try:
+        mtime_ns = os.stat(path_str).st_mtime_ns
+    except OSError:
+        mtime_ns = None   # missing file → parse to the defaults, don't cache
+    if mtime_ns is not None:
+        entry = _META_CACHE.get(path_str)
+        if entry is not None and entry[0] == mtime_ns:
+            return copy.copy(entry[1])
+
     cp = configparser.ConfigParser()
-    cp.read(str(meta_ini_path), encoding="utf-8")
+    cp.read(path_str, encoding="utf-8")
 
     meta = NexusModMeta()
     meta.mod_name = meta_ini_path.parent.name
 
-    if not cp.has_section(_SECTION):
-        return meta
+    if cp.has_section(_SECTION):
+        for ini_key, attr in _KEY_MAP.items():
+            raw = cp.get(_SECTION, ini_key, fallback=None)
+            if raw is None:
+                continue
+            if attr in _INT_FIELDS:
+                try:
+                    setattr(meta, attr, int(raw))
+                except ValueError:
+                    pass
+            elif attr in _BOOL_FIELDS:
+                setattr(meta, attr, raw.lower() in ("true", "1", "yes"))
+            else:
+                setattr(meta, attr, raw)
 
-    for ini_key, attr in _KEY_MAP.items():
-        raw = cp.get(_SECTION, ini_key, fallback=None)
-        if raw is None:
-            continue
-        if attr in _INT_FIELDS:
-            try:
-                setattr(meta, attr, int(raw))
-            except ValueError:
-                pass
-        elif attr in _BOOL_FIELDS:
-            setattr(meta, attr, raw.lower() in ("true", "1", "yes"))
-        else:
-            setattr(meta, attr, raw)
-
+    if mtime_ns is not None:
+        if len(_META_CACHE) >= _META_CACHE_MAX:
+            for k in list(_META_CACHE.keys())[: _META_CACHE_MAX // 4]:
+                _META_CACHE.pop(k, None)
+        _META_CACHE[path_str] = (mtime_ns, copy.copy(meta))
     return meta
 
 
@@ -231,6 +261,10 @@ def write_meta(meta_ini_path: Path, meta: NexusModMeta) -> None:
             # Same for the archive size: stamped once at install time; callers
             # that build a fresh NexusModMeta must not zero it.
             if attr == "file_size" and not value:
+                continue
+            # Same for the uploader: stamped by the install lookup / update
+            # check; a fresh NexusModMeta without it must not blank the value.
+            if attr == "uploaded_by" and not value:
                 continue
             cp.set(_SECTION, ini_key, str(value).replace("%", "%%"))
 
@@ -295,6 +329,7 @@ def build_meta_from_download(
         meta.nexus_name = getattr(mod_info, "name", "")
         meta.version = getattr(mod_info, "version", "")
         meta.author = getattr(mod_info, "author", "")
+        meta.uploaded_by = getattr(mod_info, "uploaded_by", "") or ""
         meta.description = getattr(mod_info, "summary", "")
         meta.category_id = getattr(mod_info, "category_id", 0)
         meta.category_name = getattr(mod_info, "category_name", "") or ""
@@ -342,9 +377,20 @@ _root_flag_cache: dict[str, tuple[float, bool]] = {}
 
 def collect_root_flagged_mods(modlist_path: Path, staging_root: Path,
                               log_fn=None) -> set[str]:
-    """Return the set of enabled mods in *modlist_path* whose meta.ini sets
-    rootFolder=true. Malformed meta.ini files are logged (if *log_fn* is
-    provided) and skipped. Per-file results are mtime-cached."""
+    """Return the set of mods in *modlist_path* whose meta.ini sets
+    rootFolder=true — DISABLED mods included. Malformed meta.ini files are
+    logged (if *log_fn* is provided) and skipped. Per-file results are
+    mtime-cached.
+
+    Disabled mods MUST be included: the set drives rebuild_mod_index /
+    rescan_mods_in_index, and the index describes a mod's CONTENT (root mods
+    keep their Data/ prefix unstripped) independent of its enabled state.
+    Skipping disabled entries meant a root mod that was disabled during a
+    Refresh had its index entry rebuilt STRIPPED; enabling it later (no
+    rescan on toggle) root-deployed the stripped paths — e.g. a freshly
+    wizard-installed SKSE put Scripts/ in the game root instead of Data/.
+    For build_filemap the extra names are harmless — it only tests membership
+    for mods already in the enabled iteration."""
     from Utils.modlist import read_modlist
 
     flagged: set[str] = set()
@@ -353,7 +399,7 @@ def collect_root_flagged_mods(modlist_path: Path, staging_root: Path,
 
     fresh_cache: dict[str, tuple[float, bool]] = {}
     for entry in read_modlist(modlist_path):
-        if entry.is_separator or not entry.enabled:
+        if entry.is_separator:
             continue
         meta_path = staging_root / entry.name / "meta.ini"
         try:
@@ -515,6 +561,7 @@ def resolve_nexus_meta_for_archive(
                         meta.file_id = f.file_id
                         meta.version = f.version or f.mod_version or meta.version
                         meta.file_category = f.category_name
+                        meta.nexus_file_name = f.name or ""
                         break
                 # If no filename match, check if the version matches
                 if meta.file_id == 0 and fn_info.version:
@@ -522,6 +569,7 @@ def resolve_nexus_meta_for_archive(
                         if f.version == fn_info.version or f.mod_version == fn_info.version:
                             meta.file_id = f.file_id
                             meta.file_category = f.category_name
+                            meta.nexus_file_name = f.name or ""
                             break
             except Exception:
                 pass
@@ -561,7 +609,9 @@ def resolve_nexus_meta_for_archive(
                 file_id=file_data.get("file_id", 0),
                 version=file_data.get("version", "") or file_data.get("mod_version", ""),
                 author=mod_data.get("author", ""),
+                uploaded_by=mod_data.get("uploaded_by", "") or "",
                 nexus_name=mod_data.get("name", ""),
+                nexus_file_name=file_data.get("name", "") or file_data.get("file_name", ""),
                 installation_file=archive_name,
                 installed=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
                 description=mod_data.get("summary", ""),

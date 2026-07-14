@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QCoreApplication, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QPlainTextEdit, QPushButton, QWidget,
 )
@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 
 _PG_PICK, _PG_PREVIEW, _PG_DONE = range(3)
 
-_JSON_FILTERS = [("Load Order (*.json)", ["*.json"]), ("All files", ["*"])]
+_JSON_FILTERS = [
+    (QCoreApplication.translate("BG3ImportView", "Load Order (*.json)"), ["*.json"]),
+    (QCoreApplication.translate("BG3ImportView", "All files"), ["*"]),
+]
 
 
 class BG3ImportView(WizardViewBase):
@@ -40,7 +43,7 @@ class BG3ImportView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Import BG3MM Load Order — {game.name}")
+                         title=self.tr("Import BG3MM Load Order — {0}").format(game.name))
         self._json_path: Path | None = None
         self._plan = None
 
@@ -85,7 +88,7 @@ class BG3ImportView(WizardViewBase):
 
     def _browse_json(self):
         from Utils.portal_filechooser import pick_file
-        pick_file("Select a BG3MM order .json",
+        pick_file(self.tr("Select a BG3MM order .json"),
                   lambda p: safe_emit(self._picked_sig, p), _JSON_FILTERS)
 
     def _on_json_picked(self, path):
@@ -141,7 +144,7 @@ class BG3ImportView(WizardViewBase):
             safe_emit(self._preview_ready_sig, summary, detail)
         except Exception as exc:
             self._log(f"BG3 Import: preview error: {exc}")
-            safe_emit(self._preview_error_sig, f"Error: {exc}")
+            safe_emit(self._preview_error_sig, self.tr("Error: {0}").format(exc))
 
     def _on_preview_ready(self, summary: str, detail: str):
         self._set_status(self._preview_summary, summary)

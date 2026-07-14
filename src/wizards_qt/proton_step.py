@@ -49,11 +49,15 @@ class ProtonStepWidget(QWidget):
                  on_continue, log_fn=None, *,
                  allow_game_prefix: bool = True,
                  isolated_prefix_dir_fn=None,
-                 title: str = "Choose Proton Version",
-                 deps_note: str = ("Each version gets its own prefix; "
-                                   "dependencies are installed into it "
-                                   "automatically on the next step.")):
+                 title: str | None = None,
+                 deps_note: str | None = None):
         super().__init__()
+        if title is None:
+            title = self.tr("Choose Proton Version")
+        if deps_note is None:
+            deps_note = self.tr("Each version gets its own prefix; "
+                                "dependencies are installed into it "
+                                "automatically on the next step.")
         self._game = game
         self._exe = exe
         self._tool_exe_name = tool_exe_name
@@ -95,9 +99,10 @@ class ProtonStepWidget(QWidget):
             return
 
         desc = QLabel(
-            f"{tool_display_name} runs in its own Wine prefix, stored next to "
+            self.tr("{0} runs in its own Wine prefix, stored next to "
             "its exe and separate from the game's prefix, so you can pick any "
-            "Proton version without affecting the game.\n\n" + deps_note)
+            "Proton version without affecting the game.\n\n").format(
+                tool_display_name) + deps_note)
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignHCenter)
         desc.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")

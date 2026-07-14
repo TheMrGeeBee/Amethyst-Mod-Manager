@@ -139,6 +139,7 @@ class CollectionInstallCallbacks:
     # GREEN — extracting/queued
     on_extract_queue: Callable[[int, str], None] = _noop       # file_id,name
     on_extract_add: Callable[[int, str], None] = _noop
+    on_extract_update: Callable[[int, int, int], None] = _noop  # file_id,cur,tot (tot 0 = busy)
     on_extract_remove: Callable[[int], None] = _noop
     on_row_installed: Callable[[int], None] = _noop            # file_id landed
     # manual (non-premium) mode — current-mod card payload dict
@@ -904,6 +905,8 @@ def run_collection_install(
         try:
             folder_name = install_collection_archive(
                 archive_path, game, profile_dir, log_fn=log,
+                progress_fn=lambda d, t, p=None, _f=mod.file_id:
+                    cb.on_extract_update(_f, int(d), int(t)),
                 fomod_auto_selections=auto_fomod, bain_auto_selections=auto_bain,
                 prebuilt_meta=_pmeta, preferred_name=_preferred,
                 skip_index_update=True, overwrite_existing=overwrite_existing,
@@ -1496,6 +1499,8 @@ def _process_deferred(
             try:
                 _folder = install_collection_archive(
                     _archive, game, profile_dir, log_fn=log,
+                    progress_fn=lambda d, t, p=None, _f=_mod.file_id:
+                        cb.on_extract_update(_f, int(d), int(t)),
                     bain_auto_selections=bain_by_file_id.get(_mod.file_id),
                     prebuilt_meta=_pmeta, preferred_name=_pref,
                     skip_index_update=True, overwrite_existing=overwrite_existing,
@@ -1538,6 +1543,8 @@ def _process_deferred(
             try:
                 _folder = install_collection_archive(
                     _archive, game, profile_dir, log_fn=log,
+                    progress_fn=lambda d, t, p=None, _f=_mod.file_id:
+                        cb.on_extract_update(_f, int(d), int(t)),
                     fomod_auto_selections=fomod_by_file_id.get(_mod.file_id),
                     bain_auto_selections=bain_by_file_id.get(_mod.file_id),
                     prebuilt_meta=_pmeta, preferred_name=_pref,
@@ -2178,7 +2185,7 @@ def _apply_collection_ini_tweaks(archive_root, profile_dir, game, log):
     if not (archive_root / "INI Tweaks").is_dir():
         return
     try:
-        from Games.Bethesda.Bethesda import _read_ini_key, _set_ini_key
+        from Games.Bethesda.bethesda_ini import _read_ini_key, _set_ini_key
     except Exception as exc:
         log(f"Collection INI tweaks: INI helpers unavailable ({exc}) — skipped")
         return

@@ -773,15 +773,28 @@ def _find_plugin_paths(
     found_basenames: set[str] = set()
     names_lower = {n.lower(): n for n in plugin_names}
 
-    # 1. Check the game's Data directory
+    # 1. Check the game's Data directory. Resolution must be case-insensitive:
+    #    plugins.txt names come from manifests (.ccc) / mod metadata, while some
+    #    installs ship the files lowercased (e.g. Skyrim AE Creation Club
+    #    content). A case-sensitive miss here marks the plugin "missing", which
+    #    knocks it out of the sort and used to dump CC content below the mods.
     if game_data_dir.is_dir():
+        data_index: dict[str, str] = {}
+        try:
+            for entry in os.scandir(game_data_dir):
+                if entry.is_file():
+                    data_index.setdefault(entry.name.lower(), entry.name)
+        except OSError:
+            pass
         for name in plugin_names:
-            full = game_data_dir / name
-            if (full.is_file()
-                    and name.lower() not in found_basenames
-                    and _is_valid_plugin_file(full)):
+            low = name.lower()
+            real = data_index.get(low)
+            if real is None or low in found_basenames:
+                continue
+            full = game_data_dir / real
+            if _is_valid_plugin_file(full):
                 found[name] = str(full)
-                found_basenames.add(name.lower())
+                found_basenames.add(low)
 
     # 2. For anything still missing, search the mod staging folders.
     if staging_root and staging_root.is_dir():
@@ -947,9 +960,18 @@ def sort_plugins(
         # We only need to symlink plugins that aren't already present in Data/.
         # For a deployed profile every plugin is already there, so this set is
         # empty and we skip the (potentially huge) staging tree walk entirely.
+        # Presence is checked case-insensitively — some installs ship
+        # differently-cased plugin files (e.g. lowercased CC content), and a
+        # case-sensitive miss would symlink a second, differently-cased copy.
+        data_present_lower: set[str] = set()
+        try:
+            data_present_lower = {e.name.lower()
+                                  for e in os.scandir(effective_data_dir)}
+        except OSError:
+            pass
         needed: set[str] = set()
         for name in plugin_names:
-            if (effective_data_dir / name).exists():
+            if name.lower() in data_present_lower:
                 continue
             needed.add(name.lower())
 
@@ -1029,15 +1051,27 @@ def sort_plugins(
         except loot.CyclicInteractionError as e:
             raise RuntimeError(f"LOOT found a cyclic dependency: {e}") from e
 
-        # Append any unsortable plugins (missing from disk) at the end
-        if unsortable:
-            sorted_names.extend(unsortable)
-
         # Count how many sortable plugins actually moved position
         moved = sum(
             1 for i, name in enumerate(sorted_names[:len(sortable)])
             if i >= len(sortable) or sortable[i] != name
         )
+
+        # Re-insert unsortable plugins (missing from disk) at their original
+        # positions rather than appending them at the end: appending would move
+        # them below every mod plugin, breaking the load order for entries that
+        # belong near the top (e.g. Creation Club content the resolver couldn't
+        # find). The sorted plugins fill the remaining slots in LOOT's order.
+        if unsortable:
+            if len(sorted_names) == len(sortable):
+                it = iter(sorted_names)
+                sorted_names = [n if n in missing_set else next(it)
+                                for n in plugin_names]
+            else:
+                # libloot returned a different plugin set than it was given
+                # (shouldn't happen) — positional merge is impossible, fall
+                # back to appending so no plugin is dropped.
+                sorted_names = sorted_names + unsortable
 
         _log(f"Sort complete. {moved} plugin(s) changed position.")
 

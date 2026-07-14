@@ -157,7 +157,7 @@ class RePakRestoreView(QWidget):
         self._running = True
         if self._repair_btn is not None:
             self._repair_btn.setEnabled(False)
-        self._log("Repairing PAK files from game-root manifest …")
+        self._log(self.tr("Repairing PAK files from game-root manifest …"))
 
         game_root = self._game_root
 
@@ -166,13 +166,15 @@ class RePakRestoreView(QWidget):
                 restored = restore_from_root_manifest(
                     game_root, log_fn=lambda *a: safe_emit(self._log_line, *a))
                 if restored:
-                    msg = (f"Repair complete — restored {restored} entr"
-                           f"{'y' if restored == 1 else 'ies'} to vanilla.")
+                    msg = (self.tr("Repair complete — restored {0} entry to vanilla.")
+                           if restored == 1 else
+                           self.tr("Repair complete — restored {0} entries to vanilla.")
+                           ).format(restored)
                 else:
-                    msg = ("Nothing to repair — the PAK entries are already "
+                    msg = self.tr("Nothing to repair — the PAK entries are already "
                            "vanilla (or no manifest was found).")
             except Exception as e:  # noqa: BLE001 — surface, don't kill the tab
-                msg = f"Error: {e}"
+                msg = self.tr("Error: {0}").format(e)
             safe_emit(self._done, msg)
 
         threading.Thread(target=run, daemon=True,

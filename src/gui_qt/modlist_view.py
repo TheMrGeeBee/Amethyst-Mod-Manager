@@ -15,34 +15,52 @@ from PySide6.QtWidgets import (
 
 from gui_qt.modlist_model import (
     ModListModel, COLUMNS, COL_NAME, COL_CATEGORY, COL_PRIORITY, COL_FLAGS,
-    COL_CONFLICTS, COL_INSTALLED, COL_VERSION, COL_SIZE, HighlightRole,
+    COL_CONFLICTS, COL_INSTALLED, COL_VERSION, COL_AUTHOR, COL_SIZE,
+    HighlightRole,
 )
 from gui_qt.modlist_delegate import ModRowDelegate, SEP_H
 from gui_qt import column_state
 from gui_qt.modlist_header import TkStyleHeader
 
+
+class _StayOpenMenu(QMenu):
+    """A QMenu that stays open when a checkable action is toggled, so the user
+    can flip several column/filter options without re-opening it each time.
+    Non-checkable actions (and submenu navigation) behave normally."""
+
+    def mouseReleaseEvent(self, event):
+        act = self.activeAction()
+        if act is not None and act.isEnabled() and act.isCheckable():
+            act.trigger()          # flips the check + fires toggled
+            return                 # ...but DON'T let the menu close
+        super().mouseReleaseEvent(event)
+
+
 # Per-column default width + minimum (design px), mirroring the Tk app's
 # _layout_columns data_defaults / data_mins. Name auto-fills the leftover.
 COL_DEFAULTS = {
     COL_CATEGORY: 120, COL_FLAGS: 70, COL_CONFLICTS: 95, COL_INSTALLED: 100,
-    COL_VERSION: 90, COL_PRIORITY: 75, COL_SIZE: 85,
+    COL_VERSION: 90, COL_AUTHOR: 110, COL_PRIORITY: 75, COL_SIZE: 85,
 }
 COL_MINS = {
     COL_NAME: 120, COL_CATEGORY: 90, COL_FLAGS: 60, COL_CONFLICTS: 90,
-    COL_INSTALLED: 90, COL_VERSION: 80, COL_PRIORITY: 70, COL_SIZE: 70,
+    COL_INSTALLED: 90, COL_VERSION: 80, COL_AUTHOR: 80, COL_PRIORITY: 70,
+    COL_SIZE: 70,
 }
 NAME_MIN = COL_MINS[COL_NAME]
 
 # Columns shown by default on a fresh INI (no persisted state). Tk parity:
-# Category, Installed, Size are hidden until the user enables them.
-_FIRST_RUN_HIDDEN = {COL_CATEGORY, COL_INSTALLED, COL_SIZE}
+# Category, Installed, Size are hidden until the user enables them; Author
+# (Nexus uploader) is likewise opt-in.
+_FIRST_RUN_HIDDEN = {COL_CATEGORY, COL_INSTALLED, COL_AUTHOR, COL_SIZE}
 
 # Header column → sort key (Tk _DATA_COL_SORT_KEYS; keys persisted by name via
 # column_state's sort_col, which stores the COLUMNS display name).
 _COL_TO_SORTKEY = {
     COL_NAME: "name", COL_CATEGORY: "category", COL_FLAGS: "flags",
     COL_CONFLICTS: "conflicts", COL_INSTALLED: "installed",
-    COL_VERSION: "version", COL_PRIORITY: "priority", COL_SIZE: "size",
+    COL_VERSION: "version", COL_AUTHOR: "author", COL_PRIORITY: "priority",
+    COL_SIZE: "size",
 }
 
 
@@ -260,6 +278,11 @@ class ModListView(QTreeView):
         self._col_menu_btn = btn
         # Callback the window sets so enabling Size can trigger a size scan.
         self.on_sizes_requested = None
+        # Hooks the window sets for the quick-filter menu items: on_quick_filter
+        # (key, 0|1) applies the filter; quick_filter_state(key)->int reads the
+        # current tri-state so the menu shows the right check marks.
+        self.on_quick_filter = None
+        self.quick_filter_state = None
         self._position_column_menu_button()
         btn.show()
 
@@ -279,8 +302,18 @@ class ModListView(QTreeView):
         btn.setGeometry(max(0, x), 0, self._COL_BTN_W, h.height())
         btn.raise_()
 
+    def _add_quick_filter_action(self, menu, key: str, label: str):
+        """Add one checkable quick-filter action to `menu`. Checked = the
+        filter is in include-mode (state 1); toggling drives the shared state."""
+        get = getattr(self, "quick_filter_state", None)
+        a = QAction(label, menu)
+        a.setCheckable(True)
+        a.setChecked(callable(get) and get(key) == 1)
+        a.toggled.connect(lambda checked, k=key: self._on_quick_filter(k, checked))
+        menu.addAction(a)
+
     def _show_column_menu(self):
-        menu = QMenu(self)
+        menu = _StayOpenMenu(self)
         for col, name in enumerate(COLUMNS):
             if col == COL_NAME:
                 continue   # Name is always shown
@@ -290,8 +323,39 @@ class ModListView(QTreeView):
             a.setChecked(not self.isColumnHidden(col))
             a.toggled.connect(lambda checked, c=col: self._set_column_visible(c, checked))
             menu.addAction(a)
+        # Quick modlist filters — a faster way to apply the "By status" filters
+        # from the Filters panel. These drive the same filter state, so the
+        # panel checkboxes stay in sync (the window wires on_quick_filter).
+        menu.addSeparator()
+        for key, label in (
+            ("filter_show_enabled", self.tr("Enabled")),
+            ("filter_show_disabled", self.tr("Disabled")),
+            ("filter_hide_separators", self.tr("Hide separators")),
+        ):
+            self._add_quick_filter_action(menu, key, label)
+        # The remaining "By status" filters live in a submenu so the top level
+        # stays short. Same include-mode semantics as the quick filters above.
+        from gui_qt.modlist_filter import STATUS_FILTERS
+        _QUICK = {"filter_show_enabled", "filter_show_disabled",
+                  "filter_hide_separators"}
+        more = _StayOpenMenu(self.tr("More status filters"), menu)
+        for key, label in STATUS_FILTERS:
+            if key in _QUICK:
+                continue
+            # STATUS_FILTERS labels are registered for translation under the
+            # FilterSidePanel context (see filter_panel._TR_MARKERS).
+            self._add_quick_filter_action(
+                more, key, QCoreApplication.translate("FilterSidePanel", label))
+        menu.addMenu(more)
         btn = self._col_menu_btn
         menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+
+    def _on_quick_filter(self, key: str, on: bool):
+        # State 1 = include-mode (show only matching); 0 = off. Hide-separators
+        # is likewise 1/0. The window hook applies it to the shared filter state.
+        cb = getattr(self, "on_quick_filter", None)
+        if callable(cb):
+            cb(key, 1 if on else 0)
 
     def _set_column_visible(self, col: int, visible: bool):
         self.setColumnHidden(col, not visible)
@@ -527,6 +591,11 @@ class ModListView(QTreeView):
 
         sep = next((r for r in range(top, -1, -1) if _real_sep(r)), None)
         if sep is None:
+            return None
+        # A separator hidden by the filter panel ("Hide separators", or a
+        # filter that dropped its whole block) must not pin a band — it would
+        # paint over the first visible mod row.
+        if self.isRowHidden(sep, self.rootIndex()):
             return None
         # visualRect() of an off-screen row can be empty, so don't measure the
         # separator directly: it needs a pinned stand-in iff it sits ABOVE the
@@ -1129,6 +1198,12 @@ class ModListView(QTreeView):
         for name in st["hidden"]:
             if name in name_to_col:
                 self.setColumnHidden(name_to_col[name], True)
+        # A column added after the state was saved (absent from the persisted
+        # order) keeps its first-run default — otherwise e.g. the new Author
+        # column would pop up visible for every existing user.
+        for col in _FIRST_RUN_HIDDEN:
+            if st["order"] and COLUMNS[col] not in st["order"]:
+                self.setColumnHidden(col, True)
         h = self.header()
         for visual, name in enumerate(st["order"]):
             if name in name_to_col:

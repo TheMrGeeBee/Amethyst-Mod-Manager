@@ -76,6 +76,15 @@ def deploy_game_wine_dll_overrides(
     """
     _log = _safe_log(log_fn)
 
+    # Classic Lutris prefixes lack the steamuser account handler paths
+    # assume; make sure the compat symlink exists before touching the prefix.
+    try:
+        from Utils.lutris_finder import is_lutris_prefix, ensure_steamuser_compat
+        if is_lutris_prefix(prefix_path):
+            ensure_steamuser_compat(prefix_path)
+    except Exception:
+        pass
+
     stored = load_wine_dll_overrides(game_name)
     # Handler overrides are always present; user overrides sit on top
     to_apply: dict[str, str] = {**handler_overrides, **stored}

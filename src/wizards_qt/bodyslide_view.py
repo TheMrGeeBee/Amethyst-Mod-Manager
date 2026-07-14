@@ -49,7 +49,7 @@ class BodySlideView(WizardViewBase):
                  *, tool: str = "bodyslide", **_extra):
         self._name, self._exe_names, self._output_default = _TOOLS[tool]
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"{self._name} — {game.name}")
+                         title=self.tr("{0} — {1}").format(self._name, game.name))
         # The prefix is anchored to the staged exe (prefix_* dirs in staging
         # are excluded from filemap scans); the deployed copy is what runs.
         self._exe = find_staged_exe(game, self._exe_names)
@@ -60,7 +60,7 @@ class BodySlideView(WizardViewBase):
         self._stack.addWidget(self._build_bs_deploy_page())
         self._stack.addWidget(self._build_proton_holder())
         self._stack.addWidget(self._build_run_page(
-            f"Step 3: Run {self._name}"))
+            self.tr("Step 3: Run {0}").format(self._name)))
         self._goto_step(_PG_DEPLOY)
 
     def _build_bs_deploy_page(self) -> QWidget:
@@ -104,10 +104,10 @@ class BodySlideView(WizardViewBase):
                 self._exe,
                 self._exe.name if self._exe is not None else self._exe_names[0],
                 self._name, self._on_proton_chosen,
-                title="Step 2: Choose Proton Version",
-                missing_text=f"{self._name} was not found in your mod staging "
-                             f"folder.\n\nInstall {self._name} as a mod, then "
-                             "reopen this wizard.")
+                title=self.tr("Step 2: Choose Proton Version"),
+                missing_text=self.tr("{0} was not found in your mod staging "
+                             "folder.\n\nInstall {0} as a mod, then "
+                             "reopen this wizard.").format(self._name))
         elif idx == _PG_RUN:
             self._set_status(self._run_status, self.tr("Launching {0}…").format(self._name))
             self._start_run()
@@ -193,8 +193,8 @@ class BodySlideView(WizardViewBase):
                     staged_exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                              f"Could not find Proton '{proton_name}' — "
-                              "check that it is installed in Steam.", RED)
+                              self.tr("Could not find Proton '{0}' — "
+                              "check that it is installed in Steam.").format(proton_name), RED)
                     return
                 proton_script, compat_data, env = result
 
@@ -231,8 +231,8 @@ class BodySlideView(WizardViewBase):
 
                 _wlog(f"launching {deployed} via Proton (cwd={deployed.parent})")
                 safe_emit(self._run_status_sig,
-                          f"{name} is running.\nClose it when you are done, "
-                          "then click Done.", GREEN)
+                          self.tr("{0} is running.\nClose it when you are done, "
+                          "then click Done.").format(name), GREEN)
                 safe_emit(self._run_started_sig)
                 if gl_log is not None:
                     # GL trace mode: keep the raw file redirect (verbose OpenGL
@@ -252,10 +252,10 @@ class BodySlideView(WizardViewBase):
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 _wlog(f"{deployed.name} closed.")
-                safe_emit(self._run_status_sig, f"{name} finished.", GREEN)
+                safe_emit(self._run_status_sig, self.tr("{0} finished.").format(name), GREEN)
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", RED)
+                safe_emit(self._run_status_sig, self.tr("Launch error: {0}").format(exc), RED)
                 self._log(f"{name} Wizard: launch error: {exc}")
             finally:
                 if gl_log is not None:

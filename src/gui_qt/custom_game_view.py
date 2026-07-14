@@ -911,16 +911,16 @@ class CustomGameView(QWidget):
             try:
                 import requests
                 from PIL import Image as PilImage
-                safe_emit(self._img_sig.status, "Downloading image…", "TEXT_WARN")
+                safe_emit(self._img_sig.status, self.tr("Downloading image…"), "TEXT_WARN")
                 resp = requests.get(url, timeout=15)
                 resp.raise_for_status()
                 img = PilImage.open(io.BytesIO(resp.content)).convert("RGBA")
                 out = get_custom_game_images_dir() / f"{game_id}.png"
                 img.save(out, "PNG")
-                safe_emit(self._img_sig.status, "Image cached.", "TEXT_OK")
+                safe_emit(self._img_sig.status, self.tr("Image cached."), "TEXT_OK")
             except Exception as exc:
                 safe_emit(self._img_sig.status,
-                          f"Image download failed: {exc}", "TEXT_ERR")
+                          self.tr("Image download failed: {0}").format(exc), "TEXT_ERR")
 
         threading.Thread(target=_worker, daemon=True).start()
 

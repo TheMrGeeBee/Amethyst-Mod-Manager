@@ -355,7 +355,7 @@ class PluginCycleView(QWidget):
             if marker in text:
                 left, right = text.split(marker, 1)
                 layout.addWidget(_lbl(left, self._c_text_dim))
-                lbl = _lbl(" after ", AFTER_FG, bold=True)
+                lbl = _lbl(" after ", AFTER_FG, bold=True)  # i18n: skip — LOOT rule match token
                 layout.addWidget(lbl)
                 layout.addWidget(_lbl(right, self._c_text_dim))
                 layout.addStretch(1)

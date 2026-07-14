@@ -414,7 +414,7 @@ class ProfileSettingsView(QWidget):
                     "Removing it will permanently delete its installed mods and "
                     "modlist. Continue?",
                     on_done=lambda ok2: proceed() if ok2 else None,
-                    confirm_label="Remove")
+                    confirm_label=self.tr("Remove"))
             else:
                 proceed()
 
@@ -422,7 +422,7 @@ class ProfileSettingsView(QWidget):
             self._overlay_host(), "Remove Profile",
             f"Are you sure you want to remove the '{profile}' profile?\n\n"
             "The game will be restored first if this profile is deployed.",
-            on_done=after_first, confirm_label="Remove")
+            on_done=after_first, confirm_label=self.tr("Remove"))
 
     def _start_remove_worker(self, profile: str, is_deployed: bool):
         win = self._window

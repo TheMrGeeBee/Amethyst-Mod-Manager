@@ -90,10 +90,6 @@ class Cyberpunk2077(BaseGame):
             }
 
     @property
-    def winetricks_components(self) -> list[str]:
-        return ["d3dcompiler_47"]
-
-    @property
     def conflict_ignore_filenames(self) -> set[str]:
         return {
             "*read*.txt",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QT_TRANSLATE_NOOP, Signal
 
 from gui_qt.safe_emit import safe_emit
 from wizards_qt._mod_loader_installer_view import ModLoaderInstallerView
@@ -21,7 +21,7 @@ class MSCLoaderView(ModLoaderInstallerView):
     NEXUS_URL = "https://www.nexusmods.com/mysummercar/mods/147"
     ARCHIVE_KEYWORDS = ["mscloader_msc"]
     INSTALLER_EXE = "MSCLInstaller.exe"
-    PICK_TITLE = "Select the MSCLoader archive"
+    PICK_TITLE = QT_TRANSLATE_NOOP("MSCLoaderView", "Select the MSCLoader archive")
 
     _mscfolder_status_sig = Signal(str, str)
     _mscfolder_next_sig = Signal()
@@ -52,15 +52,16 @@ class MSCLoaderView(ModLoaderInstallerView):
         try:
             game_path = self._game_root
             if game_path is None:
-                raise RuntimeError("Game path not configured.")
+                raise RuntimeError(self.tr("Game path not configured."))
             (game_path / "MSCFolder.txt").write_text(str(game_path),
                                                      encoding="utf-8")
             self._log(f"MSCLoader Wizard: wrote {game_path / 'MSCFolder.txt'}")
             safe_emit(self._mscfolder_status_sig,
-                      f"Created MSCFolder.txt → {game_path}", GREEN)
+                      self.tr("Created MSCFolder.txt → {0}").format(game_path), GREEN)
             safe_emit(self._mscfolder_next_sig)
         except Exception as exc:
-            safe_emit(self._mscfolder_status_sig, f"Error: {exc}", RED)
+            safe_emit(self._mscfolder_status_sig,
+                      self.tr("Error: {0}").format(exc), RED)
             self._log(f"MSCLoader Wizard: MSCFolder.txt error: {exc}")
 
     # -- cleanup: also remove MSCFolder.txt --------------------------------------

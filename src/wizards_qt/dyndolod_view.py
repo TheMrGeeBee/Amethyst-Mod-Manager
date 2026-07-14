@@ -234,10 +234,10 @@ class DynDOLODView(QWidget):
             from Utils.xedit_tools import applications_dir, flatten_subdirs
             try:
                 safe_emit(self._dl_status_sig,
-                    "Fetching latest release from GitHub…", "")
+                    self.tr("Fetching latest release from GitHub…"), "")
                 tag, dl_url = fetch_latest_github_asset(
                     _XLODGEN_GITHUB_API, ["xlodgen"])
-                safe_emit(self._dl_status_sig, f"Downloading {tag}…", "")
+                safe_emit(self._dl_status_sig, self.tr("Downloading {0}…").format(tag), "")
                 self._log(f"{name} Wizard: downloading {tag} from {dl_url}")
 
                 suffix = Path(dl_url).suffix or ".7z"
@@ -252,7 +252,7 @@ class DynDOLODView(QWidget):
                 download_file(dl_url, tmp_path, reporthook=_reporthook)
                 safe_emit(self._dl_progress_sig, 100)
                 self._log(f"{name} Wizard: download complete, extracting…")
-                safe_emit(self._dl_status_sig, "Extracting…", "")
+                safe_emit(self._dl_status_sig, self.tr("Extracting…"), "")
 
                 dest = applications_dir(game, app_dir)
                 dest.mkdir(parents=True, exist_ok=True)
@@ -263,15 +263,15 @@ class DynDOLODView(QWidget):
                 flatten_subdirs(dest, exe_name)
 
                 if not (dest / exe_name).is_file():
-                    raise RuntimeError(f"{exe_name} not found after extraction.")
+                    raise RuntimeError(self.tr("{0} not found after extraction.").format(exe_name))
                 self._exe = dest / exe_name
 
                 self._log(f"{name} Wizard: extracted {file_count} file(s).")
                 safe_emit(self._dl_status_sig,
-                    f"Downloaded and extracted {tag}.", ok_text())
+                    self.tr("Downloaded and extracted {0}.").format(tag), ok_text())
                 safe_emit(self._dl_done_sig, True)
             except Exception as exc:
-                safe_emit(self._dl_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._dl_status_sig, self.tr("Error: {0}").format(exc), err_text())
                 self._log(f"{name} Wizard: download error: {exc}")
                 safe_emit(self._dl_done_sig, False)
 
@@ -329,7 +329,7 @@ class DynDOLODView(QWidget):
     def _browse_archive(self):
         from Utils.portal_filechooser import pick_file
         # Portal callback fires on a WORKER thread — marshal via Signal.
-        pick_file("Select the DynDOLOD archive", lambda *a: safe_emit(self._picked_sig, *a))
+        pick_file(self.tr("Select the DynDOLOD archive"), lambda *a: safe_emit(self._picked_sig, *a))
 
     def _on_picked(self, path):
         if path and Path(path).is_file():
@@ -356,11 +356,11 @@ class DynDOLODView(QWidget):
             from Utils.xedit_tools import applications_dir, flatten_subdirs
             try:
                 if archive is None or not archive.is_file():
-                    raise RuntimeError("Archive not found.")
+                    raise RuntimeError(self.tr("Archive not found."))
                 dest = applications_dir(game, app_dir)
                 dest.mkdir(parents=True, exist_ok=True)
 
-                safe_emit(self._extract_status_sig, f"Extracting {archive.name}…", "")
+                safe_emit(self._extract_status_sig, self.tr("Extracting {0}…").format(archive.name), "")
                 self._log(f"{name} Wizard: extracting {archive.name} → {dest}")
 
                 paths = extract_archive(archive, dest)
@@ -372,15 +372,15 @@ class DynDOLODView(QWidget):
                 exe = dest / exe_name
                 if not exe.is_file():
                     raise RuntimeError(
-                        f"{exe_name} not found after extraction.\n"
-                        f"Check that the archive contains {exe_name}.")
+                        self.tr("{0} not found after extraction.\n"
+                        "Check that the archive contains {0}.").format(exe_name))
                 self._exe = exe
 
                 safe_emit(self._extract_status_sig,
-                    f"Extracted {file_count} file(s).", ok_text())
+                    self.tr("Extracted {0} file(s).").format(file_count), ok_text())
                 safe_emit(self._extract_done_sig, True)
             except Exception as exc:
-                safe_emit(self._extract_status_sig, f"Error: {exc}", err_text())
+                safe_emit(self._extract_status_sig, self.tr("Error: {0}").format(exc), err_text())
                 self._log(f"{name} Wizard: extract error: {exc}")
                 safe_emit(self._extract_done_sig, False)
 
@@ -473,7 +473,7 @@ class DynDOLODView(QWidget):
             self._game, self._exe, self._exe_name, self._name,
             on_continue=self._on_proton_chosen,
             log_fn=self._log,
-            title="Step 5: Choose Proton Version",
+            title=self.tr("Step 5: Choose Proton Version"),
         ))
 
     def _on_proton_chosen(self, proton_name: str, prefix_mode: str):
@@ -518,14 +518,14 @@ class DynDOLODView(QWidget):
                     exe, game, proton_name, prefix_mode, log_fn=_wlog)
                 if result is None:
                     safe_emit(self._run_status_sig,
-                        f"Could not find Proton '{proton_name}' — "
-                        "check that it is installed in Steam.", err_text())
+                        self.tr("Could not find Proton '{0}' — "
+                        "check that it is installed in Steam.").format(proton_name), err_text())
                     return
                 proton_script, compat_data, env = result
 
                 game_path = game.get_game_path()
                 if game_path is None:
-                    safe_emit(self._run_status_sig, "Game path not configured.", err_text())
+                    safe_emit(self._run_status_sig, self.tr("Game path not configured."), err_text())
                     return
 
                 staging = game.get_effective_mod_staging_path()
@@ -553,10 +553,10 @@ class DynDOLODView(QWidget):
                 shutdown_prefix_wineserver(proton_script, compat_data,
                                            log_fn=_wlog)
                 self._log(f"{name} Wizard: {exe.name} closed.")
-                safe_emit(self._run_status_sig, f"{name} finished.", ok_text())
+                safe_emit(self._run_status_sig, self.tr("{0} finished.").format(name), ok_text())
                 safe_emit(self._run_finished_sig)
             except Exception as exc:
-                safe_emit(self._run_status_sig, f"Launch error: {exc}", err_text())
+                safe_emit(self._run_status_sig, self.tr("Launch error: {0}").format(exc), err_text())
                 self._log(f"{name} Wizard: launch error: {exc}")
 
         threading.Thread(target=worker, daemon=True,

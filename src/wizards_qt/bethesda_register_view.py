@@ -35,7 +35,7 @@ class RegisterGamePathView(WizardViewBase):
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  **_extra):
         super().__init__(game, log_fn, on_close, ctx,
-                         title=f"Register Game Path — {game.name}")
+                         title=self.tr("Register Game Path — {0}").format(game.name))
 
         self._log_sig.connect(self._guard(self._append_box))
         self._finish_sig.connect(self._guard(self._on_finished))
@@ -103,14 +103,14 @@ class RegisterGamePathView(WizardViewBase):
         game = self._game
         registry_name = getattr(game, "synthesis_registry_name", None)
         if not registry_name:
-            self._log_line("This game has no Bethesda registry name; nothing to do.")
+            self._log_line(self.tr("This game has no Bethesda registry name; nothing to do."))
             safe_emit(self._finish_sig, False)
             return
 
         game_path = game.get_game_path()
         prefix_path = game.get_prefix_path()
         if game_path is None or prefix_path is None or not prefix_path.is_dir():
-            self._log_line("Game path or Proton prefix not available.")
+            self._log_line(self.tr("Game path or Proton prefix not available."))
             safe_emit(self._finish_sig, False)
             return
 
@@ -123,8 +123,8 @@ class RegisterGamePathView(WizardViewBase):
         env["WINEDEBUG"] = "-all"
         compat_data = Path(env["STEAM_COMPAT_DATA_PATH"])
 
-        self._log_line(f"Prefix: {compat_data}")
-        self._log_line(f"Proton: {proton_script.parent.name}")
+        self._log_line(self.tr("Prefix: {0}").format(compat_data))
+        self._log_line(self.tr("Proton: {0}").format(proton_script.parent.name))
 
         # Drop the idempotency marker so a manual run always re-writes the keys.
         from Utils.bethesda_registry import _marker_path, register_bethesda_game_path
@@ -143,11 +143,11 @@ class RegisterGamePathView(WizardViewBase):
                 log_fn=self._log_line,
             )
         except Exception as exc:
-            self._log_line(f"Registry write raised: {exc}")
+            self._log_line(self.tr("Registry write raised: {0}").format(exc))
             ok = False
 
         if ok:
-            self._log_line("Registry keys written (64-bit + Wow6432Node views).")
+            self._log_line(self.tr("Registry keys written (64-bit + Wow6432Node views)."))
         else:
-            self._log_line("Registry write finished with errors — see log above.")
+            self._log_line(self.tr("Registry write finished with errors — see log above."))
         safe_emit(self._finish_sig, ok)
