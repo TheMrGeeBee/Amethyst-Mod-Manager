@@ -531,6 +531,12 @@ class SettingsView(QWidget):
             uc.load_keep_fomod_archives, uc.save_keep_fomod_archives,
             help=self.tr("Mods installed via a FOMOD installer keep their archive even "
                  "when 'Clear archive after install' is on."))
+        self._checkbox(
+            g, self.tr("Install new mods disabled"),
+            uc.load_install_mods_disabled, uc.save_install_mods_disabled,
+            help=self.tr("Newly installed mods start disabled in the modlist instead "
+                 "of enabled. Applies to every install path except collection "
+                 "installs."))
 
         # Collection settings — all persisted together via save_collection_settings.
         self._slider(

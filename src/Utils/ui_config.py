@@ -1267,6 +1267,35 @@ def save_clear_archive_after_install(value: bool) -> None:
         parser.write(f)
 
 
+def load_install_mods_disabled() -> bool:
+    """Return the install_mods_disabled setting (default False). When True,
+    newly installed mods land in the modlist disabled instead of enabled.
+    Applies to every install path except collection installs."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return False
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.getboolean(_FILEMAP_SECTION, "install_mods_disabled", fallback=False)
+    except Exception:
+        return False
+
+
+def save_install_mods_disabled(value: bool) -> None:
+    """Persist the install_mods_disabled setting to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _FILEMAP_SECTION not in parser:
+        parser[_FILEMAP_SECTION] = {}
+    parser[_FILEMAP_SECTION]["install_mods_disabled"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 def load_keep_fomod_archives() -> bool:
     """Return the keep_fomod_archives setting (default False).
 

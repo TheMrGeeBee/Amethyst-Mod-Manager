@@ -124,6 +124,11 @@ def detect_framework_exes(game, framework_states: "dict | None" = None) -> list[
     Skips entries the user hid from the dropdown (hide_auto_exe) and the
     game's own resolved launch exe — a present preferred_launch_exe (OBSE64)
     already IS the Play entry, so listing it again would duplicate it.
+
+    Only Steam installs get these auto entries: the game path (profile-aware
+    — per-profile pinned paths are already loaded into the game) must sit in
+    a Steam library. Non-Steam installs (Lutris/Heroic/GOG) can still run a
+    script extender by adding it as a custom exe.
     """
     if game is None:
         return []
@@ -135,6 +140,8 @@ def detect_framework_exes(game, framework_states: "dict | None" = None) -> list[
         return []
     game_path = game.get_game_path() if hasattr(game, "get_game_path") else None
     if game_path is None:
+        return []
+    if not game_is_steam_install(game):
         return []
     from Utils.framework_detect import STATE_NOT_DEPLOYED, resolve_file_ci
     hidden = load_hidden_auto_exes(game)

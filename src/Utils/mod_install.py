@@ -2457,6 +2457,15 @@ def _update_indexes(game, profile_dir: Path, mod_name: str, dest_root: Path,
 
 def _add_to_modlist(profile_dir: Path, mod_name: str, log_fn: LogFn,
                     preserve_position: bool = False) -> None:
+    # The user-configurable default state for a freshly installed mod (Downloads
+    # tab option). Collection installs never route through here, so they are
+    # unaffected. Only applies to brand-new entries — reinstalls/updates keep
+    # their existing state via preserve_existing_state below.
+    try:
+        from Utils.ui_config import load_install_mods_disabled
+        default_enabled = not load_install_mods_disabled()
+    except Exception:
+        default_enabled = True
     try:
         if preserve_position:
             # Replacing an existing mod — keep its load-order position and its
@@ -2464,14 +2473,15 @@ def _add_to_modlist(profile_dir: Path, mod_name: str, log_fn: LogFn,
             # silently re-enable a disabled mod).
             from Utils.modlist import ensure_mod_preserving_position
             ensure_mod_preserving_position(
-                profile_dir / "modlist.txt", mod_name, enabled=True,
+                profile_dir / "modlist.txt", mod_name, enabled=default_enabled,
                 preserve_existing_state=True)
         else:
-            # New mods land enabled at the top; but if this name already exists
-            # (reinstall without position-preservation) keep its current state.
+            # New mods land at the top with the configured default state; but if
+            # this name already exists (reinstall without position-preservation)
+            # keep its current state.
             from Utils.modlist import prepend_mod
-            prepend_mod(profile_dir / "modlist.txt", mod_name, enabled=True,
-                        preserve_existing_state=True)
+            prepend_mod(profile_dir / "modlist.txt", mod_name,
+                        enabled=default_enabled, preserve_existing_state=True)
     except Exception as exc:
         log_fn(f"modlist update failed ({exc}).")
 

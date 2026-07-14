@@ -14,8 +14,10 @@
 - Added a custom date range selector in the Nexus browser
 - Added a live preview panel in the theme editor
 ### Changes
+- Exes run against a non-Steam Proton prefix (Lutris, Heroic or a custom prefix) now launch through umu-run (like Lutris and Heroic themselves) instead of proton run: the launch no longer registers with Steam or requires owning the game there, and audio works (runs inside the Steam Linux Runtime)
 - A mods missing requirements/optional requirements are now flagged as soon as they are installed
 - The Nexus browser and change version menu are now improved for free users, Pressing install will open the mod page as well as detect when the download is complete and install the archive automatically
+- When a tab is closed it will now go to the last used tab instead of the last tab opened
 ### Bug Fixes
 - Fixed alphabetical sorting when the priority column is reversed
 - Fixed overflow errors when installing via the NXM handler
