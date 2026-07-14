@@ -61,18 +61,27 @@ def _noop_log(_msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Custom exe registry — <staging>.parent/Applications/custom_exes.json
+# Custom exe registry — per profile, stored in profile_state.json
+#
+# The list of manually-added / staging-scanned exes is scoped to the active
+# profile (via the ``custom_exes`` key in profile_state.json) so a tool added
+# under one profile doesn't leak into others. Existing users' entries in the
+# legacy shared Applications/custom_exes.json are migrated on first load.
 # ---------------------------------------------------------------------------
 
-def custom_exes_path(game) -> Path | None:
+def _active_profile_dir(game) -> Path | None:
+    return getattr(game, "_active_profile_dir", None) if game is not None else None
+
+
+def _legacy_custom_exes_path(game) -> Path | None:
+    """Old shared location: <staging>.parent/Applications/custom_exes.json."""
     if game is None or not hasattr(game, "get_mod_staging_path"):
         return None
     return game.get_mod_staging_path().parent / "Applications" / _CUSTOM_EXES_FILE
 
 
-def load_custom_exes(game) -> list[Path]:
-    """Return the saved custom exe Paths (entries whose file still exists)."""
-    p = custom_exes_path(game)
+def _read_legacy_exes(game) -> list[Path]:
+    p = _legacy_custom_exes_path(game)
     if p is None or not p.is_file():
         return []
     try:
@@ -82,12 +91,34 @@ def load_custom_exes(game) -> list[Path]:
         return []
 
 
+def load_custom_exes(game) -> list[Path]:
+    """Return this profile's saved custom exe Paths (entries that still exist).
+
+    Reads the ``custom_exes`` key from the active profile's profile_state.json.
+    When that key is absent, migrates any entries from the legacy shared
+    Applications/custom_exes.json so upgrading users keep their exes on the
+    profile that's active at upgrade time.
+    """
+    pdir = _active_profile_dir(game)
+    if pdir is None:
+        # No active profile (edge case): read the legacy shared list read-only.
+        return _read_legacy_exes(game)
+    from Utils.profile_state import read_custom_exes, read_profile_state
+    raw = read_custom_exes(pdir)
+    if not raw and "custom_exes" not in read_profile_state(pdir):
+        migrated = _read_legacy_exes(game)
+        if migrated:
+            save_custom_exes(game, migrated)
+            return migrated
+    return [Path(s) for s in raw if Path(s).is_file()]
+
+
 def save_custom_exes(game, paths: list[Path]) -> None:
-    p = custom_exes_path(game)
-    if p is None:
+    pdir = _active_profile_dir(game)
+    if pdir is None:
         return
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps([str(x) for x in paths], indent=2), encoding="utf-8")
+    from Utils.profile_state import write_custom_exes
+    write_custom_exes(pdir, [str(x) for x in paths])
 
 
 def add_custom_exe(game, path: Path) -> None:
@@ -102,6 +133,68 @@ def remove_custom_exe(game, path: Path) -> None:
     remaining = [p for p in existing if p != path]
     if len(remaining) != len(existing):
         save_custom_exes(game, remaining)
+
+
+# Launchable file types picked up by the staging scan.
+STAGING_EXE_SUFFIXES = (".exe", ".bat", ".jar")
+
+# Directory names that mark a wine/Proton prefix. The Applications/ folder holds
+# some tools alongside their own prefixes, which are full of Windows system exes
+# (apphost.exe, arp.exe, …) — skip any path under one so the picker only shows
+# the tools themselves, not their prefix internals.
+_PREFIX_DIR_NAMES = frozenset({"pfx", "drive_c"})
+
+
+def scan_staging_exes(game) -> list[Path]:
+    """Return launchable files found under the game's staging area.
+
+    Scans both the profile ``mods/`` folder (installed mod tools) and the
+    sibling ``Applications/`` folder (wizard tools like xEdit / BodySlide /
+    Script Merger) recursively for ``.exe`` / ``.bat`` / ``.jar`` files, while
+    pruning wine/Proton prefix trees (``pfx`` / ``drive_c``) that would
+    otherwise flood the list with Windows system exes. Results are
+    de-duplicated by resolved path and sorted by name for a stable, searchable
+    picker list. Returns ``[]`` when the game has no staging path or the
+    folders can't be read.
+    """
+    if game is None or not hasattr(game, "get_mod_staging_path"):
+        return []
+    # Honour profile-specific mods: the active profile may keep its mods under
+    # <profile>/mods/ instead of the shared mods/ folder. Applications/ always
+    # lives next to profiles/ (shared), so anchor it off the shared staging path.
+    shared = game.get_mod_staging_path()
+    if hasattr(game, "get_effective_mod_staging_path"):
+        active_mods = game.get_effective_mod_staging_path()
+    else:
+        active_mods = shared
+    roots = [active_mods, shared, shared.parent / "Applications"]
+    seen: set[Path] = set()
+    found: list[Path] = []
+    for root in roots:
+        try:
+            if not root.is_dir():
+                continue
+            for p in root.rglob("*"):
+                if p.suffix.lower() not in STAGING_EXE_SUFFIXES:
+                    continue
+                # Skip anything inside a wine/Proton prefix.
+                rel_parts = {part.lower() for part in p.relative_to(root).parts}
+                if rel_parts & _PREFIX_DIR_NAMES:
+                    continue
+                if not p.is_file():
+                    continue
+                try:
+                    key = p.resolve()
+                except OSError:
+                    key = p
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(p)
+        except OSError:
+            continue
+    found.sort(key=lambda p: (p.name.lower(), str(p).lower()))
+    return found
 
 
 def detect_framework_exes(game, framework_states: "dict | None" = None) -> list[Path]:

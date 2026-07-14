@@ -239,10 +239,48 @@ def _create_profile(
     else:
         profiles_root = get_profiles_dir() / game_name
     profile_dir = profiles_root / "profiles" / profile_name
+    default_dir = profiles_root / "profiles" / "default"
+
+    if not profile_specific_mods and default_dir.is_dir():
+        # Non-specific profiles share the mods folder, so a brand-new one should
+        # be a 1:1 clone of default — modlist, plugins, loadorder, loot.json,
+        # userlist.yaml, fomod selections, ini files, profile_state.json all
+        # carry over so it deploys identically out of the gate. Exclude backups/
+        # (default's deploy/restore snapshots — profile-specific and large;
+        # a fresh profile has nothing to restore). If profile_dir already exists
+        # (re-create), fall through to the touch()-based init below.
+        if not profile_dir.exists():
+            def _skip_backups(src, names):
+                # Only skip the top-level backups/ dir, not any nested match.
+                if Path(src) == default_dir:
+                    return {"backups"} & set(names)
+                return set()
+            shutil.copytree(default_dir, profile_dir, copy_function=shutil.copy2,
+                            ignore=_skip_backups, dirs_exist_ok=False)
+            # A clone is never the (locked, un-removable) original default, and
+            # must not inherit its lock — scrub those flags from the copied
+            # profile_settings while keeping the rest (e.g. collection_url).
+            settings = read_profile_settings(profile_dir, None)
+            for k in ("original_default", "profile_locked", "profile_specific_mods"):
+                settings.pop(k, None)
+            write_profile_settings(profile_dir, settings)
+            return profile_dir
+
     profile_dir.mkdir(parents=True, exist_ok=True)
     plugins = profile_dir / "plugins.txt"
     if not plugins.exists():
-        plugins.touch()
+        if profile_specific_mods:
+            # Profile-specific mods start empty, so its plugin list must too —
+            # the shared default plugins reference mods this profile won't have.
+            plugins.touch()
+        else:
+            # Fallback (no default folder to clone): inherit at least the plugin
+            # list so the profile isn't blank.
+            default_plugins = default_dir / "plugins.txt"
+            if default_plugins.exists():
+                shutil.copy2(default_plugins, plugins)
+            else:
+                plugins.touch()
     modlist = profile_dir / "modlist.txt"
     if not modlist.exists():
         if profile_specific_mods:
@@ -250,7 +288,7 @@ def _create_profile(
             # default modlist which references the shared mods directory.
             modlist.touch()
         else:
-            default_modlist = profiles_root / "profiles" / "default" / "modlist.txt"
+            default_modlist = default_dir / "modlist.txt"
             if default_modlist.exists():
                 shutil.copy2(default_modlist, modlist)
             else:

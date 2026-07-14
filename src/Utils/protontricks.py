@@ -614,6 +614,14 @@ def install_vcredist(
     _log = _safe_log(log_fn)
     from Utils.config_paths import get_vcredist_cache_path
 
+    # Flatpak without the Compat.i386 extension: wine would die with the
+    # cryptic "/lib/ld-linux.so.2: could not open" — fail with the fix instead.
+    from Utils.flatpak_i386 import preflight_i386_error
+    i386_err = preflight_i386_error(proton_script)
+    if i386_err:
+        _log(f"VC++ Redistributable: {i386_err}")
+        return False
+
     cache_path = get_vcredist_cache_path()
     try:
         if not cache_path.is_file():

@@ -41,6 +41,12 @@ curl -sSL https://raw.githubusercontent.com/ChrisDKN/Amethyst-Mod-Manager/main/s
 ### Flatpak
 Download the .flatpak from [releases](https://github.com/ChrisDKN/Amethyst-Mod-Manager/releases) and install with your package manager (I use warehouse). Currently does not include an auto update feature.
 
+Installing from a bundle skips the 32-bit compat extensions that running Windows tools (Proton/wine) requires - The app installs them automatically on first launch, or you can add them yourself:
+
+```bash
+flatpak install --user flathub org.freedesktop.Platform.Compat.i386//24.08 org.freedesktop.Platform.GL32.default//24.08
+```
+
 ### AUR
 <a href='https://aur.archlinux.org/packages/amethyst-mod-manager'>
 	<img width='240' alt='Get on AUR' src='https://upload.wikimedia.org/wikipedia/commons/e/e8/Archlinux-logo-standard-version.png'/>

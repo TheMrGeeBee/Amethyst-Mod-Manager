@@ -649,8 +649,8 @@ def check_for_updates(
     _log(f"Update check complete: {len(updates)} update(s) available.")
 
     # -----------------------------------------------------------------------
-    # 5. Requirements check — uses the same gql_info batch data, no extra
-    #    API calls needed.
+    # 5. Requirements check — mod-level from the same gql_info batch data;
+    #    file-level (v3) via the api client in one extra batched call.
     # -----------------------------------------------------------------------
     _log("Checking mod requirements...")
     missing_reqs = check_requirements_from_gql(
@@ -661,6 +661,7 @@ def check_for_updates(
         progress_cb=_log,
         save_results=save_results,
         enabled_only=enabled_only,
+        api=api,
     )
 
     return updates, missing_reqs

@@ -2389,6 +2389,7 @@ def _check_nexus_flags_after_install(game, mod_name: str, log_fn: LogFn) -> None
             progress_cb=log_fn,
             save_results=True,
             enabled_only={mod_name},
+            api=api,
         )
 
         # Endorsement: viewerEndorsed is None when unauthenticated/unknown — only

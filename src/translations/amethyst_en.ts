@@ -3760,6 +3760,26 @@ It may already be modified. Verify game files in Steam/Heroic to get a clean exe
         <translation>Plugins file name</translation>
     </message>
     <message>
+        <source>{0} and {1} more</source>
+        <translation>{0} and {1} more</translation>
+    </message>
+    <message>
+        <source>A game handler failed to load ({0}). Affected games are hidden, but your mods are safe — see the log.</source>
+        <translation>A game handler failed to load ({0}). Affected games are hidden, but your mods are safe — see the log.</translation>
+    </message>
+    <message>
+        <source>Installing 32-bit support (needed to run Windows tools) …</source>
+        <translation>Installing 32-bit support (needed to run Windows tools) …</translation>
+    </message>
+    <message>
+        <source>32-bit support installed — restart the app before running Windows tools.</source>
+        <translation>32-bit support installed — restart the app before running Windows tools.</translation>
+    </message>
+    <message>
+        <source>Could not install 32-bit support automatically — see the log for the manual command.</source>
+        <translation>Could not install 32-bit support automatically — see the log for the manual command.</translation>
+    </message>
+    <message>
         <source>Install-name Rules</source>
         <translation>Install-name Rules</translation>
     </message>
@@ -4452,12 +4472,20 @@ Download and install them manually — the links are in the collection page's "O
         <translation>▶  Run</translation>
     </message>
     <message>
+        <source>No executables found in staging.</source>
+        <translation>No executables found in staging.</translation>
+    </message>
+    <message>
         <source>Executable not found: {0}</source>
         <translation>Executable not found: {0}</translation>
     </message>
     <message>
         <source>Configure: {0}</source>
         <translation>Configure: {0}</translation>
+    </message>
+    <message>
+        <source>Could not build launch command: {0}</source>
+        <translation>Could not build launch command: {0}</translation>
     </message>
     <message>
         <source>'{0}' does not support deployment.</source>
@@ -4852,6 +4880,10 @@ Download and install them manually — the links are in the collection page's "O
         <translation>{0} overlaps {1} plugin(s) — highlighted in list</translation>
     </message>
     <message>
+        <source>+ Add exe from staging…</source>
+        <translation>+ Add exe from staging…</translation>
+    </message>
+    <message>
         <source>Plugins</source>
         <translation>Plugins</translation>
     </message>
@@ -5072,6 +5104,66 @@ Deploy anyway?</translation>
     <message>
         <source>Endorsing Amethyst Mod Manager…</source>
         <translation>Endorsing Amethyst Mod Manager…</translation>
+    </message>
+</context>
+<context>
+    <name>MewgenicsDeployChoiceOverlay</name>
+    <message>
+        <source>Mewgenics — Deploy method</source>
+        <translation>Mewgenics — Deploy method</translation>
+    </message>
+    <message>
+        <source>Steam launch command  (Safer / Recommended)</source>
+        <translation>Steam launch command  (Safer / Recommended)</translation>
+    </message>
+    <message>
+        <source>Generates a launch script for Steam. Set it once in Launch Options (no repack).</source>
+        <translation>Generates a launch script for Steam. Set it once in Launch Options (no repack).</translation>
+    </message>
+    <message>
+        <source>Repack gpak  (No command needed / not recommended)</source>
+        <translation>Repack gpak  (No command needed / not recommended)</translation>
+    </message>
+    <message>
+        <source>Unpack resources.gpak, merge mods, repack.</source>
+        <translation>Unpack resources.gpak, merge mods, repack.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>MewgenicsLaunchCommandOverlay</name>
+    <message>
+        <source>Mewgenics — Steam / Lutris launch command</source>
+        <translation>Mewgenics — Steam / Lutris launch command</translation>
+    </message>
+    <message>
+        <source>Paste this into Steam Launch Options (Properties → General):</source>
+        <translation>Paste this into Steam Launch Options (Properties → General):</translation>
+    </message>
+    <message>
+        <source>Script written to:
+{0}
+
+Update this whenever you change your mod list.</source>
+        <translation>Script written to:
+{0}
+
+Update this whenever you change your mod list.</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Copy to clipboard</source>
+        <translation>Copy to clipboard</translation>
+    </message>
+    <message>
+        <source>Copied ✓</source>
+        <translation>Copied ✓</translation>
     </message>
 </context>
 <context>
@@ -5944,6 +6036,30 @@ or an encrypted file when no keyring is available).</translation>
 </context>
 <context>
     <name>NexusFileChooser</name>
+    <message>
+        <source>Main</source>
+        <translation>Main</translation>
+    </message>
+    <message>
+        <source>Optional</source>
+        <translation>Optional</translation>
+    </message>
+    <message>
+        <source>Misc</source>
+        <translation>Misc</translation>
+    </message>
+    <message>
+        <source>Main files</source>
+        <translation>Main files</translation>
+    </message>
+    <message>
+        <source>Optional files</source>
+        <translation>Optional files</translation>
+    </message>
+    <message>
+        <source>Miscellaneous files</source>
+        <translation>Miscellaneous files</translation>
+    </message>
     <message>
         <source>'{0}' has multiple files.</source>
         <translation>'{0}' has multiple files.</translation>
@@ -8032,6 +8148,14 @@ Merge your conflicts, then close it and click Done.</translation>
         <translation>Mods installed via a FOMOD installer keep their archive even when 'Clear archive after install' is on.</translation>
     </message>
     <message>
+        <source>Install new mods disabled</source>
+        <translation>Install new mods disabled</translation>
+    </message>
+    <message>
+        <source>Newly installed mods start disabled in the modlist instead of enabled. Applies to every install path except collection installs.</source>
+        <translation>Newly installed mods start disabled in the modlist instead of enabled. Applies to every install path except collection installs.</translation>
+    </message>
+    <message>
         <source>Max concurrent downloads</source>
         <translation>Max concurrent downloads</translation>
     </message>
@@ -8468,6 +8592,29 @@ Click Done to close.</translation>
     <message>
         <source>Starting Amethyst…</source>
         <translation>Starting Amethyst…</translation>
+    </message>
+</context>
+<context>
+    <name>StagingExePickerOverlay</name>
+    <message>
+        <source>Add executable from staging</source>
+        <translation>Add executable from staging</translation>
+    </message>
+    <message>
+        <source>Check the executables to add to the Run menu. Tools with a wizard open their wizard when run.</source>
+        <translation>Check the executables to add to the Run menu. Tools with a wizard open their wizard when run.</translation>
+    </message>
+    <message>
+        <source>Search…</source>
+        <translation>Search…</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Add</translation>
     </message>
 </context>
 <context>

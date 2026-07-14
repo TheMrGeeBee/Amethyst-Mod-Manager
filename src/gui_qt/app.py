@@ -299,6 +299,8 @@ class MainWindow(QMainWindow):
     _handlers_synced = Signal()
     # Language (.qm) background sync worker → UI thread (translations updated).
     _languages_synced = Signal()
+    # Flatpak 32-bit extension repair worker → UI thread (install succeeded?).
+    _i386_repair_done = Signal(bool)
     # NXM link received from a second instance via the IPC socket (fires on a
     # worker thread → marshal to the UI thread). Also used for --nxm at startup.
     _nxm_received = Signal(str)
@@ -578,6 +580,14 @@ class MainWindow(QMainWindow):
         # ~/.config and Profiles/. Deferred so the log panel is live first.
         QTimer.singleShot(0, self._warn_handler_load_failures)
 
+        # Flatpak self-heal: bundle installs (release zip / Warehouse) don't
+        # pull the Compat.i386 extension the manifest declares, leaving
+        # /lib/ld-linux.so.2 dangling — every Proton/wine run in the sandbox
+        # then fails with "could not open". Install the refs in the background.
+        self._i386_repair_done.connect(self._on_i386_repair_done)
+        self._i386_toast = None
+        QTimer.singleShot(1000, self._check_flatpak_i386)
+
         # Splash watchdog: the splash is normally dismissed by the first
         # _on_conflicts_ready, but a game with no profile / empty modlist may
         # never trigger a conflict rebuild. Close it unconditionally after a
@@ -627,6 +637,56 @@ class MainWindow(QMainWindow):
             state="warning",
             sticky=True,
         )
+
+    def _check_flatpak_i386(self):
+        """Flatpak startup self-heal: install the 32-bit compat extensions when
+        the sandbox lacks them (bundle installs skip the manifest's related
+        refs). Without them every in-sandbox Proton/wine run — dtkit-patch,
+        vcredist, wizard exes — dies with "/lib/ld-linux.so.2: could not open".
+        """
+        from Utils.flatpak_i386 import i386_support_missing
+        if not i386_support_missing():
+            return
+        self._append_log("[flatpak] 32-bit support missing (Compat.i386 "
+                         "extension not installed) — installing from Flathub …")
+        self._i386_toast = self._notify(
+            self.tr("Installing 32-bit support (needed to run Windows tools) …"),
+            sticky=True,
+        )
+
+        def _run():
+            from gui_qt.safe_emit import safe_emit
+            from Utils.flatpak_i386 import install_i386_extensions
+            from Utils.app_log import app_log
+            ok = install_i386_extensions(log_fn=lambda m: app_log(f"[flatpak] {m}"))
+            safe_emit(self._i386_repair_done, ok)
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_i386_repair_done(self, ok: bool):
+        """UI thread: 32-bit extension install finished — swap the toast."""
+        toast, self._i386_toast = self._i386_toast, None
+        if toast is not None:
+            try:
+                toast.dismiss()
+            except Exception:
+                pass
+        if ok:
+            # Extensions mount when the sandbox is (re)created, not live.
+            self._notify(
+                self.tr("32-bit support installed — restart the app before "
+                        "running Windows tools."),
+                state="success", sticky=True,
+            )
+        else:
+            from Utils.flatpak_i386 import MANUAL_INSTALL_CMD
+            self._append_log(f"[flatpak] install manually: {MANUAL_INSTALL_CMD}")
+            self._notify(
+                self.tr("Could not install 32-bit support automatically — "
+                        "see the log for the manual command."),
+                state="warning", sticky=True,
+            )
 
     def _populate_selectors(self):
         """Fill the game/profile selectors from the current GameState."""
@@ -1822,6 +1882,22 @@ class MainWindow(QMainWindow):
             with perftrace.span("switch.refresh_play_selector"):
                 self._refresh_play_selector()
             self._clear_search_boxes()
+            # Non-specific profiles share the mods folder: a mod added while
+            # another profile was active is on disk but absent from this
+            # profile's modlist.txt. Sync the file against the folder so the
+            # new mod shows up on switch without a manual Refresh. This is
+            # cheap (one iterdir + modlist.txt diff) and does NOT rescan the
+            # shared index/filemap, which is unchanged across the switch.
+            with perftrace.span("switch.sync_modlist_folder"):
+                try:
+                    from Utils.modlist import sync_modlist_with_mods_folder
+                    ml = self._gs.modlist_path()
+                    staging = self._gs.staging_dir()
+                    if ml is not None and staging is not None:
+                        sync_modlist_with_mods_folder(ml, staging)
+                except Exception as exc:
+                    print(f"[gui_qt] profile-switch modlist sync failed: {exc}",
+                          flush=True)
             with perftrace.span("switch.reload_modlist(sync)"):
                 self._reload_modlist()
             with perftrace.span("switch.reload_plugins(kickoff)"):
@@ -6072,6 +6148,45 @@ class MainWindow(QMainWindow):
             self._play_exe_selector.set_current(path.name)
             self._on_play_exe_selected(path.name)
 
+    def _on_add_exe_from_staging(self):
+        game = self._gs.game
+        if game is None or not hasattr(game, "get_mod_staging_path"):
+            self._notify(self.tr("No game selected."), "warning")
+            return
+        from Utils.exe_launch import scan_staging_exes
+        exes = scan_staging_exes(game)
+        if not exes:
+            self._notify(self.tr("No executables found in staging."), "info")
+            return
+        # Label each exe with a dim relative-path hint so duplicate basenames
+        # from different mods are distinguishable in the picker.
+        root = game.get_mod_staging_path().parent
+        items = []
+        for p in exes:
+            try:
+                hint = str(p.parent.relative_to(root))
+            except ValueError:
+                hint = str(p.parent)
+            items.append((f"{p.name}  —  {hint}", p))
+        from gui_qt.staging_exe_picker_overlay import StagingExePickerOverlay
+        StagingExePickerOverlay.show_over(
+            self.centralWidget() or self, items,
+            on_done=self._on_staging_exes_picked)
+
+    def _on_staging_exes_picked(self, paths):
+        game = self._gs.game
+        if not paths or game is None:
+            return
+        from Utils.exe_launch import add_custom_exe
+        for path in paths:
+            add_custom_exe(game, path)
+        self._refresh_play_selector()
+        # Select the single added exe (mirror the custom-exe picker); leave the
+        # current selection alone when several were added at once.
+        if len(paths) == 1 and paths[0].name in self._play_exe_paths:
+            self._play_exe_selector.set_current(paths[0].name)
+            self._on_play_exe_selected(paths[0].name)
+
     def _on_play(self):
         game = self._gs.game
         if game is None or not game.is_configured():
@@ -6082,6 +6197,18 @@ class MainWindow(QMainWindow):
         label = self._play_exe_selector.current()
         exe_path = self._play_exe_paths.get(label)
         if exe_path is not None:
+            # If this exe belongs to a wizard tool (xEdit, BodySlide, Script
+            # Merger, …), open the wizard instead of a bare Proton launch — the
+            # wizard handles the install/deploy/prefix setup a raw launch skips.
+            # Only divert when a Qt view exists for the wizard; otherwise fall
+            # through and launch the exe normally.
+            from Utils.plugin_loader import wizard_tool_for_exe
+            tool = wizard_tool_for_exe(game, exe_path.name)
+            if tool is not None:
+                from wizards_qt import get_spec
+                if get_spec(tool.dialog_class_path) is not None:
+                    self._open_wizard_tool(tool)
+                    return
             # Custom exe → Proton in the game prefix (or per-exe override).
             is_auto = label in self._play_auto_exe_names
             can_deploy = hasattr(game, "deploy")
@@ -10482,15 +10609,18 @@ class MainWindow(QMainWindow):
         # splitter separator, so dragging the split resizes the dropdown while
         # Play + gear stay fixed at the right edge. Items = the game +
         # auto-detected framework launchers (installed script extenders) +
-        # manually added custom exes (no staging scan — wizard tools cover
-        # those).
+        # manually added custom exes, plus a staging scan for exes already
+        # installed under the profile (mod tools + wizard tools).
         self._play_exe_selector = SelectorButton(
             items=["—"],
             current="—",
             min_width=0,
             icon_px=28,   # bigger game/exe icon on the play-bar face + menu
             on_select=self._on_play_exe_selected,
-            actions=[(self.tr("+ Add custom EXE…"), self._on_add_custom_exe)],
+            actions=[
+                (self.tr("+ Add custom EXE…"), self._on_add_custom_exe),
+                (self.tr("+ Add exe from staging…"), self._on_add_exe_from_staging),
+            ],
         )
         self._play_exe_selector.setFixedHeight(self._BTN_H)
         self._play_exe_selector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

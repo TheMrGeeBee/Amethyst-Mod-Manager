@@ -43,6 +43,7 @@ from version import __version__
 
 API_BASE = "https://api.nexusmods.com/v1"
 GRAPHQL_BASE = "https://api.nexusmods.com/v2/graphql"
+V3_BASE = "https://api.nexusmods.com/v3"
 APP_NAME = "amethyst"
 APP_VERSION = __version__
 
@@ -194,6 +195,29 @@ class NexusModRequirement:
     url: str = ""
     is_external: bool = False  # True if it's an external (non-Nexus) requirement
     notes: str = ""  # Notes about the mod requirement (from GraphQL ModRequirement)
+
+
+@dataclass
+class FileDependencyCandidate:
+    """One materialized file-level dependency candidate row from the v3 API.
+
+    Rows sharing (source_version_id, definition_id) are OR-alternatives for a
+    single requirement of the source file; distinct definition_ids are
+    independent (AND) requirements. IDs are composite UIDs:
+    (numeric_game_id << 32) | game_scoped_id.
+    """
+    source_version_id: int   # version UID of the requiring (installed) file
+    definition_id: int       # groups OR-alternatives
+    mod_uid: int             # composite mod UID (row "mod_id")
+    mod_file_id: int         # update group/chain the candidate belongs to
+    version_id: int          # candidate version UID
+    position: float          # higher = newer within the chain
+    category: str            # "main", "update", "optional", "old_version", ...
+    mod_status: str          # "published", ...
+
+    @property
+    def game_scoped_mod_id(self) -> int:
+        return self.mod_uid & 0xFFFFFFFF
 
 
 @dataclass
@@ -591,6 +615,49 @@ class NexusAPI:
                 try:
                     body = resp.json()
                     msg = body.get("message", resp.reason)
+                except Exception:
+                    msg = resp.text[:300] or resp.reason
+                raise NexusAPIError(msg, resp.status_code, url)
+
+            return resp.json()
+
+        raise RateLimitError(url)
+
+    def _post_v3(self, path: str, body: dict,
+                 retries: int = _MAX_RETRIES) -> Any:
+        """Issue a POST request against the v3 REST API, with retry on 429."""
+        self._refresh_oauth_if_needed()
+        url = V3_BASE + path
+        for attempt in range(retries):
+            try:
+                resp = self._session.post(url, json=body,
+                                          timeout=self._timeout)
+            except requests.ConnectionError as exc:
+                raise NexusAPIError(
+                    f"Connection failed: {exc}", url=url) from exc
+            except requests.Timeout as exc:
+                raise NexusAPIError(
+                    f"Request timed out after {self._timeout}s",
+                    url=url) from exc
+
+            self._update_rate_limits(resp)
+            self._log_response("POST", path, resp)
+
+            if resp.status_code == 429:
+                wait = _RATE_LIMIT_BACKOFF * (attempt + 1)
+                app_log(f"Nexus 429 rate-limited, backing off {wait:.1f}s "
+                        f"(attempt {attempt + 1}/{retries})")
+                time.sleep(wait)
+                continue
+
+            if resp.status_code == 401:
+                raise NexusAPIError(
+                    "Invalid or expired API key", 401, url)
+
+            if not resp.ok:
+                try:
+                    body_json = resp.json()
+                    msg = body_json.get("message") or body_json.get("title") or resp.reason
                 except Exception:
                     msg = resp.text[:300] or resp.reason
                 raise NexusAPIError(msg, resp.status_code, url)
@@ -1368,6 +1435,77 @@ class NexusAPI:
         except Exception as exc:
             app_log(f"GraphQL requirements query error: {exc}")
             return []
+
+    # -- File-level requirements (REST v3, experimental) ---------------------
+
+    def get_file_dependency_candidates_batch(
+        self,
+        version_uids: list[int],
+    ) -> list[FileDependencyCandidate]:
+        """Fetch materialized file-level dependency candidates for a set of
+        installed file version UIDs ((game_id << 32) | file_id).
+
+        Returns one row per candidate version per dependency definition; see
+        FileDependencyCandidate for grouping semantics. Sources with no
+        file-level dependencies contribute no rows. Raises on HTTP failure
+        (the v3 API is experimental — callers must degrade gracefully).
+        """
+        out: list[FileDependencyCandidate] = []
+        _MAX_IDS = 5000
+        _PAGE_SIZE = 1000
+        _MAX_PAGES = 50  # safety cap against inconsistent total_count
+        for start in range(0, len(version_uids), _MAX_IDS):
+            chunk = version_uids[start:start + _MAX_IDS]
+            fetched = 0
+            for page in range(1, _MAX_PAGES + 1):
+                data = self._post_v3(
+                    "/mod-file-versions/dependencies/materialized/batch",
+                    {"version_ids": [str(u) for u in chunk],
+                     "page": page, "page_size": _PAGE_SIZE})
+                rows = (data.get("data") or {}).get("candidates") or []
+                total = int((data.get("meta") or {}).get("total_count") or 0)
+                for row in rows:
+                    try:
+                        out.append(FileDependencyCandidate(
+                            source_version_id=int(row.get("source_version_id") or 0),
+                            definition_id=int(row.get("definition_id") or 0),
+                            mod_uid=int(row.get("mod_id") or 0),
+                            mod_file_id=int(row.get("mod_file_id") or 0),
+                            version_id=int(row.get("version_id") or 0),
+                            position=float(row.get("position") or 0),
+                            category=str(row.get("category") or ""),
+                            mod_status=str(row.get("mod_status") or ""),
+                        ))
+                    except (ValueError, TypeError):
+                        continue
+                fetched += len(rows)
+                if not rows or fetched >= total:
+                    break
+        return out
+
+    def get_mods_batch(self, mod_uids: list[int]) -> dict[int, dict]:
+        """Resolve composite mod UIDs to display details via the v3 API.
+
+        Returns {mod_uid: mod_dict} where mod_dict has "name",
+        "game_scoped_id", "status", etc. Best-effort: failed chunks are
+        logged and skipped, unknown ids are simply absent.
+        """
+        out: dict[int, dict] = {}
+        _MAX_IDS = 2000
+        for start in range(0, len(mod_uids), _MAX_IDS):
+            chunk = mod_uids[start:start + _MAX_IDS]
+            try:
+                data = self._post_v3(
+                    "/mods/batch", {"mod_ids": [str(u) for u in chunk]})
+                for mod in (data.get("data") or {}).get("mods") or []:
+                    try:
+                        out[int(mod.get("id") or 0)] = mod
+                    except (ValueError, TypeError):
+                        continue
+            except Exception as exc:
+                app_log(f"v3 mods/batch chunk failed: {exc}")
+                continue
+        return out
 
     # -- NXM download helper (GraphQL v2) -----------------------------------
 

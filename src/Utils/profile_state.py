@@ -14,6 +14,7 @@ consolidates all small per-profile JSON/text state files:
   excluded_mod_files          dict[str, list[str]]  (mod_name -> [rel_key_lower, ...])
   profile_settings            dict  (profile_specific_mods, collection_url, original_default, …)
   ignored_missing_requirements list[str]
+  custom_exes                 list[str]  (per-profile Run-menu exe paths)
 
 Migration: when profile_state.json is missing but legacy per-key files exist,
 read_profile_state() merges them into a new profile_state.json and deletes those
@@ -480,6 +481,20 @@ def write_selected_exe(profile_dir: Path, label: str | None) -> None:
         if "selected_exe" in state:
             state.pop("selected_exe", None)
             write_profile_state(profile_dir, state)
+
+
+def read_custom_exes(profile_dir: Path) -> list[str]:
+    """Return the manually-added / staging-scanned exe path strings for this
+    profile (order preserved), or an empty list."""
+    raw = _read_key(profile_dir, None, "custom_exes")
+    if isinstance(raw, list):
+        return [s for s in raw if isinstance(s, str) and s]
+    return []
+
+
+def write_custom_exes(profile_dir: Path, paths: list[str]) -> None:
+    """Persist this profile's custom exe path strings. Pass [] to clear."""
+    _update_key(profile_dir, "custom_exes", list(paths))
 
 
 def read_collection_optional_skipped(profile_dir: Path) -> set[int]:

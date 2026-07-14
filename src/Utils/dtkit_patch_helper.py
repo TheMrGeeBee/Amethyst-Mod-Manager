@@ -91,6 +91,15 @@ def run_dtkit_patch_proton(
         )
         return False
 
+    # Flatpak without the Compat.i386 extension: wine would die with the
+    # cryptic "/lib/ld-linux.so.2: could not open" — fail with the fix instead.
+    from Utils.flatpak_i386 import preflight_i386_error
+    i386_err = preflight_i386_error(proton_script)
+    if i386_err:
+        _log(f"dtkit-patch: {i386_err}")
+        _emit(i386_err)
+        return False
+
     cmd = proton_run_command(proton_script, "runinprefix", str(exe), flag,
                              _BUNDLE_REL, env=env)
     _log(f"dtkit-patch: running {exe.name} {flag} {_BUNDLE_REL} via Proton (cwd={game_path})")
