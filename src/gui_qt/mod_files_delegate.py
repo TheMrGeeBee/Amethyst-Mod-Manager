@@ -50,6 +50,9 @@ class ModFilesDelegate(QStyledItemDelegate):
 
         if col == COL_NAME:
             self._paint_name(p, r, index, node)
+        elif node.meta:
+            # meta.ini deploys nothing → no Top Level / Disable checkboxes.
+            return
         elif col == COL_TOPLEVEL:
             self._paint_check(p, r, Qt.Checked if node.top_level else Qt.Unchecked,
                               greyed=node.synthetic)

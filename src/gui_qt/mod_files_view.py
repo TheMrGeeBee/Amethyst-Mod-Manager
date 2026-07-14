@@ -276,6 +276,7 @@ class ModFilesView(QWidget):
         add_nodes(root, tree_dict, "")
         self._add_strip_placeholders(root, by_path)
         self._recompute_top_level(by_path)
+        self._add_meta_ini_row(root, by_path)
         self._model.set_root(root, by_path)
 
         # Restore / set expand.
@@ -302,6 +303,32 @@ class ModFilesView(QWidget):
             node.synthetic = True
             root.children.insert(0, node)
             by_path[entry_l] = node
+
+    def _mod_root_dir(self) -> Path | None:
+        """The mod's own staging folder (where meta.ini lives). Distinct from a
+        file's deploy path — meta.ini sits at the folder root, not in the tree."""
+        return mflogic._mod_dir_for(self.game, self._mod_name) \
+            if self._mod_name is not None else None
+
+    def _add_meta_ini_row(self, root: _Node, by_path: dict):
+        """If the mod folder has a meta.ini (MO2 metadata, excluded from the
+        deploy scan), add a top row that opens it in the text editor. Hidden
+        while a filter/search is active so it doesn't pollute filtered results."""
+        if self._search or self._search_exts or self._inc_exts or self._exc_exts \
+                or self._filter_state.get("mf_win") == 1 \
+                or self._filter_state.get("mf_lose") == 1:
+            return
+        mod_dir = self._mod_root_dir()
+        if mod_dir is None:
+            return
+        meta_path = mod_dir / "meta.ini"
+        if not meta_path.is_file():
+            return
+        node = _Node("meta.ini", "meta.ini", is_dir=False, parent=root,
+                     rel_str="meta.ini")
+        node.meta = True
+        root.children.insert(0, node)
+        by_path["\x00meta.ini"] = node   # reserved key: never collides with a real path
 
     def _prune_orphan_strips(self, files: dict):
         """Remove strip entries that aren't a real ancestor folder of any file
