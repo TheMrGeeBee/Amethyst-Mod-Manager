@@ -27,6 +27,9 @@
 - Fixed an issue where script extender's scripts folder was sent to the root folder when installed via the wizard
 - Fixed starfield's archive invalidation being applied to the wrong ini file
 - Fixed manually installed plugins not appearing in the plugins panel
+- Fixed Nexus per-file naming
+- Fixed mods absent from a BG3 imported load order being disabled instead of keeping their current enabled state
+- The app will now warn if a game handler fails to load instead of silently dropping that game from the list
 
 ---
 
