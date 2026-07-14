@@ -13,6 +13,7 @@
 - Added a track right click option to mods in the Nexus browser
 - Added a custom date range selector in the Nexus browser
 - Added a live preview panel in the theme editor
+- Added an option to disable mods by default when installing
 ### Changes
 - Exes run against a non-Steam Proton prefix (Lutris, Heroic or a custom prefix) now launch through umu-run (like Lutris and Heroic themselves) instead of proton run: the launch no longer registers with Steam or requires owning the game there, and audio works (runs inside the Steam Linux Runtime)
 - A mods missing requirements/optional requirements are now flagged as soon as they are installed
@@ -23,6 +24,9 @@
 - Fixed overflow errors when installing via the NXM handler
 - Fixed Enderal and Enderal linking to and using the wrong version of xedit
 - Fixed a crash when installing FOMOD mods with no install options
+- Fixed an issue where script extender's scripts folder was sent to the root folder when installed via the wizard
+- Fixed starfield's archive invalidation being applied to the wrong ini file
+- Fixed manually installed plugins not appearing in the plugins panel
 
 ---
 
