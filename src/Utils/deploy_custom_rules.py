@@ -206,6 +206,94 @@ def _sibling_container(
     return (container, container)
 
 
+def _strip_top_prefix(rel_lower: str, strip_prefixes: set[str]) -> str:
+    """Drop the first path segment of ``rel_lower`` if it is a strip prefix.
+
+    Mirrors the single-level top-folder strip that ``deploy_filemap_to_root``
+    applies to non-routed files (only the first segment, one level, matching
+    the scan-time strip in ``filemap._scan_dir``).
+    """
+    if not strip_prefixes or "/" not in rel_lower:
+        return rel_lower
+    head, _, tail = rel_lower.partition("/")
+    if head in strip_prefixes:
+        return tail
+    return rel_lower
+
+
+def compute_routed_dest(
+    rel_key: str,
+    norm_rules: list[tuple["CustomRule", set[str], list[str], set[str]]],
+    strip_prefixes: set[str] | None = None,
+    data_prefix: str = "",
+) -> str:
+    """Return the game-root-relative destination a single file deploys to.
+
+    Given a lowercased staged rel_path and the game's normalised routing rules
+    (from :func:`normalise_rules`), replicate the destination the deploy step
+    would compute so that two staged paths landing at the *same* game location
+    can be recognised as conflicting even when their staged keys differ.
+
+    This mirrors the ``tail`` math in ``deploy_custom_rules._place_primary``:
+    the first matching rule (declaration order) wins; a folder match with
+    ``flatten`` strips everything above the matched folder; an ext/filename
+    match with ``flatten`` collapses to the bare filename; a non-flatten match
+    keeps the full rel_path under ``dest``.
+
+    Files matching no rule fall through to their strip-prefixed staged path —
+    exactly what ``deploy_filemap_to_root`` places verbatim under the game root.
+
+    ``to_prefix`` rules (deployed into the Proton prefix, not the game root)
+    and ``mirror_dests`` are intentionally ignored for keying — prefix files
+    live in a separate namespace, and mirroring never *removes* the primary
+    destination, so the primary dest is the correct conflict key.
+
+    ``data_prefix`` — the game-root-relative folder that *non-routed* files
+    deploy into (a standard custom game's ``mod_data_path``, e.g. ``data``).
+    Routed files already carry their absolute ``dest`` and are unaffected; this
+    just anchors the verbatim fallback to the same game-root frame so a routed
+    file whose ``dest`` equals ``mod_data_path`` collides correctly. Empty for
+    root-deploy games (files go to the game root directly).
+    """
+    rel_lower = rel_key.replace("\\", "/").lower()
+    for rule, folders, exts, filenames in norm_rules:
+        if rule.to_prefix:
+            # Prefix-routed files land in the Proton prefix, a distinct
+            # namespace from game-root files — never a cross conflict here.
+            hit = _match_single_rule(rel_lower, rule, folders, exts, filenames)
+            if hit is not None:
+                return "\x00prefix\x00" + rel_lower  # unique, never collides w/ root
+            continue
+        hit = _match_single_rule(rel_lower, rule, folders, exts, filenames)
+        if hit is None:
+            continue
+        strip_len, _matched_ext = hit
+        dest = rule.dest.replace("\\", "/").strip("/").lower()
+        if rule.include_siblings and "/" in rel_lower:
+            # Include-siblings preserves the full mod-relative path under dest
+            # (container = topmost folder, so tail == the whole rel_path).
+            tail = rel_lower
+        elif rule.flatten:
+            if strip_len >= 0:
+                tail = rel_lower[strip_len:].lstrip("/")
+            else:
+                tail = rel_lower.rsplit("/", 1)[-1]
+        else:
+            tail = rel_lower
+        return f"{dest}/{tail}" if dest else tail
+    # No rule matched — verbatim deploy under mod_data_path (after top strip).
+    tail = _strip_top_prefix(rel_lower, {p.lower() for p in (strip_prefixes or set())})
+    _dp = data_prefix.replace("\\", "/").strip("/").lower()
+    return f"{_dp}/{tail}" if _dp else tail
+
+
+def normalise_rules(
+    rules: list["CustomRule"],
+) -> list[tuple["CustomRule", set[str], list[str], set[str]]]:
+    """Return the routing rules pre-processed for :func:`compute_routed_dest`."""
+    return [_normalise_rule(r) for r in rules]
+
+
 def deploy_custom_rules(
     filemap_path: Path,
     game_root: Path,
