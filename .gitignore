@@ -22,3 +22,6 @@ decky/
 src/appimage/dist/
 /sync-upstream.shsrc/appimage/dist/
 AmethystModManager-AppImage/
+*.AppImage
+*.AppImage.zsync
+*.flatpak
