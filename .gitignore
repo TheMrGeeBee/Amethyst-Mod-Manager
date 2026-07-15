@@ -20,4 +20,4 @@ decky/
 **/__pycache__/
 /tools
 src/appimage/dist/
-/sync-upstream.sh
+/sync-upstream.shsrc/appimage/dist/
