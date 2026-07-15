@@ -1614,6 +1614,18 @@ Close it when you are done, then click Done.</translation>
         <translation>Define Custom Game</translation>
     </message>
     <message>
+        <source>Load Preset  (optional)</source>
+        <translation>Load Preset  (optional)</translation>
+    </message>
+    <message>
+        <source>Prepopulate the fields below from an existing custom game as a starting template. You still need to give the new game its own unique name.</source>
+        <translation>Prepopulate the fields below from an existing custom game as a starting template. You still need to give the new game its own unique name.</translation>
+    </message>
+    <message>
+        <source>— Select a game to copy from —</source>
+        <translation>— Select a game to copy from —</translation>
+    </message>
+    <message>
         <source>Game Name</source>
         <translation>Game Name</translation>
     </message>
@@ -4200,10 +4212,6 @@ Download and install them manually — the links are in the collection page's "O
         <translation>Reinstalling {0} mod(s); {1} skipped (no archive found).</translation>
     </message>
     <message>
-        <source>Premium required to redownload. Opened {0} mod page(s) in your browser — download, then reinstall.</source>
-        <translation>Premium required to redownload. Opened {0} mod page(s) in your browser — download, then reinstall.</translation>
-    </message>
-    <message>
         <source>Reinstall — redownloading {0} mod(s)…</source>
         <translation>Reinstall — redownloading {0} mod(s)…</translation>
     </message>
@@ -4294,6 +4302,10 @@ Download and install them manually — the links are in the collection page's "O
     <message>
         <source>Missing Requirements</source>
         <translation>Missing Requirements</translation>
+    </message>
+    <message>
+        <source>View Requirements</source>
+        <translation>View Requirements</translation>
     </message>
     <message>
         <source>Conflicts: {0}</source>
@@ -4494,6 +4506,10 @@ Download and install them manually — the links are in the collection page's "O
     <message>
         <source>Deploying {0}…</source>
         <translation>Deploying {0}…</translation>
+    </message>
+    <message>
+        <source>Premium required to redownload. Opened {0} download page(s) — they'll reinstall automatically once downloaded.</source>
+        <translation>Premium required to redownload. Opened {0} download page(s) — they'll reinstall automatically once downloaded.</translation>
     </message>
     <message>
         <source>A deploy is in progress — try again shortly.</source>
@@ -5165,6 +5181,10 @@ Update this whenever you change your mod list.</translation>
         <source>Copied ✓</source>
         <translation>Copied ✓</translation>
     </message>
+    <message>
+        <source>Copy failed — copy it manually</source>
+        <translation>Copy failed — copy it manually</translation>
+    </message>
 </context>
 <context>
     <name>MissingReqsView</name>
@@ -5389,6 +5409,10 @@ How would you like to handle the existing mod?</translation>
     <message>
         <source>Missing Requirements ({0})</source>
         <translation>Missing Requirements ({0})</translation>
+    </message>
+    <message>
+        <source>View Requirements</source>
+        <translation>View Requirements</translation>
     </message>
     <message>
         <source>Mod name:</source>
@@ -6138,6 +6162,10 @@ Daily: {1}</translation>
     <message>
         <source>Note — {0}</source>
         <translation>Note — {0}</translation>
+    </message>
+    <message>
+        <source>Markdown is supported — it renders in the note tooltip.</source>
+        <translation>Markdown is supported — it renders in the note tooltip.</translation>
     </message>
     <message>
         <source>Remove note</source>
@@ -7578,6 +7606,57 @@ Choose Keep if this is an optional/alternative variant rather than a replacement
     <message>
         <source>Remove</source>
         <translation>Remove</translation>
+    </message>
+</context>
+<context>
+    <name>RequirementsView</name>
+    <message>
+        <source>Requirements</source>
+        <translation>Requirements</translation>
+    </message>
+    <message>
+        <source>Requires</source>
+        <translation>Requires</translation>
+    </message>
+    <message>
+        <source>Required by</source>
+        <translation>Required by</translation>
+    </message>
+    <message>
+        <source>View Missing Requirements</source>
+        <translation>View Missing Requirements</translation>
+    </message>
+    <message>
+        <source>Requirements — {0}</source>
+        <translation>Requirements — {0}</translation>
+    </message>
+    <message>
+        <source>Requirements — {0} mods</source>
+        <translation>Requirements — {0} mods</translation>
+    </message>
+    <message>
+        <source>Select one or more mods.</source>
+        <translation>Select one or more mods.</translation>
+    </message>
+    <message>
+        <source>No Nexus data for the selected mod(s).</source>
+        <translation>No Nexus data for the selected mod(s).</translation>
+    </message>
+    <message>
+        <source>No missing requirements for the selected mod(s).</source>
+        <translation>No missing requirements for the selected mod(s).</translation>
+    </message>
+    <message>
+        <source>{0}  (not installed)</source>
+        <translation>{0}  (not installed)</translation>
+    </message>
+    <message>
+        <source>(none)</source>
+        <translation>(none)</translation>
+    </message>
+    <message>
+        <source>Run Check Updates for this data.</source>
+        <translation>Run Check Updates for this data.</translation>
     </message>
 </context>
 <context>
@@ -10031,6 +10110,18 @@ or use Browse to select it manually.</translation>
         <translation>anchor</translation>
     </message>
     <message>
+        <source>Required by selection</source>
+        <translation>Required by selection</translation>
+    </message>
+    <message>
+        <source>requirement</source>
+        <translation>requirement</translation>
+    </message>
+    <message>
+        <source>Requires selection</source>
+        <translation>Requires selection</translation>
+    </message>
+    <message>
         <source>Textures folder</source>
         <translation>Textures folder</translation>
     </message>
@@ -10804,6 +10895,14 @@ Close it when you are done, then click Done.</translation>
     <message>
         <source>No description provided.</source>
         <translation>No description provided.</translation>
+    </message>
+    <message>
+        <source>Ignore</source>
+        <translation>Ignore</translation>
+    </message>
+    <message>
+        <source>Don't count this requirement towards the missing-requirements flag. It stays listed here so you can un-ignore it.</source>
+        <translation>Don't count this requirement towards the missing-requirements flag. It stays listed here so you can un-ignore it.</translation>
     </message>
     <message>
         <source>View</source>
