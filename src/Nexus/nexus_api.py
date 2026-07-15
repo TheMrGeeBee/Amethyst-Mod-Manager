@@ -79,6 +79,14 @@ def _redact_sensitive_dict(obj: Any) -> Any:
     return obj
 
 
+def _uploader_fields(n: dict) -> dict:
+    """uploaded_by / uploader_id kwargs from a GraphQL mod node's uploader —
+    unpack with ** into a NexusModInfo(...) call."""
+    up = n.get("uploader") or {}
+    return {"uploaded_by": up.get("name", "") or "",
+            "uploader_id": int(up.get("memberId", 0) or 0)}
+
+
 # ---------------------------------------------------------------------------
 # Data classes for typed responses
 # ---------------------------------------------------------------------------
@@ -982,8 +990,7 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
-                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
-                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
+                    **_uploader_fields(n),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,
@@ -1573,8 +1580,7 @@ class NexusAPI:
                 description="",
                 version=n.get("version", "") or "",
                 author=n.get("author", "") or "",
-                uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
-                uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
+                **_uploader_fields(n),
                 category_id=cat_id,
                 category_name=cat_name,
                 game_id=0,
@@ -1887,8 +1893,7 @@ class NexusAPI:
                         description="",
                         version=n.get("version", "") or "",
                         author=n.get("author", "") or "",
-                        uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
-                        uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
+                        **_uploader_fields(n),
                         category_id=0,
                         game_id=0,
                         domain_name=domain,
@@ -2077,8 +2082,7 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
-                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
-                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
+                    **_uploader_fields(n),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,
@@ -2256,8 +2260,7 @@ class NexusAPI:
                     description=n.get("description", "") or "",
                     version=n.get("version", "") or "",
                     author=n.get("author", "") or "",
-                    uploaded_by=(n.get("uploader") or {}).get("name", "") or "",
-                    uploader_id=int((n.get("uploader") or {}).get("memberId", 0) or 0),
+                    **_uploader_fields(n),
                     category_id=0,
                     game_id=0,
                     domain_name=game_domain,

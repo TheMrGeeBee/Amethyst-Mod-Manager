@@ -83,6 +83,103 @@ def _match_name(f) -> str:
     return (getattr(f, "name", "") or "").strip()
 
 
+def find_existing_archive(mod_id: int, files: list) -> "tuple[Path, object] | None":
+    """Return ``(path, file)`` for an already-complete cached archive matching
+    any of *files*, or ``None`` if nothing is on disk yet.
+
+    Same matching the watcher uses on its first poll — factored out so callers
+    can short-circuit the browser-download flow: if the archive is already
+    downloaded there is no need to open the Nexus download page at all, just
+    install it directly. *files* are NexusModFile-likes (see the watcher)."""
+    picks = [f for f in (files or []) if _match_name(f)]
+    if not picks:
+        return None
+    mid = int(mod_id or 0)
+    for folder in scan_download_dirs():
+        for f in picks:
+            found, complete = _find_cached_archive(
+                folder, _match_name(f), _expected_size(f), mid,
+                int(getattr(f, "file_id", 0) or 0))
+            if found is not None and complete:
+                return found, f
+    return None
+
+
+def start_manual_install(
+    *, api, game_domain: str, mod_id: int, files: list,
+    open_url_fn: Callable[[str], None],
+    log_fn: Callable[[str], None] = lambda _m: None,
+    log_label: str = "",
+    mod_info=None,
+    mod_info_fallback=None,
+    on_archive: Callable[[Path, object, object], None] = lambda p, m, f: None,
+    on_progress: Callable[[int, int], None] = lambda d, t: None,
+    on_timeout: Callable[[], None] = lambda: None,
+) -> "tuple[ManualDownloadWatcher, bool]":
+    """Shared non-premium install flow (Nexus browser / Change Version /
+    Reinstall — one implementation so new callers stay consistent).
+
+    If a matching archive is already in the download folders the browser is
+    NOT opened; otherwise the first file's own download page (file_id
+    deep-link) is. Either way a ManualDownloadWatcher is armed — an existing
+    archive is accepted on its first poll, so ``on_archive`` fires immediately
+    for the already-downloaded case.
+
+    ``on_archive(path, meta, file)`` runs on the WATCHER thread with a
+    prebuilt NexusModMeta (or None on failure): ``mod_info`` is used verbatim
+    when given (caller already has a NexusModInfo, e.g. a browser card entry);
+    otherwise it is fetched via GraphQL with ``mod_info_fallback`` as the
+    backstop. ``on_progress(done, total)`` / ``on_timeout()`` also run on the
+    watcher thread — marshal to the UI thread in the callbacks.
+
+    ``log_label`` names the download in log lines (defaults to the first
+    file's match name). Returns ``(watcher, already_downloaded)`` — the
+    watcher is already started; keep it for cancel support."""
+    from Nexus.nexus_meta import build_meta_from_download
+
+    already = find_existing_archive(mod_id, files) is not None
+    label = log_label or (_match_name(files[0]) if files else "")
+    if already:
+        log_fn(f"Nexus: archive already downloaded for '{label}'; "
+               "installing without opening the browser.")
+    else:
+        fid = int(getattr(files[0], "file_id", 0) or 0) if files else 0
+        open_url_fn(f"https://www.nexusmods.com/{game_domain}/mods/{mod_id}"
+                    f"?tab=files&file_id={fid}")
+        log_fn("Nexus: premium required for direct download — opened the "
+               f"download page for '{label}'. It will install automatically "
+               "once the browser download finishes.")
+
+    def _found(path, file):
+        info = mod_info
+        if info is None:
+            if api is not None:
+                try:
+                    fetched, _ = api.get_mod_and_file_info_graphql(
+                        game_domain, mod_id,
+                        int(getattr(file, "file_id", 0) or 0))
+                    info = fetched if fetched is not None else mod_info_fallback
+                except Exception:
+                    info = mod_info_fallback
+            else:
+                info = mod_info_fallback
+        try:
+            meta = build_meta_from_download(
+                game_domain=game_domain, mod_id=mod_id,
+                file_id=int(getattr(file, "file_id", 0) or 0),
+                archive_name=path.name, mod_info=info, file_info=file)
+        except Exception:
+            meta = None
+        log_fn(f"Nexus: found downloaded archive → {path}")
+        on_archive(path, meta, file)
+
+    watcher = ManualDownloadWatcher(
+        mod_id=mod_id, files=files, on_found=_found,
+        on_progress=on_progress, on_timeout=on_timeout)
+    watcher.start()
+    return watcher, already
+
+
 class ManualDownloadWatcher:
     """Poll the download folders for one mod's browser-downloaded archive.
 

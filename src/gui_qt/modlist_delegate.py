@@ -74,6 +74,24 @@ _FLAG_TIPS = {
     FLAG_ROOT_RULE: QT_TRANSLATE_NOOP("ModRowDelegate", "This mod contains files that route to the game root"),
 }
 
+
+def _note_to_tooltip_html(note: str) -> str:
+    """Render a Markdown note as HTML for a rich-text tooltip.
+
+    Qt's QToolTip auto-detects rich text, so returning HTML makes headings,
+    bold/italic, lists and links render. QTextDocument.setMarkdown does the
+    conversion with no external dependency (GitHub dialect → tables, strikethrough,
+    task lists). Falls back to the plain (HTML-escaped) text if anything goes
+    wrong."""
+    try:
+        from PySide6.QtGui import QTextDocument
+        doc = QTextDocument()
+        doc.setMarkdown(note, QTextDocument.MarkdownDialectGitHub)
+        return doc.toHtml()
+    except Exception:
+        import html
+        return f'<div style="white-space:pre-wrap;">{html.escape(note)}</div>'
+
 # Conflict code → icon (lightning), painted in the Conflicts column (Tk parity).
 _CONFLICT_ICONS = {
     1: "conflict-winner.png",
@@ -155,6 +173,8 @@ class ModRowDelegate(QStyledItemDelegate):
         self.c_hl_higher = qc(p, "CONFLICT_HL_WIN")    # selection beats this mod (green)
         self.c_hl_lower = qc(p, "CONFLICT_HL_LOSE")    # this mod beats selection (red)
         self.c_hl_anchor = qc(p, "CONFLICT_HL_ANCHOR") # plugin-selected mod (orange)
+        self.c_hl_requires = qc(p, "REQ_HL_REQUIRES")        # selection requires this mod (purple)
+        self.c_hl_required_by = qc(p, "REQ_HL_REQUIRED_BY")  # this mod requires selection (blue)
         self.c_root_text = qc(p, "ROOT_SEP_FG")
         self.c_overwrite_text = qc(p, "OVERWRITE_SEP_FG")
         # Shared row/label fonts — paint() runs per visible cell, so build
@@ -206,6 +226,10 @@ class ModRowDelegate(QStyledItemDelegate):
                 p.fillRect(r, self.c_sel)
             elif sep_hl == 2:
                 p.fillRect(r, self.c_hl_anchor)
+            elif sep_hl == 3:
+                p.fillRect(r, self.c_hl_requires)
+            elif sep_hl == -3:
+                p.fillRect(r, self.c_hl_required_by)
             elif sep_hl == 1:
                 p.fillRect(r, self.c_hl_higher)
             elif sep_hl == -1:
@@ -233,6 +257,10 @@ class ModRowDelegate(QStyledItemDelegate):
             p.fillRect(r, self.c_sel)
         elif hl == 2:
             p.fillRect(r, self.c_hl_anchor); highlighted = True
+        elif hl == 3:
+            p.fillRect(r, self.c_hl_requires); highlighted = True
+        elif hl == -3:
+            p.fillRect(r, self.c_hl_required_by); highlighted = True
         elif hl == 1:
             p.fillRect(r, self.c_hl_higher); highlighted = True
         elif hl == -1:
@@ -515,14 +543,17 @@ class ModRowDelegate(QStyledItemDelegate):
 
     def _flag_tip(self, hit, index):
         """Tooltip for the hovered flag *hit*. The Note flag shows the actual
-        note text (Tk parity); everything else uses the static _FLAG_TIPS."""
+        note text rendered from Markdown (Tk parity + rich text); everything
+        else uses the static _FLAG_TIPS."""
         if hit == FLAG_NOTE:
             try:
                 model = index.model()
                 name = index.data(EntryRole).name
                 note = model.note_for(name) if hasattr(model, "note_for") else ""
                 if note:
-                    return note if len(note) <= 500 else note[:500] + "…"
+                    if len(note) > 500:
+                        note = note[:500].rstrip() + "…"
+                    return _note_to_tooltip_html(note)
             except Exception:
                 pass
         tip = _FLAG_TIPS.get(hit)

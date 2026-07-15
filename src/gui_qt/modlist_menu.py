@@ -321,6 +321,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         lambda: _open_note_editor(view, [name]))
     if _has_conflict(model, row):
         act(_mt("Show Conflicts"), lambda: _show_conflicts(view, name))
+    if _has_id:
+        act(_mt("View Requirements"), lambda: _view_requirements(view, name))
     divider()
     # Group 6: remove
     act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked)
@@ -400,14 +402,23 @@ def _has_update_flag(view, name: str) -> bool:
 def _has_missing_reqs(view, name: str) -> bool:
     """True if *name* carries the missing-requirements flag (FLAG_MISSING_REQS).
     Read off the model's flag bitmask (same source the row paints), so the menu
-    matches Tk's `mod_name in self._missing_reqs`."""
+    matches Tk's `mod_name in self._missing_reqs`.
+
+    Fallback: a mod whose every missing requirement is individually ignored
+    (meta.ini ignoredRequirements) has no ⚠ flag, but the panel must stay
+    reachable so the ignores can be unticked — keep the menu item when the meta
+    carries per-requirement ignores."""
     try:
         model = view.model()
     except Exception:
         return False
     from gui_qt.modlist_data import FLAG_MISSING_REQS
     bits = model._flags.get(name, 0) if hasattr(model, "_flags") else 0
-    return bool(bits & FLAG_MISSING_REQS)
+    if bits & FLAG_MISSING_REQS:
+        return True
+    meta = _read_mod_meta(view, name)
+    return bool(meta is not None
+                and getattr(meta, "ignored_requirements", ""))
 
 
 def _quick_update(view, names):
@@ -435,6 +446,14 @@ def _missing_reqs(view, names):
     cb = getattr(view, "on_missing_reqs", None)
     if cb is not None and names:
         cb(names[0] if len(names) == 1 else set(names))
+
+
+def _view_requirements(view, name):
+    """Open the View Requirements tab for *name* (the window installs the
+    callback in _reload_modlist). No-op if it isn't wired (e.g. headless)."""
+    cb = getattr(view, "on_view_requirements", None)
+    if cb is not None and name:
+        cb(name)
 
 
 def _has_conflict(model, row) -> bool:
@@ -1237,6 +1256,7 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Log"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "View Requirements"),
     QT_TRANSLATE_NOOP("ModListMenu", "Mod name:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to profile"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to profile ({0})"),

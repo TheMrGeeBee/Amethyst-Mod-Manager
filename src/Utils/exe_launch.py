@@ -639,17 +639,15 @@ def lutris_slugs_for_launch(game) -> list:
     """Lutris slugs for launch — detected by matching the game's exe against
     Lutris's installed games, plus the saved paths.json value (written when
     the game was configured via Lutris detection)."""
-    slugs: list[str] = []
-    from Utils.lutris_finder import find_lutris_slug_by_exe
+    from Utils.lutris_finder import find_lutris_slugs_by_exes
     exe_names = [getattr(game, "exe_name", None)]
     exe_names += list(getattr(game, "exe_name_alts", []) or [])
-    for exe in [e for e in exe_names if e]:
-        try:
-            found = find_lutris_slug_by_exe(exe)
-        except Exception:
-            found = None
-        if found and found not in slugs:
-            slugs.append(found)
+    try:
+        # One pass over Lutris's DB + YAML for all names — per-name lookups
+        # re-scanned everything once per alt on every Play click.
+        slugs = find_lutris_slugs_by_exes([e for e in exe_names if e])
+    except Exception:
+        slugs = []
 
     if not slugs and hasattr(game, "name"):
         try:

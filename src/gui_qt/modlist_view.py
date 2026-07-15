@@ -761,6 +761,11 @@ class ModListView(QTreeView):
 
     def _refresh_self_highlights(self):
         """Recompute green/red tints from the current mod selection."""
+        # View Requirements mode: the purple/blue requirement tints own the
+        # modlist — don't let a conflict rebuild stomp them (the window sets
+        # this while that tab is open).
+        if getattr(self, "suppress_conflict_highlights", False):
+            return
         names = self.selected_mod_names()
         if not names:
             return

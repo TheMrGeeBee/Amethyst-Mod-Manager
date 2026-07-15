@@ -172,7 +172,7 @@ def _scan_mod_bsas(
     results: list[tuple[str, float, list[str]]] = []
     parse_count = 0
     recursive = bool(archive_extensions & UE_ARCHIVE_EXTENSIONS)
-    candidates: list[tuple[str, str, str]] = []  # (archive_key, path, ext)
+    candidates: list[tuple[str, str, str, float]] = []  # (key, path, ext, mtime)
     try:
         if recursive:
             for root, dirnames, filenames in os.walk(mod_dir, followlinks=False):
@@ -183,23 +183,29 @@ def _scan_mod_bsas(
                     if ext not in archive_extensions:
                         continue
                     full = os.path.join(root, fn)
+                    try:
+                        mtime = os.stat(full).st_mtime
+                    except OSError:
+                        continue
                     rel = os.path.relpath(full, mod_dir).replace(os.sep, "/")
-                    candidates.append((rel, full, ext))
+                    candidates.append((rel, full, ext, mtime))
         else:
             with os.scandir(mod_dir) as it:
                 for entry in it:
-                    if not entry.is_file(follow_symlinks=False):
+                    try:
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in archive_extensions:
+                            # Reuses the dirent's cached lstat — no extra
+                            # syscall (is_file above already fetched it).
+                            mtime = entry.stat(follow_symlinks=False).st_mtime
+                            candidates.append((entry.name, entry.path, ext, mtime))
+                    except OSError:
                         continue
-                    ext = os.path.splitext(entry.name)[1].lower()
-                    if ext in archive_extensions:
-                        candidates.append((entry.name, entry.path, ext))
     except OSError:
         return (mod_name, results, parse_count)
-    for key, full_path, ext in candidates:
-        try:
-            mtime = os.stat(full_path).st_mtime
-        except OSError:
-            continue
+    for key, full_path, ext, mtime in candidates:
         # Cache check happens *before* parsing — a match skips the
         # expensive TOC read entirely.
         if cached_archives is not None:

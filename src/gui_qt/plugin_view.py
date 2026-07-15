@@ -429,10 +429,13 @@ class PluginView(QTreeView):
         self._build_column_menu_button(h)
         self._restore_column_state()
 
-        # Marker strip (coloured-tick gutter beside the scrollbar) — same as the
-        # modlist, driven by PHighlightRole.
-        from gui_qt.marker_strip import install_marker_strip
-        install_marker_strip(self, PHighlightRole)
+        from gui_qt.marker_strip import install_marker_strip, MarkerScrollBar
+        install_marker_strip(self, PHighlightRole, code_map={
+            -1: MarkerScrollBar._C_LOWER,    # loses conflict (red)
+            1: MarkerScrollBar._C_HIGHER,    # wins conflict (green)
+            2: MarkerScrollBar._C_ANCHOR,    # selected mod's plugins (orange)
+            3: MarkerScrollBar._C_MASTER,    # master of selected plugin (green)
+        })
         self._reposition_marker_strip()
 
         # Right-click context menu (mirrors modlist_view).

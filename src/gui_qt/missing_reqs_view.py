@@ -53,9 +53,11 @@ class _ElidedLabel(QLabel):
 
 class _ReqCard(QFrame):
     """A single missing-requirement card: title (required mod name) + notes +
-    View (opens the Nexus page) + Install (downloads & installs the mod)."""
+    per-requirement Ignore checkbox + View (opens the Nexus page) + Install
+    (downloads & installs the mod)."""
 
-    def __init__(self, p, req, url, is_external, on_view, on_install):
+    def __init__(self, p, req, url, is_external, on_view, on_install,
+                 ignored=False, on_ignore=None):
         super().__init__()
         self.setObjectName("ReqCard")
         self.setStyleSheet(
@@ -81,6 +83,20 @@ class _ReqCard(QFrame):
         col.addWidget(desc)
         h.addLayout(col, 1)
 
+        # Per-requirement ignore: suppresses the ⚠ flag for THIS requirement
+        # only (stored in the owning mods' meta.ini, so it survives reinstalls);
+        # the card stays listed so it can be un-ignored.
+        if on_ignore is not None and int(getattr(req, "mod_id", 0) or 0) > 0:
+            ign = QCheckBox(self.tr("Ignore"))
+            ign.setCursor(Qt.PointingHandCursor)
+            ign.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
+            ign.setToolTip(self.tr(
+                "Don't count this requirement towards the missing-requirements "
+                "flag. It stays listed here so you can un-ignore it."))
+            ign.setChecked(bool(ignored))
+            ign.toggled.connect(lambda st, r=req: on_ignore(r, bool(st)))
+            h.addWidget(ign, 0, Qt.AlignTop)
+
         view = QPushButton(self.tr("View"))
         view.setCursor(Qt.PointingHandCursor)
         view.setStyleSheet(button_qss("BTN_GREY", padding="5px 14px"))
@@ -105,7 +121,7 @@ class MissingReqsView(QWidget):
     _reqs_ready = Signal(object, object)
 
     def __init__(self, api, game, mods, ignored_set, save_ignored_fn,
-                 on_close, log_fn=None, install_fn=None):
+                 on_close, log_fn=None, install_fn=None, ignore_req_fn=None):
         super().__init__()
         self._api = api
         self._game = game
@@ -121,6 +137,10 @@ class MissingReqsView(QWidget):
         # install_fn(mod_id, domain, name) — runs the full premium→files→download
         # →install flow (provided by the window). None = install disabled.
         self._install_fn = install_fn
+        # ignore_req_fn(req_id, req_name, ignored, owner_names) — persists a
+        # per-requirement ignore into the owning mods' meta.ini (provided by
+        # the window). None = no per-requirement Ignore checkboxes.
+        self._ignore_req_fn = ignore_req_fn
         # mod_id → card widget, so cards can be pruned once installed.
         self._cards: dict[int, _ReqCard] = {}
 
@@ -278,8 +298,11 @@ class MissingReqsView(QWidget):
         for r in reqs:
             is_external = bool(getattr(r, "is_external", False))
             url = self._req_url(r, is_external)
-            card = _ReqCard(p, r, url, is_external,
-                            self._open_url, self._install_req)
+            card = _ReqCard(
+                p, r, url, is_external, self._open_url, self._install_req,
+                ignored=self._req_ignored(int(r.mod_id or 0)),
+                on_ignore=(self._toggle_req_ignored
+                           if self._ignore_req_fn is not None else None))
             self._cards_layout.insertWidget(insert_at, card)
             insert_at += 1
             self._cards[int(r.mod_id)] = card
@@ -337,3 +360,35 @@ class MissingReqsView(QWidget):
             return
         self._install_fn(req.mod_id, self._domain(),
                          req.mod_name or f"Mod {req.mod_id}")
+
+    # ---- per-requirement ignore --------------------------------------------
+    def _req_owners(self, req_id: int) -> list:
+        """The panel mods whose missing list contains *req_id* (a deduped card
+        can belong to several owning mods)."""
+        return [m for m in self._mods
+                if req_id in (m.get("missing_ids") or set())]
+
+    def _req_ignored(self, req_id: int) -> bool:
+        """Checked state for a card: ignored in EVERY owning mod that lists it."""
+        owners = self._req_owners(req_id)
+        return bool(owners) and all(
+            req_id in (m.get("ignored_ids") or set()) for m in owners)
+
+    def _toggle_req_ignored(self, req, state: bool):
+        """Persist a per-requirement ignore for every owning mod in the panel
+        (the window writes meta.ini + refreshes the ⚠ flags), and mirror it in
+        the local specs so the checked state stays consistent."""
+        rid = int(getattr(req, "mod_id", 0) or 0)
+        if rid <= 0 or self._ignore_req_fn is None:
+            return
+        owners = self._req_owners(rid)
+        names = [m.get("mod_name", "") for m in owners if m.get("mod_name")]
+        if not names:
+            return
+        for m in owners:
+            s = m.setdefault("ignored_ids", set())
+            (s.add if state else s.discard)(rid)
+        try:
+            self._ignore_req_fn(rid, req.mod_name or "", bool(state), names)
+        except Exception as exc:
+            self._log(f"Nexus: could not save the ignored requirement — {exc}")

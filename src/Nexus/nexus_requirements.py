@@ -419,14 +419,15 @@ def check_requirements_from_gql(
         by_mod_id.setdefault(meta.mod_id, []).append(meta)
 
     # File-level requirements (v3 API) for all checkable mods, in one batch.
-    # Only runs when the caller provides an API client; {} on kill switch or
-    # any v3 failure — mod-level results are unaffected.
-    file_missing: dict[int, list[NexusModRequirement]] = {}
+    # We fetch ALL of them (installed or not) so the View Requirements full list
+    # can show installed file-level deps too, then derive the *missing* subset
+    # locally — one batch of API calls instead of two. Only runs when the caller
+    # provides an API client; {} on kill switch or any v3 failure — mod-level
+    # results are unaffected.
+    file_all: dict[int, list[NexusModRequirement]] = {}
     if api is not None:
-        from Nexus.nexus_file_requirements import compute_file_level_missing
-        file_missing = compute_file_level_missing(
-            api, checkable, installed_mod_ids, game_domain,
-            external_set, alternatives_dict, log=_log)
+        from Nexus.nexus_file_requirements import compute_file_level_all
+        file_all = compute_file_level_all(api, checkable, game_domain, log=_log)
 
     results: list[MissingRequirementInfo] = []
 
@@ -436,7 +437,8 @@ def check_requirements_from_gql(
             # Not returned by GraphQL (hidden/deleted mod) — leave flags unchanged
             continue
 
-        reqs = info.requirements  # list[NexusModRequirement]
+        # Full requirement pool: mod-level (GraphQL) + file-level (v3), deduped.
+        reqs = _merge_reqs(list(info.requirements), file_all.get(mod_id, []))
 
         missing: list[NexusModRequirement] = []
         for req in reqs:
@@ -451,8 +453,13 @@ def check_requirements_from_gql(
             if req.mod_id not in installed_mod_ids:
                 missing.append(req)
 
-        # Merge in file-level (v3) missing requirements for this mod
-        missing = _merge_reqs(missing, file_missing.get(mod_id, []))
+        # Full requirements list (installed or not) — powers View Requirements.
+        # ';' in names would corrupt the pair format, swap for ','.
+        full_str = ";".join(
+            f"{max(r.mod_id, 0)}:{(r.mod_name or '').replace(';', ',')}"
+            for r in reqs
+        )
+        missing_str = ";".join(f"{r.mod_id}:{r.mod_name}" for r in missing)
 
         for meta in metas:
             if missing:
@@ -465,15 +472,11 @@ def check_requirements_from_gql(
                 names = ", ".join(r.mod_name for r in missing[:3])
                 suffix = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
                 _log(f"  ⚠ {meta.mod_name}: missing {names}{suffix}")
-                if save_results:
-                    meta.missing_requirements = ";".join(
-                        f"{r.mod_id}:{r.mod_name}" for r in missing
-                    )
-                    write_meta(staging_root / meta.mod_name / "meta.ini", meta)
-            else:
-                if save_results and meta.missing_requirements:
-                    meta.missing_requirements = ""
-                    write_meta(staging_root / meta.mod_name / "meta.ini", meta)
+            if save_results and (meta.missing_requirements != missing_str
+                                 or meta.nexus_requirements != full_str):
+                meta.missing_requirements = missing_str
+                meta.nexus_requirements = full_str
+                write_meta(staging_root / meta.mod_name / "meta.ini", meta)
 
     _log(f"Requirements check complete: {len(results)} mod(s) with missing dependencies.")
     return results

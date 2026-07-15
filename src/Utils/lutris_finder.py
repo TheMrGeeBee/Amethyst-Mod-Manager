@@ -140,6 +140,14 @@ def find_lutris_roots() -> list[LutrisRoot]:
 # we never read) are skipped.
 # ---------------------------------------------------------------------------
 
+_YAML_ESCAPES = {
+    "n": "\n", "t": "\t", "r": "\r", "0": "\0", "a": "\a", "b": "\b",
+    "f": "\f", "v": "\v", "e": "\x1b", "N": "\x85", "_": "\xa0",
+    "L": " ", "P": " ",
+}
+_YAML_HEX_ESCAPES = {"x": 2, "u": 4, "U": 8}  # escape char → hex digit count
+
+
 def _yaml_unquote(v: str) -> str:
     v = v.strip()
     if len(v) >= 2 and v[0] == v[-1] == "'":
@@ -152,7 +160,17 @@ def _yaml_unquote(v: str) -> str:
         i = 0
         while i < len(s):
             if s[i] == "\\" and i + 1 < len(s):
-                out.append({"n": "\n", "t": "\t"}.get(s[i + 1], s[i + 1]))
+                esc = s[i + 1]
+                ndigits = _YAML_HEX_ESCAPES.get(esc, 0)
+                if ndigits and i + 2 + ndigits <= len(s):
+                    try:
+                        out.append(chr(int(s[i + 2:i + 2 + ndigits], 16)))
+                        i += 2 + ndigits
+                        continue
+                    except ValueError:
+                        pass
+                # Named escape, or \\ and \" via the identity fallback.
+                out.append(_YAML_ESCAPES.get(esc, esc))
                 i += 2
             else:
                 out.append(s[i])
@@ -424,6 +442,47 @@ def is_lutris_prefix(path: "str | Path") -> bool:
     return True
 
 
+def _split_exe_rel_parts(exe_name: str) -> list[str]:
+    """Lowercase path segments of an exe name ('bin/x64/Game.exe' style)."""
+    rel = str(exe_name).replace("\\", "/").strip("/")
+    return [p.lower() for p in rel.split("/") if p]
+
+
+def _match_exe_for_row(root: LutrisRoot, row: dict, yml: dict,
+                       prepared: "list[list[str]]") -> "Path | None":
+    """First exe of an installed game matching any pre-split name in
+    *prepared* (tail-segment match, case-insensitive); games whose yml lacks
+    an exe but whose DB ``directory`` exists are probed by scanning that
+    directory (like Heroic's GOG entries with an empty executable field)."""
+    exe = _resolve_game_exe(root, row, yml)
+    if exe is not None:
+        for rel_parts in prepared:
+            if _stored_exe_matches(str(exe), rel_parts):
+                return exe
+        return None
+    directory = str(row.get("directory", "") or "")
+    if not directory:
+        return None
+    install_path = Path(directory).expanduser()
+    if not install_path.is_dir():
+        return None
+    wanted = {rel_parts[-1] for rel_parts in prepared}
+    try:
+        for candidate in install_path.rglob("*"):
+            if not candidate.is_file() or candidate.name.lower() not in wanted:
+                continue
+            cand_parts = [p.lower() for p in candidate.parts]
+            for rel_parts in prepared:
+                if candidate.name.lower() != rel_parts[-1]:
+                    continue
+                if (len(rel_parts) == 1
+                        or cand_parts[-len(rel_parts):] == rel_parts):
+                    return candidate
+    except OSError:
+        pass
+    return None
+
+
 def find_lutris_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str] | None":
     """Full Lutris detection workflow keyed by the handler's executable name.
 
@@ -435,47 +494,19 @@ def find_lutris_game_info_by_exe(exe_name: str) -> "tuple[Path, Path | None, str
     path is derived from the exe location — Lutris frequently leaves the DB
     ``directory`` column empty.
     """
-    rel = exe_name.replace("\\", "/").strip("/")
-    rel_parts = [p.lower() for p in rel.split("/") if p]
+    rel_parts = _split_exe_rel_parts(exe_name)
     if not rel_parts:
         return None
-    exe_lower = rel_parts[-1]
 
     for root, row, yml in _iter_games():
-        slug = str(row.get("slug", "") or "")
-        exe = _resolve_game_exe(root, row, yml)
-
-        matched_exe: Path | None = None
-        if exe is not None and _stored_exe_matches(str(exe), rel_parts):
-            matched_exe = exe
-        elif exe is None:
-            # No exe in the config: probe the DB directory column for the
-            # exe filename (bounded, case-insensitive), like Heroic's GOG
-            # entries with an empty executable field.
-            directory = str(row.get("directory", "") or "")
-            if directory:
-                install_path = Path(directory).expanduser()
-                if install_path.is_dir():
-                    try:
-                        for candidate in install_path.rglob("*"):
-                            if (not candidate.is_file()
-                                    or candidate.name.lower() != exe_lower):
-                                continue
-                            cand_parts = [p.lower() for p in candidate.parts]
-                            if (len(rel_parts) == 1
-                                    or cand_parts[-len(rel_parts):] == rel_parts):
-                                matched_exe = candidate
-                                break
-                    except OSError:
-                        pass
+        matched_exe = _match_exe_for_row(root, row, yml, [rel_parts])
         if matched_exe is None:
             continue
-
         install_path = _game_root_from_exe(matched_exe, exe_name)
         if install_path is None:
             continue
         prefix_path = _resolve_game_prefix(row, yml, matched_exe)
-        return (install_path, prefix_path, slug)
+        return (install_path, prefix_path, str(row.get("slug", "") or ""))
 
     return None
 
@@ -484,6 +515,27 @@ def find_lutris_slug_by_exe(exe_name: str) -> str | None:
     """Slug of the installed Lutris game whose exe matches *exe_name*."""
     info = find_lutris_game_info_by_exe(exe_name)
     return info[2] if info else None
+
+
+def find_lutris_slugs_by_exes(exe_names) -> list[str]:
+    """Slugs of every installed Lutris game matching any of *exe_names*, in
+    ONE pass over the installed-games data.
+
+    The Play flow probes the game's exe_name plus every exe_name_alt; calling
+    :func:`find_lutris_slug_by_exe` per name re-reads the database and
+    re-parses every game's YAML once per alt (N full scans per launch click).
+    """
+    prepared = [p for p in (_split_exe_rel_parts(e) for e in exe_names if e) if p]
+    if not prepared:
+        return []
+    slugs: list[str] = []
+    for root, row, yml in _iter_games():
+        slug = str(row.get("slug", "") or "")
+        if not slug or slug in slugs:
+            continue
+        if _match_exe_for_row(root, row, yml, prepared) is not None:
+            slugs.append(slug)
+    return slugs
 
 
 def find_lutris_prefix(slugs: list[str]) -> Path | None:

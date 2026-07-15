@@ -270,6 +270,8 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("CONFLICT_HL_WIN", "Conflict row — winning"),
         ("CONFLICT_HL_LOSE", "Conflict row — overridden"),
         ("CONFLICT_HL_ANCHOR", "Conflict row — anchor"),
+        ("REQ_HL_REQUIRES", "Requirement row — requires"),
+        ("REQ_HL_REQUIRED_BY", "Requirement row — required by"),
     ]),
     ("Framework detection", [
         ("FRAMEWORK_INSTALLED_BG", "Installed (bg)"),
@@ -311,7 +313,7 @@ GROUP_DESCRIPTIONS: dict[str, str] = {
     "Overlays & tinted rows": "Popup/overlay backgrounds and coloured info rows (required/optional mods, cards).",
     "Status": "Small status pills and badges (queued, download progress, error/success).",
     "Plugin cycle & files": "Plugin-cycle rows and file-conflict colours in the Data / Mod Files views.",
-    "Conflict highlights": "Row tints when a conflicting mod is selected (winning / overridden / anchor).",
+    "Conflict highlights": "Row tints when a conflicting mod is selected (winning / overridden / anchor), plus the requirement tints used by the View Requirements tab.",
     "Framework detection": "The framework-status banner above the Plugins list (installed / staged / disabled / missing).",
     "Separator bands": "The pinned Overwrite and Root Folder bands at the top of the modlist.",
     "Checkboxes": "The fill colour of a ticked checkbox (the tick stays auto-contrasted).",

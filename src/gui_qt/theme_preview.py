@@ -240,6 +240,10 @@ class ThemePreviewPanel(QWidget):
         add(self.tr("Loses to selection"), self.tr("conflict"),
             "CONFLICT_HL_WIN")
         add(self.tr("Plugin's mod"), self.tr("anchor"), "CONFLICT_HL_ANCHOR")
+        add(self.tr("Required by selection"), self.tr("requirement"),
+            "REQ_HL_REQUIRES")
+        add(self.tr("Requires selection"), self.tr("requirement"),
+            "REQ_HL_REQUIRED_BY")
         add(self.tr("Textures folder"), "", None, "TAG_FOLDER")
         add(self.tr("Archive.bsa"), "", None, "TAG_BSA",
             cell_bg="TAG_BUNDLED_BG", cell_fg="TAG_BUNDLED_FG")

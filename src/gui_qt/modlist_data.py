@@ -163,6 +163,13 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
             installed_ids.add(int(meta.mod_id))
         if getattr(meta, "missing_requirements", "") and e.name not in ignored_reqs:
             pairs = _parse_missing_req_pairs(meta.missing_requirements)
+            # Per-requirement ignores (meta.ini ignoredRequirements): those ids
+            # never raise the ⚠ flag, but stay in missing_requirements so the
+            # Missing Requirements panel still lists them (un-ignorable there).
+            ign_ids = {mid for mid, _ in _parse_missing_req_pairs(
+                getattr(meta, "ignored_requirements", "") or "")}
+            if ign_ids:
+                pairs = [pr for pr in pairs if pr[0] not in ign_ids]
             if pairs:
                 raw_missing_pairs[e.name] = pairs
         # Collection-install provenance (stamped in meta.ini at install time).

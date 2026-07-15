@@ -47,6 +47,11 @@ class NoteEditorOverlay(OverlayBase):
             f" border:1px solid {_c(p,'BORDER')}; border-radius:4px; }}")
         v.addWidget(self._edit, 1)
 
+        hint = QLabel(self.tr("Markdown is supported — it renders in the note tooltip."))
+        hint.setStyleSheet(
+            f"color:{_c(p,'TEXT_DIM')}; font-size:11px;")
+        v.addWidget(hint)
+
         bar = QHBoxLayout()
         if allow_remove:
             rm = QPushButton(self.tr("Remove note"))

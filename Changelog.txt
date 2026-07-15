@@ -14,11 +14,15 @@
 - Added a custom date range selector in the Nexus browser
 - Added a live preview panel in the theme editor
 - Added an option to disable mods by default when installing
+- Added a view requirements right click option that opens a menu and lists a mods requirements and required by breakdown
 ### Changes
 - A mods missing requirements/optional requirements are now flagged as soon as they are installed
-- The Nexus browser and change version menu are now improved for free users, Pressing install will open the mod page as well as detect when the download is complete and install the archive automatically
+- The Nexus browser, change version menu and missing requirements menu are now improved for Nexus free users, Pressing install will open the mod page as well as detect when the download is complete and install the archive automatically
 - When a tab is closed it will now go to the last used tab instead of the last tab opened
 - Updated the missing requirements check to use the Nexus v3 api to use the newer mod file requirements system
+- Individual mods in the missing requirements menu can now be ignored
+- A mods meta.ini can now be viewed from the mod files tab
+- Notes can now be formatted in markdown
 ### Bug Fixes
 - Fixed alphabetical sorting when the priority column is reversed
 - Fixed overflow errors when installing via the NXM handler
@@ -27,6 +31,7 @@
 - Fixed an issue where script extender's scripts folder was sent to the root folder when installed via the wizard
 - Fixed starfield's archive invalidation being applied to the wrong ini file
 - Fixed manually installed plugins not appearing in the plugins panel
+- Fixed bg3mm importer disabling mods not listed in loadorder.json
 
 ---
 

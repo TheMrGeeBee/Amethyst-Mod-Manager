@@ -266,6 +266,12 @@ class MainWindow(QMainWindow):
     _qu_dl_progress = Signal("qlonglong", "qlonglong")  # aggregate (cur_bytes, total_bytes; 64-bit: >2GB)
     _reinstall_downloaded = Signal(object, object)  # (dl_items list, failed list)
     _reinstall_dl_progress = Signal("qlonglong", "qlonglong")  # aggregate bytes (64-bit)
+    # Non-premium reinstall: file metadata resolved → arm the manual flow.
+    # ([(mod_name, domain, mod_id, file_id, NexusModFile-like), …]).
+    _reinstall_manual_ready = Signal(object)
+    # Non-premium reinstall: a browser download landed (or an existing archive
+    # was found). (mod_name, archive_path, prebuilt_meta|None, dl_key).
+    _reinstall_manual_found = Signal(object, object, object, object)
     _req_install_files = Signal(object, object)   # (ctx dict, files|None)
     _req_install_dl = Signal(object, object, object)  # (archive|None, meta|None, dl_key)
     _req_install_prog = Signal(object, object, "qlonglong", "qlonglong")  # (dl_key, name, downloaded, total bytes; 64-bit: >2GB)
@@ -501,10 +507,17 @@ class MainWindow(QMainWindow):
         self._qu_dl_progress.connect(self._on_qu_dl_progress)
         self._reinstall_downloaded.connect(self._on_reinstall_downloaded)
         self._reinstall_dl_progress.connect(self._on_reinstall_dl_progress)
+        self._reinstall_manual_ready.connect(self._on_reinstall_manual_ready)
+        self._reinstall_manual_found.connect(self._on_reinstall_manual_found)
         self._endorse_done.connect(self._on_endorse_done)
         self._amm_endorse_done.connect(self._on_amm_endorse_done)
         self._copy_done.connect(self._on_copy_done)
         self._col_update_scan_done.connect(self._finish_collection_update)
+        # App-level non-premium installs (reinstall / missing requirements):
+        # mod_id → (ManualDownloadWatcher, dl_key) while waiting for a browser
+        # download to land. (The Nexus browser / Change Version tabs keep
+        # their own registries.)
+        self._app_manual_watchers = {}
         # Install-a-Nexus-mod-by-id (Missing Requirements) flow.
         self._req_installing = False
         self._req_install_files.connect(self._on_req_install_files)
@@ -823,6 +836,17 @@ class MainWindow(QMainWindow):
         try:
             mv, pv = self._modlist_view, self._plugin_view
             names = mv.selected_mod_names()
+            if self._req_tab_active():
+                # View Requirements mode: conflict highlights are disabled —
+                # the panel retargets to the selection (multiple mods pool
+                # their requirements together; a selected separator contributes
+                # its whole block, matching selected_mod_names) and its
+                # on_data_changed callback applies the purple/blue tints once
+                # the deferred rebuild ends.
+                self._view_requirements_view.show_mods(names)
+                pv.clearSelection()
+                self._update_mod_files_selection(names)
+                return
             # Modlist rows: green/red tint on ALL conflict partners (loose+BSA).
             higher, lower = mv.conflict_partners(names)
             # Tk quirk: the [Overwrite] band lights GREEN when it wins over the
@@ -1064,7 +1088,10 @@ class MainWindow(QMainWindow):
                      if self._conflict_data else {})
             mods = pv.selected_owner_mods(owner)
             # Plugin selected → orange its owning mod, clear mod conflict tint.
-            mv.set_highlighted_mods(mods)
+            # Suppressed in View Requirements mode (purple/blue tints own the
+            # modlist while that tab is open).
+            if not self._req_tab_active():
+                mv.set_highlighted_mods(mods)
             mv.clearSelection()
             # Green-tick the selected plugin's masters in the plugin marker
             # strip (Tk parity).
@@ -1788,6 +1815,10 @@ class MainWindow(QMainWindow):
         if self._tabs.has_key("dll_overrides"):
             self._tabs.close_tab("dll_overrides")
             self._dll_overrides_view = None
+        # The View Requirements tab reads the previous game's staging — close
+        # it (its destroyed hook restores the conflict highlights).
+        if self._tabs.has_key("view_requirements"):
+            self._tabs.close_tab("view_requirements")
         # Wizard tool tabs are game-scoped — close them all.
         self._close_wizard_tabs()
         # The exe-settings tab is bound to the previous game's exe.
@@ -2572,6 +2603,11 @@ class MainWindow(QMainWindow):
                     _v.cancel_manual_watch(link.mod_id)
                 except Exception:
                     pass
+        # Same for a pending non-premium reinstall watch of this mod.
+        try:
+            self.cancel_app_manual_watch(link.mod_id)
+        except Exception:
+            pass
         self._append_log(
             f"[nexus] downloading mod {link.mod_id} file {link.file_id} "
             f"from {link.game_domain}…")
@@ -4277,24 +4313,26 @@ class MainWindow(QMainWindow):
         is_premium = False
         try:
             is_premium = bool(api.validate().is_premium)
+            if is_premium:
+                # [dev] force_manual_install = true → exercise the manual
+                # browser-download flow even on a premium account (same switch
+                # the browser / Change Version tabs honour).
+                from Utils.ui_config import load_force_manual_install
+                if load_force_manual_install():
+                    self._append_log("[reinstall] [dev] force_manual_install — "
+                                     "using the manual browser-download flow.")
+                    is_premium = False
         except Exception:
             pass
 
         if not is_premium:
-            # Non-premium: open each mod's files page so the user can download
-            # it manually (the nxm:// handler routes it back into Downloads).
-            from Utils.xdg import open_url
-            for nm, domain, mod_id, file_id, _fn in items:
-                open_url(
-                    f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
-                    f"?tab=files&file_id={file_id}", log_fn=self._append_log)
-                self._append_log(
-                    f"[reinstall] {nm} — archive missing and Nexus Premium "
-                    "required for direct download; opened the files page.")
-            self._notify(
-                self.tr("Premium required to redownload. Opened {0} mod page(s) "
-                "in your browser — download, then reinstall.").format(len(items)),
-                "info")
+            # Non-premium: same manual browser-download flow as the Nexus browser
+            # and Change Version tabs — if the archive is already on disk install
+            # it straight away, otherwise open the file's download page and watch
+            # the download folders so it auto-installs when the browser download
+            # lands (nxm:// 'Download with Mod Manager' also works and cancels
+            # the watch to avoid a double install).
+            self._start_reinstall_manual(items)
             return
 
         self._append_log(
@@ -4393,6 +4431,154 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=_download_all, daemon=True,
                          name="reinstall-dl").start()
+
+    # ---- non-premium reinstall: browser download + folder watch ------------
+    def _start_reinstall_manual(self, items):
+        """Reinstall missing archives for free users via the shared manual
+        browser-download flow (parity with the Nexus browser / Change Version
+        tabs). Fetches each file's REAL metadata first (name + size — the folder
+        watcher matches archives by size ±1% + mod id, so a zero-size stub only
+        matches on an exact name, which browser downloads rarely keep), then per
+        mod: install immediately if the archive is already on disk, else open its
+        download page and arm a folder watcher that auto-installs when the
+        browser download arrives. `items` =
+        [(mod_name, domain, mod_id, file_id, filename), …]."""
+        import threading
+        from gui_qt.safe_emit import safe_emit
+
+        api = getattr(self, "_nexus_api", None)
+
+        class _F:            # NexusModFile-like fallback if the fetch fails
+            def __init__(self, file_id, file_name):
+                self.file_id = file_id
+                self.file_name = file_name
+                self.name = file_name
+                self.size_in_bytes = 0
+                self.size_kb = 0
+
+        def _prep():
+            # One file-list fetch per mod (GraphQL modFiles — no REST cost),
+            # shared when several items point at the same mod.
+            files_cache: dict = {}
+            enriched = []
+            for nm, domain, mod_id, file_id, filename in items:
+                f = None
+                key = (domain, int(mod_id or 0))
+                if api is not None:
+                    try:
+                        files = files_cache.get(key)
+                        if files is None:
+                            files = list(api.get_mod_files(domain, mod_id).files)
+                            files_cache[key] = files
+                        f = next((x for x in files
+                                  if int(getattr(x, "file_id", 0) or 0)
+                                  == int(file_id or 0)), None)
+                    except Exception as exc:
+                        files_cache.setdefault(key, [])
+                        self._op_log.emit(
+                            f"[reinstall] {nm} — could not fetch file info "
+                            f"({exc}); archive detection may be less reliable.")
+                if f is None:
+                    f = _F(int(file_id or 0), filename or "")
+                enriched.append((nm, domain, mod_id, file_id, f))
+            safe_emit(self._reinstall_manual_ready, enriched)
+
+        threading.Thread(target=_prep, daemon=True,
+                         name="reinstall-manual-prep").start()
+
+    def _on_reinstall_manual_ready(self, enriched):
+        """UI thread: file metadata resolved — run each mod through the shared
+        start_manual_install flow (skip the browser when the archive is already
+        downloaded, else open its download page + watch the download folders).
+        `enriched` = [(mod_name, domain, mod_id, file_id, NexusModFile-like), …]."""
+        from Nexus.manual_download_watch import start_manual_install
+        from Utils.xdg import open_url
+        from gui_qt.safe_emit import safe_emit
+
+        api = getattr(self, "_nexus_api", None)
+        opened = 0
+        for nm, domain, mod_id, file_id, f in enriched:
+            dl_key = self._new_dl_key()
+            self._nexus_download_progress(dl_key, nm, 0, 0)  # show popup card
+
+            # Helper callbacks run on the WATCHER thread — marshal via Signals.
+            # (_op_log / _append_log are thread-safe.)
+            def on_archive(path, meta, _file, _nm=nm, _mid=mod_id, _key=dl_key):
+                if not self._claim_app_manual_watch(_mid, _key):
+                    return
+                safe_emit(self._reinstall_manual_found,
+                          _nm, str(path), meta, _key)
+
+            def on_progress(done, total, _nm=nm, _key=dl_key):
+                safe_emit(self._req_install_prog, _key, _nm, int(done), int(total))
+
+            def on_timeout(_nm=nm, _mid=mod_id, _key=dl_key):
+                if not self._claim_app_manual_watch(_mid, _key):
+                    return
+                self._op_log.emit(
+                    f"[reinstall] {_nm} — stopped waiting for a browser "
+                    "download (nothing arrived; reinstall from Downloads once "
+                    "downloaded).")
+                # total<0 clears the card (on the UI thread via the Signal).
+                safe_emit(self._req_install_prog, _key, "", 0, -1)
+
+            self.cancel_app_manual_watch(mod_id)   # re-trigger → fresh watch
+            watcher, already = start_manual_install(
+                api=api, game_domain=domain, mod_id=mod_id, files=[f],
+                open_url_fn=lambda u: open_url(u, log_fn=self._append_log),
+                log_fn=lambda m, _nm=nm: self._append_log(f"[reinstall] {_nm} — {m}"),
+                log_label=nm,
+                on_archive=on_archive, on_progress=on_progress,
+                on_timeout=on_timeout)
+            self._app_manual_watchers[int(mod_id or 0)] = (watcher, dl_key)
+            if not already:
+                opened += 1
+
+        if opened:
+            self._notify(
+                self.tr("Premium required to redownload. Opened {0} download "
+                "page(s) — they'll reinstall automatically once downloaded.")
+                .format(opened), "info")
+
+    def cancel_app_manual_watch(self, mod_id: int):
+        """Stop a pending app-level browser-download watch (reinstall or
+        missing-requirements install; no-op if none). Called on re-trigger,
+        and by the nxm:// handler when a 'Download with Mod Manager' for the
+        same mod arrives (that flow installs it, so the watch must not —
+        double install)."""
+        t = self._app_manual_watchers.pop(int(mod_id or 0), None)
+        if t is not None:
+            watcher, dl_key = t
+            watcher.stop()
+            self._nexus_download_progress(dl_key, "", 0, -1)
+
+    def _claim_app_manual_watch(self, mod_id, dl_key) -> bool:
+        """Claim completion of an app-level manual watch (watcher thread).
+        False when the watch was already cancelled or replaced by a newer one
+        for the same mod — the stale watcher must not emit its completion
+        signals (double install / clobbering the new watch's progress card)."""
+        mid = int(mod_id or 0)
+        t = self._app_manual_watchers.pop(mid, None)
+        if t is None:
+            return False
+        if t[1] != dl_key:
+            self._app_manual_watchers[mid] = t   # a newer watch owns the slot
+            return False
+        return True
+
+    def _on_reinstall_manual_found(self, nm, archive, meta, dl_key):
+        """UI thread: a non-premium reinstall's browser download landed (or an
+        existing archive was found). Install with the folder name forced (silent
+        Replace-All), keeping the archive for future reinstalls. *meta* was built
+        on the watcher thread."""
+        self._nexus_download_progress(dl_key, "", 0, -1)   # clear the card
+        if not archive:
+            return
+        self._append_log(f"[reinstall] {nm} — reinstalling {archive}…")
+        metas = {archive: meta} if meta is not None else None
+        # clear_archives=False: keep the archive so it can be reinstalled again.
+        self._install_paths([archive], metas=metas,
+                            preferred_names={archive: nm}, clear_archives=False)
 
     def _on_reinstall_dl_progress(self, cur: int, tot: int):
         """UI thread: drive the shared reinstall redownload progress card."""
@@ -4775,7 +4961,8 @@ class MainWindow(QMainWindow):
             api, game, mod_name, meta,
             install_fn=self._install_paths,
             on_close=self._close_change_version_tab,
-            log_fn=self._append_log)
+            log_fn=self._append_log,
+            progress_fn=self._nexus_download_progress)
         self._change_version_view = view
         view.destroyed.connect(
             lambda *_: setattr(self, "_change_version_view", None))
@@ -4990,27 +5177,29 @@ class MainWindow(QMainWindow):
             return
         names = [target] if isinstance(target, str) else list(target or ())
         from Nexus.nexus_meta import read_meta
-        from gui_qt.modlist_data import _parse_missing_req_names  # noqa: F401
+        from gui_qt.modlist_data import _parse_missing_req_pairs
+        # meta.ini keeps the FULL seeded requirement list on purpose (so a
+        # requirement reappears if its mod is later removed) — filter out the
+        # ones already installed here, exactly like the ⚠ flag pass does.
+        # Without this, reopening the panel re-showed installed requirements.
+        # Per-requirement IGNORED ids are NOT filtered — they stay visible in
+        # the panel (with their Ignore box checked) so they can be un-ignored.
+        installed_ids = self._installed_mod_ids()
         specs = []
         for name in names:
             meta = read_meta(staging / name / "meta.ini")
             raw = getattr(meta, "missing_requirements", "") or ""
-            ids: set[int] = set()
-            for part in raw.split(";"):
-                part = part.strip()
-                if not part:
-                    continue
-                head = part.split(":", 1)[0].strip()
-                try:
-                    ids.add(int(head))
-                except ValueError:
-                    pass
+            ids = {mid for mid, _ in _parse_missing_req_pairs(raw)}
+            ids -= installed_ids
             if not ids:
                 continue
+            ignored_ids = {mid for mid, _ in _parse_missing_req_pairs(
+                getattr(meta, "ignored_requirements", "") or "")}
             specs.append({"mod_name": name,
                           "mod_id": int(getattr(meta, "mod_id", 0) or 0),
                           "domain": getattr(meta, "game_domain", "") or domain,
-                          "missing_ids": ids})
+                          "missing_ids": ids,
+                          "ignored_ids": ignored_ids & ids})
         if not specs:
             self._notify(self.tr("No missing requirements."), "info")
             return
@@ -5037,13 +5226,63 @@ class MainWindow(QMainWindow):
         view = MissingReqsView(
             api, game, specs, ignored, _save_ignored,
             on_close=self._close_missing_reqs_tab, log_fn=self._append_log,
-            install_fn=self._install_nexus_mod_by_id)
+            install_fn=self._install_nexus_mod_by_id,
+            ignore_req_fn=self._set_req_ignored)
         self._missing_reqs_view = view
         view.destroyed.connect(
             lambda *_: setattr(self, "_missing_reqs_view", None))
         self._tabs.open_scoped_tab(
             view, self.tr("Missing Requirements"), self._plugins_panel_stack,
             key="missing_reqs")
+
+    def _set_req_ignored(self, req_id: int, req_name: str, ignored: bool,
+                         owner_names):
+        """Per-requirement ignore from the Missing Requirements panel: add or
+        remove *req_id* in the ignoredRequirements meta.ini field of each owning
+        mod in *owner_names*, then re-run the light flag pass so the ⚠ flag
+        updates immediately. Ignored ids stay in missingRequirements — the panel
+        keeps listing them (checked) so they can be un-ignored later."""
+        staging = self._gs.staging_dir()
+        if staging is None:
+            return
+        from Nexus.nexus_meta import read_meta, write_meta
+        from gui_qt.modlist_data import _parse_missing_req_pairs
+        rid = int(req_id or 0)
+        if rid <= 0:
+            return
+        changed = False
+        for nm in owner_names or ():
+            meta_path = staging / nm / "meta.ini"
+            try:
+                meta = read_meta(meta_path)
+            except Exception:
+                continue
+            cur = dict(_parse_missing_req_pairs(
+                getattr(meta, "ignored_requirements", "") or ""))
+            if ignored:
+                if rid in cur:
+                    continue
+                # ';' would corrupt the pair format (same rule the checkers use).
+                cur[rid] = (req_name or "").replace(";", ",")
+            else:
+                if rid not in cur:
+                    continue
+                del cur[rid]
+            meta.ignored_requirements = ";".join(
+                f"{m}:{n}" for m, n in cur.items())
+            try:
+                write_meta(meta_path, meta)
+                changed = True
+            except Exception as exc:
+                self._append_log(
+                    f"[nexus] could not save ignored requirement for {nm}: {exc}")
+        if changed:
+            self._append_log(
+                f"[nexus] {'ignored' if ignored else 'un-ignored'} requirement "
+                f"'{req_name or rid}' for: {', '.join(owner_names)}")
+            # Full pass (not a names= subset): the ⚠ two-pass needs installed
+            # ids from ALL rows. Warm meta cache makes this cheap.
+            self._refresh_modlist_flags()
 
     def _close_missing_reqs_tab(self):
         """Close the Missing Requirements panel. Only refresh flags when an Ignore
@@ -5065,6 +5304,114 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             self._refresh_modlist_flags()
+
+    # ---- View Requirements (plugins-panel-scoped tab) -----------------------
+    def _req_tab_active(self) -> bool:
+        """True only while the View Requirements tab is OPEN AND on screen.
+
+        A scoped tab that's been switched away from (another tab in the same
+        panel is showing) is hidden by the tab widget — so requirement
+        highlights should give way to the normal conflict highlights until the
+        user switches back. Visibility is the exact signal for that."""
+        view = getattr(self, "_view_requirements_view", None)
+        return (view is not None
+                and self._tabs.has_key("view_requirements")
+                and view.isVisible())
+
+    def _open_view_requirements_tab(self, name):
+        """Open the View Requirements panel over the plugins panel (right-click
+        item). Offline — it reads the full requirements list the update checker
+        stores in meta.ini. While open it follows the modlist selection and the
+        modlist tints the related mods purple (requires) / blue (required by)
+        instead of the green/red conflict highlights.
+
+        Seeds from the current selection so several right-clicked mods pool
+        their requirements from the start; falls back to the clicked mod when
+        it isn't part of the selection."""
+        staging = self._gs.staging_dir()
+        if staging is None:
+            self._notify(self.tr("No mod staging folder for this profile."),
+                         "warning")
+            return
+        seed = self._modlist_view.selected_mod_names()
+        seed = sorted(seed) if name in seed else [name]
+        if self._tabs.has_key("view_requirements"):
+            self._tabs.focus_key("view_requirements")
+            view = getattr(self, "_view_requirements_view", None)
+            if view is not None:
+                view.show_mods(seed)
+            return
+        from gui_qt.requirements_view import RequirementsView
+        view = RequirementsView(
+            staging_fn=self._gs.staging_dir,
+            on_close=self._close_view_requirements_tab,
+            on_data_changed=self._apply_requirement_highlights,
+            on_focus_changed=self._on_view_requirements_focus_changed,
+            on_view_missing=self._view_requirements_open_missing)
+        self._view_requirements_view = view
+        # destroyed fires on EVERY teardown path (✕ button, tab-bar close,
+        # game change) — restore normal highlights from the one place.
+        view.destroyed.connect(lambda *_: self._on_view_requirements_gone())
+        self._tabs.open_scoped_tab(
+            view, self.tr("View Requirements"), self._plugins_panel_stack,
+            key="view_requirements")
+        # The showEvent from open_scoped_tab flips on the requirement highlights
+        # via _on_view_requirements_focus_changed(True).
+        view.show_mods(seed)
+
+    def _view_requirements_open_missing(self, names):
+        """View Missing Requirements button → open the Missing Requirements
+        panel for the current selection. _open_missing_reqs_tab filters to mods
+        that actually have missing requirements and toasts if none do (it also
+        replaces the View Requirements tab, since both scope the plugins
+        panel)."""
+        if names:
+            self._open_missing_reqs_tab(set(names))
+
+    def _close_view_requirements_tab(self):
+        if self._tabs.has_key("view_requirements"):
+            self._tabs.close_tab("view_requirements")
+
+    def _on_view_requirements_focus_changed(self, visible: bool):
+        """The tab was shown or hidden (tab switch within the plugins panel).
+        Shown → suppress the per-rebuild conflict reapply and paint requirement
+        tints. Hidden → un-suppress and restore conflict highlights for the
+        current selection."""
+        self._modlist_view.suppress_conflict_highlights = bool(visible)
+        if visible:
+            self._apply_requirement_highlights()
+        else:
+            try:
+                self._on_mod_selection_changed()
+            except Exception:
+                pass
+
+    def _on_view_requirements_gone(self):
+        """Post-teardown: drop the ref and restore the conflict highlights for
+        the current selection (a plain _on_mod_selection_changed pass replaces
+        the requirement sets — set_highlights swaps all five sets at once).
+
+        The view's hideEvent normally restores highlights first, but teardown
+        paths that delete the widget without a hide (or where the ref is already
+        gone) still need this backstop."""
+        self._view_requirements_view = None
+        self._modlist_view.suppress_conflict_highlights = False
+        try:
+            self._on_mod_selection_changed()
+        except Exception:
+            pass
+
+    def _apply_requirement_highlights(self):
+        """Push the View Requirements tab's related-mod sets into the modlist
+        as the purple/blue row tints (replaces any conflict tint). No-op when
+        the tab isn't on screen — a background repopulate must not steal the
+        modlist tints from the conflict highlights."""
+        if not self._req_tab_active():
+            return
+        view = self._view_requirements_view
+        self._modlist_model.set_highlights(
+            requires=view.installed_requires,
+            required_by=view.installed_required_by)
 
     # ---- Show Conflicts (full detachable tab) ------------------------------
     def _open_show_conflicts_tab(self, mod_name: str):
@@ -5428,28 +5775,45 @@ class MainWindow(QMainWindow):
 
         def worker():
             files = None
+            premium = False
             try:
                 user = api.validate()
-                if not bool(getattr(user, "is_premium", False)):
-                    # Non-premium: open the files page (site 'Download with Manager').
-                    from Utils.xdg import open_url
-                    open_url(f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
-                             f"?tab=files", log_fn=self._append_log)
-                    self._append_log("[nexus] premium required for direct "
-                                     "download — opened the files page.")
-                    self._req_install_files.emit(ctx, None)
-                    return
+                premium = bool(getattr(user, "is_premium", False))
+                if premium:
+                    # [dev] force_manual_install = true → exercise the manual
+                    # browser-download flow even on a premium account (same
+                    # switch as the browser / Change Version / reinstall).
+                    from Utils.ui_config import load_force_manual_install
+                    if load_force_manual_install():
+                        self._append_log("[nexus] [dev] force_manual_install — "
+                                         "using the manual browser-download flow.")
+                        premium = False
+                # Fetch the file list for BOTH tiers: the chooser needs it, and
+                # the non-premium folder watcher needs real names + sizes.
                 resp = api.get_mod_files(domain, mod_id)
                 files = list(resp.files)
             except Exception as exc:
                 self._append_log(f"[nexus] install prep failed: {exc}")
+                if not premium:
+                    # No file list → no watch possible; fall back to the plain
+                    # files page (site 'Download with Mod Manager' still works).
+                    from Utils.xdg import open_url
+                    open_url(f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
+                             f"?tab=files", log_fn=self._append_log)
+                    self._append_log("[nexus] premium required for direct "
+                                     "download — opened the files page (the "
+                                     "download won't auto-install; use "
+                                     "'Download with Mod Manager').")
+            ctx["premium"] = premium
             self._req_install_files.emit(ctx, files)
 
         threading.Thread(target=worker, daemon=True, name="req-install-files").start()
 
     def _on_req_install_files(self, ctx, files):
-        """UI thread: pick which file to install (chooser if >1 main/optional/misc)."""
-        if files is None:           # non-premium / error path already handled
+        """UI thread: pick which file to install (chooser if >1 main/optional/misc),
+        then route to the API download (premium) or the shared manual
+        browser-download flow (non-premium / [dev] force_manual_install)."""
+        if files is None:           # fetch error (fallback already handled)
             self._req_installing = False
             return
         from gui_qt.nexus_file_chooser import NexusFileChooser, installable_files
@@ -5458,16 +5822,18 @@ class MainWindow(QMainWindow):
             self._notify(self.tr("No downloadable files for that mod."), "warning")
             self._req_installing = False
             return
+        start = (self._start_req_download if ctx.get("premium")
+                 else self._start_req_manual)
         if len(picks) > 1:
             def _picked(chosen):
                 if chosen is None:
                     self._req_installing = False
                     return
-                self._start_req_download(ctx, chosen)
+                start(ctx, chosen)
 
             NexusFileChooser.show_over(self, ctx["name"], picks, _picked)
         else:
-            self._start_req_download(ctx, picks[0])
+            start(ctx, picks[0])
 
     def _start_req_download(self, ctx, f):
         domain, mod_id, name = ctx["domain"], ctx["mod_id"], ctx["name"]
@@ -5517,6 +5883,56 @@ class MainWindow(QMainWindow):
             self._req_install_dl.emit(archive, meta, dl_key)
 
         threading.Thread(target=worker, daemon=True, name="req-install-dl").start()
+
+    def _start_req_manual(self, ctx, f):
+        """Non-premium (or [dev] force_manual_install) Missing-Requirements
+        install via the shared start_manual_install flow: skip the browser when
+        the archive is already downloaded, else open the file's download page +
+        watch the download folders. 'Download with Mod Manager' still works —
+        that nxm:// flow installs it and cancels this watch."""
+        from Nexus.manual_download_watch import start_manual_install
+        from Utils.xdg import open_url
+        from gui_qt.safe_emit import safe_emit
+        domain, mod_id, name = ctx["domain"], ctx["mod_id"], ctx["name"]
+        dl_label = f.file_name or name
+        dl_key = self._new_dl_key()
+        self._nexus_download_progress(dl_key, dl_label, 0, 0)  # show popup card
+
+        class _Info:            # requirement rows carry no NexusModInfo —
+            pass                # minimal fallback for build_meta_from_download
+        info = _Info()
+        info.mod_id = mod_id
+        info.domain_name = domain
+        info.name = name
+
+        # Helper callbacks run on the WATCHER thread — marshal via Signals.
+        def on_archive(path, meta, _file):
+            if not self._claim_app_manual_watch(mod_id, dl_key):
+                return
+            safe_emit(self._req_install_dl, str(path), meta, dl_key)
+
+        def on_progress(done, total):
+            safe_emit(self._req_install_prog, dl_key, dl_label, int(done), int(total))
+
+        def on_timeout():
+            if not self._claim_app_manual_watch(mod_id, dl_key):
+                return
+            self._op_log.emit(f"[nexus] stopped waiting for a browser download "
+                              f"of '{dl_label}' (nothing arrived).")
+            safe_emit(self._req_install_dl, None, None, dl_key)
+
+        self.cancel_app_manual_watch(mod_id)   # re-click → fresh watch
+        watcher, _already = start_manual_install(
+            api=self._nexus_api, game_domain=domain, mod_id=mod_id, files=[f],
+            open_url_fn=lambda u: open_url(u, log_fn=self._append_log),
+            log_fn=self._append_log, log_label=dl_label,
+            mod_info_fallback=info,
+            on_archive=on_archive, on_progress=on_progress,
+            on_timeout=on_timeout)
+        self._app_manual_watchers[int(mod_id or 0)] = (watcher, dl_key)
+        # The watch runs in the background — release the guard so the user can
+        # install other missing requirements meanwhile (watches are per-mod).
+        self._req_installing = False
 
     def _on_req_install_dl(self, archive, meta, dl_key):
         self._req_installing = False
@@ -6480,12 +6896,11 @@ class MainWindow(QMainWindow):
             self._notify(self.tr("'{0}' does not support deployment.").format(game.name), "warning")
             return
 
-        # Mewgenics: offer the Steam launch command as an alternative to
-        # repacking resources.gpak (Tk parity: top_bar._on_deploy). Only prompt
-        # for an explicit user deploy — auto-deploy (silent) falls straight
-        # through to the repack path.
-        if (not silent and getattr(game, "name", "") == "Mewgenics"
-                and hasattr(game, "get_modpaths_launch_string")):
+        # A game exposing get_modpaths_launch_string (Mewgenics) offers a Steam
+        # launch command as an alternative to repacking its archive (Tk parity:
+        # top_bar._on_deploy). Only prompt for an explicit user deploy —
+        # auto-deploy (silent) falls straight through to the repack path.
+        if not silent and hasattr(game, "get_modpaths_launch_string"):
             self._prompt_mewgenics_deploy(game)
             return
 
@@ -9060,6 +9475,8 @@ class MainWindow(QMainWindow):
         self._modlist_view.on_flag_clicked = self._on_modlist_flag_clicked
         # Missing Requirements: right-click item + clicking the ⚠ flag icon.
         self._modlist_view.on_missing_reqs = self._open_missing_reqs_tab
+        # View Requirements: right-click item (offline, reads meta.ini data).
+        self._modlist_view.on_view_requirements = self._open_view_requirements_tab
         # Quick Update: right-click on update-flagged mods (premium direct DL).
         self._modlist_view.on_quick_update = self._quick_update_mods
         # Reinstall: right-click item(s) whose install archive is still on disk.
@@ -9068,7 +9485,7 @@ class MainWindow(QMainWindow):
         self._modlist_view.on_show_conflicts = self._open_show_conflicts_tab
         # Mod removal strips plugins from plugins.txt/loadorder.txt — reload the
         # plugin panel so the removed plugins disappear without a manual refresh.
-        self._modlist_view.on_mods_removed = self._reload_plugins
+        self._modlist_view.on_mods_removed = self._on_mods_removed
         # Root-Folder toggle wrote meta.ini → refresh the root flag immediately,
         # then rescan those mods + rebuild filemap (the index caches strip-applied
         # vs verbatim paths, so it's now stale; the rebuild also refreshes the
@@ -9320,6 +9737,17 @@ class MainWindow(QMainWindow):
             if mid > 0:
                 ids.add(mid)
         return ids
+
+    def _on_mods_removed(self):
+        """A mod was fully removed (single or multi right-click Remove): reload
+        the plugins panel AND re-run the light flag pass. Removing a mod must
+        resurface the ⚠ missing-requirement flag on mods that depended on it —
+        the seeded list stays in meta.ini for exactly this, and the flag
+        two-pass recomputes installed ids from the remaining rows. Must be a
+        FULL flag pass (no names subset): a subset would compute installed ids
+        from the subset alone."""
+        self._reload_plugins()
+        self._refresh_modlist_flags()
 
     def _refresh_modlist_flags(self, names=None):
         """Re-read the meta/profile-derived flags and push them into the model

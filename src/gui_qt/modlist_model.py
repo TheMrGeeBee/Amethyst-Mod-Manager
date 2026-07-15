@@ -64,7 +64,8 @@ PriorityRole = Qt.UserRole + 3     # int display priority
 FlagsRole = Qt.UserRole + 4        # int bitmask (gui_qt.modlist_data.FLAG_*)
 BsaConflictRole = Qt.UserRole + 5  # int: BSA/BA2 archive conflict code
 HighlightRole = Qt.UserRole + 6    # int: 0 none, 1 higher(green), -1 lower(red),
-                                   #      2 anchor(orange, plugin-selected mod)
+                                   #      2 anchor(orange, plugin-selected mod),
+                                   #      3 requires(purple), -3 required-by(blue)
 
 _MIME = "application/x-amethyst-modrows"
 
@@ -136,6 +137,12 @@ class ModListModel(QAbstractTableModel):
         self._hl_higher: set[str] = set()
         self._hl_lower: set[str] = set()
         self._hl_anchor: set[str] = set()
+        # Requirement highlights (View Requirements tab): mods the selection
+        # requires (purple) / mods that require the selection (blue). Mutually
+        # exclusive with the conflict sets — every set_highlights call replaces
+        # all five, so whichever mode is active empties the other.
+        self._hl_requires: set[str] = set()
+        self._hl_required_by: set[str] = set()
         # When set, toggle/reorder edits are written back here.
         self.modlist_path = None
         # Optional callback invoked after a save (e.g. to rebuild conflicts).
@@ -415,25 +422,35 @@ class ModListModel(QAbstractTableModel):
             return 0
         if e.display_name not in self._collapsed:
             return 0
-        anchor = higher = lower = False
+        anchor = requires = required_by = higher = lower = False
         for r in self.sep_block_rows(row):
             name = self._entries[r].name
             if name in self._hl_anchor:
                 anchor = True
+            elif name in self._hl_requires:
+                requires = True
+            elif name in self._hl_required_by:
+                required_by = True
             elif name in self._hl_higher:
                 higher = True
             elif name in self._hl_lower:
                 lower = True
         if anchor:
             return 2
+        if requires:
+            return 3
+        if required_by:
+            return -3
         if higher:
             return 1
         if lower:
             return -1
         return 0
 
-    def set_highlights(self, higher=None, lower=None, anchor=None) -> None:
-        """Update conflict/anchor highlight sets and repaint the affected rows.
+    def set_highlights(self, higher=None, lower=None, anchor=None,
+                       requires=None, required_by=None) -> None:
+        """Update conflict/anchor/requirement highlight sets and repaint the
+        affected rows.
 
         Diff-aware: a no-op refresh (e.g. the per-rebuild self-highlight
         reapply with unchanged partners) emits nothing, and a real change
@@ -443,14 +460,22 @@ class ModListModel(QAbstractTableModel):
         higher = set(higher or ())
         lower = set(lower or ())
         anchor = set(anchor or ())
+        requires = set(requires or ())
+        required_by = set(required_by or ())
         if (higher == self._hl_higher and lower == self._hl_lower
-                and anchor == self._hl_anchor):
+                and anchor == self._hl_anchor
+                and requires == self._hl_requires
+                and required_by == self._hl_required_by):
             return
         changed = ((self._hl_higher ^ higher) | (self._hl_lower ^ lower)
-                   | (self._hl_anchor ^ anchor))
+                   | (self._hl_anchor ^ anchor)
+                   | (self._hl_requires ^ requires)
+                   | (self._hl_required_by ^ required_by))
         self._hl_higher = higher
         self._hl_lower = lower
         self._hl_anchor = anchor
+        self._hl_requires = requires
+        self._hl_required_by = required_by
         self._sep_hl_cache.clear()
         if not self._entries:
             return
@@ -541,6 +566,10 @@ class ModListModel(QAbstractTableModel):
                 return self._separator_highlight(index.row(), e)
             if e.name in self._hl_anchor:
                 return 2
+            if e.name in self._hl_requires:
+                return 3
+            if e.name in self._hl_required_by:
+                return -3
             if e.name in self._hl_higher:
                 return 1
             if e.name in self._hl_lower:

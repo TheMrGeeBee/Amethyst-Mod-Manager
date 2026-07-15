@@ -65,6 +65,8 @@ class NexusModMeta:
     ignore_update: bool = False        # user asked to ignore this update
     ignored_version: str = ""          # latest_version at the time ignore was set
     missing_requirements: str = ""     # semicolon-separated "modId:name" pairs
+    nexus_requirements: str = ""       # FULL requirements list, "modId:name" pairs (externals as 0:name)
+    ignored_requirements: str = ""     # user-ignored requirement ids, "modId:name" pairs (suppress the ⚠ flag; still listed in the panel)
     is_fomod: bool = False             # True if installed via FOMOD installer
     is_bain: bool = False              # True if installed via BAIN sub-package installer
     root_folder: bool = False          # True if files should deploy to game root
@@ -147,6 +149,8 @@ _KEY_MAP: dict[str, str] = {
     "ignoreUpdate":      "ignore_update",
     "ignoredVersion":    "ignored_version",
     "missingRequirements": "missing_requirements",
+    "nexusRequirements": "nexus_requirements",
+    "ignoredRequirements": "ignored_requirements",
     "FOMOD":             "is_fomod",
     "BAIN":              "is_bain",
     "rootFolder":        "root_folder",
@@ -366,6 +370,24 @@ def scan_installed_mods(staging_root: Path) -> list[NexusModMeta]:
             results.append(meta)
 
     return results
+
+
+def parse_req_pairs(raw: str) -> list[tuple[int, str]]:
+    """Parse a ``modId:name;modId:name`` requirements string (the format of
+    ``missing_requirements`` / ``nexus_requirements``) into (id, name) tuples.
+    Malformed parts are skipped; names keep any embedded colons (split-once)."""
+    pairs: list[tuple[int, str]] = []
+    for part in (raw or "").split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        head, _, tail = part.partition(":")
+        try:
+            rid = int(head.strip())
+        except ValueError:
+            continue
+        pairs.append((rid, tail.strip()))
+    return pairs
 
 
 # (path, mtime) → rootFolder bit, so the per-toggle filemap rebuild doesn't

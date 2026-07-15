@@ -150,4 +150,6 @@ class MewgenicsLaunchCommandOverlay(OverlayBase):
         cb = QGuiApplication.clipboard()
         if cb is not None:
             cb.setText(self._launch_string)
-        self._copy_btn.setText(self.tr("Copied ✓"))
+            self._copy_btn.setText(self.tr("Copied ✓"))
+        else:
+            self._copy_btn.setText(self.tr("Copy failed — copy it manually"))

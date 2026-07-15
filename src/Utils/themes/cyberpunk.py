@@ -199,6 +199,8 @@ PALETTE: dict[str, str | tuple] = {
     "CONFLICT_HL_WIN":    "#119300",   # selection beats this mod (green)
     "CONFLICT_HL_LOSE":   "#ff1717",   # this mod beats selection (red)
     "CONFLICT_HL_ANCHOR": "#A45500",   # plugin-selected / anchor mod (orange)
+    "REQ_HL_REQUIRES":    "#8a2be2",   # mods the selection requires (purple)
+    "REQ_HL_REQUIRED_BY": "#1e6fd9",   # mods that require the selection (blue)
 
     # Framework-status banner rows (Plugins tab) — per install state
     "FRAMEWORK_INSTALLED_BG": "#b1b100", "FRAMEWORK_INSTALLED_FG": "#000000",

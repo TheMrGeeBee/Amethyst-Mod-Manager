@@ -115,8 +115,10 @@ class NexusBrowserView(QWidget):
         self._premium_checked.connect(self._on_premium_checked)
         self._files_ready.connect(self._on_files_ready)
         self._manual_files_ready.connect(self._on_manual_files_ready)
-        self._manual_watch_ended.connect(
-            lambda mod_id: self._set_card_watching(mod_id, False))
+        # Bound method (NOT a lambda): slot connections to a QObject method are
+        # dropped by Qt when the receiver is destroyed, so a watcher thread
+        # finishing mid-teardown can't fire into a dead wrapper.
+        self._manual_watch_ended.connect(self._on_manual_watch_ended)
         self._download_done.connect(self._on_download_done)
         self._download_progress.connect(self._on_download_progress)
         self._installing = False        # serialise the prep phase (premium
@@ -1074,21 +1076,12 @@ class NexusBrowserView(QWidget):
             self._open_manual_file(entry, picks[0])
 
     def _open_manual_file(self, entry, file):
-        """Open the chosen file's own download page (file_id deep-link) and
-        arm the folder watcher for that file."""
+        """Install the chosen file via the shared start_manual_install flow:
+        skip the browser when the archive is already downloaded, else open the
+        file's download page (file_id deep-link) + watch the download folders."""
+        from Nexus.manual_download_watch import start_manual_install
         from Utils.xdg import open_url
         self._installing = False
-        fid = int(getattr(file, "file_id", 0) or 0)
-        open_url(f"{self._mod_url(entry)}?tab=files&file_id={fid}",
-                 log_fn=self._log)
-        self._log("Nexus: premium required for direct download — opened the "
-                  f"download page for '{file.file_name}'. It will install "
-                  "automatically once the browser download finishes.")
-        self._start_manual_watch(entry, [file])
-
-    def _start_manual_watch(self, entry, files):
-        from Nexus.manual_download_watch import ManualDownloadWatcher
-        from Nexus.nexus_meta import build_meta_from_download
         domain = getattr(entry, "domain_name", "") or self._domain
         mod_id = entry.mod_id
         name = entry.name or f"Mod {mod_id}"
@@ -1100,17 +1093,22 @@ class NexusBrowserView(QWidget):
         self._progress_fn(dl_key, name, 0, 0)
         watchers = self._manual_watchers
 
-        # All three callbacks run on the WATCHER thread.
-        def on_found(path, file):
-            watchers.pop(mod_id, None)
-            try:
-                meta = build_meta_from_download(
-                    game_domain=domain, mod_id=mod_id,
-                    file_id=int(getattr(file, "file_id", 0) or 0),
-                    archive_name=path.name, mod_info=entry, file_info=file)
-            except Exception:
-                meta = None
-            self._log(f"Nexus: found downloaded archive → {path}")
+        # All three callbacks run on the WATCHER thread — marshal via Signals.
+        def _claim() -> bool:
+            # Only the watch that still owns the slot may emit completion —
+            # a watch cancelled or replaced by a re-click must stay silent
+            # (double install / clobbering the new watch's progress card).
+            t = watchers.pop(mod_id, None)
+            if t is None:
+                return False
+            if t[1] != dl_key:
+                watchers[mod_id] = t   # a newer watch owns the slot
+                return False
+            return True
+
+        def on_archive(path, meta, _file):
+            if not _claim():
+                return
             safe_emit(self._download_done, str(path), meta, dl_key)
             safe_emit(self._manual_watch_ended, mod_id)
 
@@ -1118,18 +1116,22 @@ class NexusBrowserView(QWidget):
             safe_emit(self._download_progress, dl_key, name, int(done), int(total))
 
         def on_timeout():
-            watchers.pop(mod_id, None)
+            if not _claim():
+                return
             self._log(f"Nexus: stopped waiting for a browser download of "
                       f"{name} (nothing arrived — install it from the "
                       f"Downloads tab once downloaded).")
             safe_emit(self._download_done, None, None, dl_key)
             safe_emit(self._manual_watch_ended, mod_id)
 
-        watcher = ManualDownloadWatcher(
-            mod_id=mod_id, files=files, on_found=on_found,
-            on_progress=on_progress, on_timeout=on_timeout)
+        watcher, _already = start_manual_install(
+            api=self._api, game_domain=domain, mod_id=mod_id, files=[file],
+            open_url_fn=lambda u: open_url(u, log_fn=self._log),
+            log_fn=self._log, log_label=file.file_name,
+            mod_info=entry,          # card entry IS the NexusModInfo — no fetch
+            on_archive=on_archive, on_progress=on_progress,
+            on_timeout=on_timeout)
         watchers[mod_id] = (watcher, dl_key)
-        watcher.start()
         self._set_card_watching(mod_id, True)
 
     def cancel_manual_watch(self, mod_id: int):
@@ -1146,6 +1148,9 @@ class NexusBrowserView(QWidget):
     def _cancel_manual_watches(self):
         for mod_id in list(self._manual_watchers):
             self.cancel_manual_watch(mod_id)
+
+    def _on_manual_watch_ended(self, mod_id: int):
+        self._set_card_watching(mod_id, False)
 
     def _set_card_watching(self, mod_id: int, watching: bool):
         for card in self._cards:

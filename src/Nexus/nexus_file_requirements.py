@@ -112,6 +112,112 @@ def resolve_missing_definitions(
     return out
 
 
+def resolve_all_definitions(
+    candidates: list[FileDependencyCandidate],
+) -> dict[int, list[FileDependencyCandidate]]:
+    """Reduce candidate rows to ALL dependency definitions, regardless of
+    install state (unlike ``resolve_missing_definitions`` which drops satisfied
+    ones). Powers the View Requirements full list, where installed dependencies
+    must still be shown.
+
+    Returns {source_version_uid: [one representative candidate per definition]}.
+    A definition (rows sharing (source_version_id, definition_id)) is
+    represented by its preferred published candidate; definitions with no valid
+    published candidate are skipped (nothing to point at). OR-alternatives
+    collapse to a single representative — the full list can only express one
+    mod per definition anyway.
+    """
+    groups: dict[tuple[int, int], list[FileDependencyCandidate]] = {}
+    for c in candidates:
+        groups.setdefault((c.source_version_id, c.definition_id), []).append(c)
+
+    out: dict[int, list[FileDependencyCandidate]] = {}
+    seen_per_source: dict[int, set[int]] = {}
+    for (source_uid, _def_id), rows in groups.items():
+        valid = [c for c in rows
+                 if c.game_scoped_mod_id > 0 and c.mod_status == "published"]
+        if not valid:
+            continue
+        rep = sorted(valid, key=lambda c: (c.category != "main",
+                                           c.position, -c.version_id))[0]
+        seen = seen_per_source.setdefault(source_uid, set())
+        if rep.game_scoped_mod_id in seen:
+            continue
+        seen.add(rep.game_scoped_mod_id)
+        out.setdefault(source_uid, []).append(rep)
+    return out
+
+
+def compute_file_level_all(
+    api: "NexusAPI",
+    source_metas: list["NexusModMeta"],
+    game_domain: str,
+    log: Callable[[str], None] = lambda m: None,
+) -> dict[int, list[NexusModRequirement]]:
+    """ALL file-level requirements for the given metas (installed or not).
+
+    Same batch/resolution pipeline as ``compute_file_level_missing`` but with
+    no satisfaction filtering — it returns every file-level dependency so the
+    View Requirements full list can show installed deps normally and missing
+    ones dimmed. Returns {source mod_id: [NexusModRequirement, ...]}, or {} on
+    the kill switch / no usable file id / any v3 failure.
+    """
+    if not file_reqs_enabled():
+        return {}
+    try:
+        game_id_cache: dict[str, int] = {}
+        uid_sources: dict[int, set[int]] = {}
+        uid_domain: dict[int, str] = {}
+        for meta in source_metas:
+            if meta.mod_id <= 0 or meta.file_id <= 0:
+                continue
+            domain = (meta.game_domain or game_domain).strip().lower()
+            if not domain:
+                continue
+            if domain not in game_id_cache:
+                game_id_cache[domain] = api._resolve_game_id(domain)
+            gid = game_id_cache[domain]
+            if gid <= 0:
+                continue
+            uid = make_version_uid(gid, meta.file_id)
+            uid_sources.setdefault(uid, set()).add(meta.mod_id)
+            uid_domain[uid] = domain
+        if not uid_sources:
+            return {}
+
+        candidates = api.get_file_dependency_candidates_batch(list(uid_sources))
+        if not candidates:
+            return {}
+
+        all_by_uid = resolve_all_definitions(candidates)
+        if not all_by_uid:
+            return {}
+
+        rep_uids = {c.mod_uid for reps in all_by_uid.values() for c in reps}
+        mod_details = api.get_mods_batch(sorted(rep_uids))
+
+        result: dict[int, list[NexusModRequirement]] = {}
+        for uid, reps in all_by_uid.items():
+            for source_mod_id in uid_sources.get(uid, ()):
+                bucket = result.setdefault(source_mod_id, [])
+                have = {r.mod_id for r in bucket}
+                for c in reps:
+                    gsid = c.game_scoped_mod_id
+                    if gsid in have:
+                        continue
+                    have.add(gsid)
+                    detail = mod_details.get(c.mod_uid) or {}
+                    bucket.append(NexusModRequirement(
+                        mod_id=gsid,
+                        mod_name=str(detail.get("name") or ""),
+                        game_domain=uid_domain.get(uid, game_domain),
+                    ))
+        return result
+    except Exception as exc:
+        log(f"File-level requirements (all) check skipped ({exc})")
+        return {}
+
+
 def compute_file_level_missing(
     api: "NexusAPI",
     source_metas: list["NexusModMeta"],

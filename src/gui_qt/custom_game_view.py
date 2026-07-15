@@ -32,6 +32,7 @@ from gui_qt.safe_emit import safe_emit
 from Games.Custom.custom_game import (
     _make_game_id,
     delete_custom_game_definition,
+    load_custom_game_definitions,
     make_custom_game,
     save_custom_game_definition,
 )
@@ -234,6 +235,26 @@ class CustomGameView(QWidget):
         v = QVBoxLayout(body); v.setContentsMargins(16, 14, 16, 14); v.setSpacing(6)
         scroll.setWidget(body)
         outer.addWidget(scroll, 1)
+
+        # --- Load preset (create mode only) ---
+        if not self._existing:
+            v.addWidget(self._section_header(self.tr("Load Preset  (optional)")))
+            v.addWidget(self._hint(
+                self.tr("Prepopulate the fields below from an existing custom game "
+                "as a starting template. You still need to give the new game its "
+                "own unique name.")))
+            self._preset_combo = QComboBox()
+            self._preset_combo.setMaxVisibleItems(15)
+            self._preset_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
+            self._preset_combo.addItem(self.tr("— Select a game to copy from —"), userData=None)
+            for defn in load_custom_game_definitions():
+                nm = defn.get("name", "")
+                if nm:
+                    self._preset_combo.addItem(nm, userData=defn)
+            no_wheel(self._preset_combo)
+            self._preset_combo.currentIndexChanged.connect(self._on_preset_selected)
+            v.addWidget(self._preset_combo)
+            v.addWidget(self._divider())
 
         # --- Game Name ---
         v.addWidget(self._section_header(self.tr("Game Name")))
@@ -810,12 +831,31 @@ class CustomGameView(QWidget):
                 result[name] = path
         return result
 
-    # ---- prepopulate (edit mode) ------------------------------------------
-    def _prepopulate(self):
-        e = self._existing
+    # ---- preset dropdown (create mode) ------------------------------------
+    def _on_preset_selected(self, _idx: int):
+        defn = self._preset_combo.currentData()
+        if not defn:
+            return
+        # Clear any dynamic-table rows from a previous preset selection so the
+        # form reflects only the newly chosen template.
+        for rd in list(self._routing_rows):
+            self._remove_routing_rule(rd)
+        for rd in list(self._whitelist_rows):
+            self._remove_whitelist_rule(rd)
+        for rd in list(self._framework_rows):
+            self._remove_framework(rd)
+        # Populate every field from the preset, but leave the name blank — the
+        # new game needs its own unique name.
+        self._prepopulate(defn, keep_name=False)
+        self._update_data_path_visibility()
+
+    # ---- prepopulate (edit mode / preset load) ----------------------------
+    def _prepopulate(self, defn: dict | None = None, keep_name: bool = True):
+        e = defn if defn is not None else self._existing
         if not e:
             return
-        self._name_edit.setText(e.get("name", ""))
+        if keep_name:
+            self._name_edit.setText(e.get("name", ""))
         self._exe_edit.setText(e.get("exe_name", ""))
         dep = e.get("deploy_type", "standard")
         if dep in self._deploy_buttons:
