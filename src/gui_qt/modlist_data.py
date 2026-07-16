@@ -27,6 +27,7 @@ FLAG_BUNDLE = 1 << 9       # RE/Fluffy bundle (a [Bundle] section in meta.ini)
 FLAG_MODIO_UPDATE = 1 << 10  # BG3 mod.io update (modioFileId != modioLatestFileId)
 FLAG_PRERTX = 1 << 11      # contains pre-RTX (natives/x64) files — filemap-derived
 FLAG_ROOT_RULE = 1 << 12   # owns files with a custom root-routing rule — filemap-derived
+FLAG_RERUN_FOMOD = 1 << 13  # a FOMOD option's fileDependency plugin is now in the load order — live overlay
 
 
 def _parse_missing_req_pairs(raw: str) -> list[tuple[int, str]]:

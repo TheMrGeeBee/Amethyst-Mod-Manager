@@ -74,6 +74,8 @@ class NexusModMeta:
     from_collection_bundled: bool = False  # True for mods extracted from collection bundled/ folder
     from_collection_patched: bool = False  # True for mods that received BSDIFF40 patches from a collection
     xedit_modified_plugins: str = ""   # semicolon-separated plugin names edited in xEdit (set on restore)
+    fomod_pending_deps: str = ""       # ';'-separated '+'-joined AND-clauses of fileDependency plugins on FOMOD options the user did NOT select; flags a rerun when a clause becomes fully present in the load order
+    fomod_active_deps: str = ""        # ';'-separated '+'-joined AND-clauses of fileDependency plugins on FOMOD options the user DID select; flags a rerun when a clause is no longer fully present (its mod was removed)
 
     @property
     def nexus_page_url(self) -> str:
@@ -158,6 +160,8 @@ _KEY_MAP: dict[str, str] = {
     "fromCollectionBundled": "from_collection_bundled",
     "fromCollectionPatched": "from_collection_patched",
     "xeditModifiedPlugins": "xedit_modified_plugins",
+    "fomodPendingDeps":  "fomod_pending_deps",
+    "fomodActiveDeps":   "fomod_active_deps",
 }
 
 # Attributes that are ints
@@ -261,6 +265,16 @@ def write_meta(meta_ini_path: Path, meta: NexusModMeta) -> None:
             # that build a fresh NexusModMeta to update other fields would
             # otherwise wipe it.
             if attr == "xedit_modified_plugins" and not value:
+                continue
+            # Same for the FOMOD pending-deps list: written by the FOMOD
+            # installer only. A fresh NexusModMeta from an unrelated update
+            # (endorse toggle, update check) must not wipe it — the installer
+            # clears it explicitly (removing the ini key) when a rerun finds no
+            # unselected deps, so it never needs to write an empty value here.
+            if attr == "fomod_pending_deps" and not value:
+                continue
+            # Same for the FOMOD active-deps list (selected options' deps).
+            if attr == "fomod_active_deps" and not value:
                 continue
             # Same for the archive size: stamped once at install time; callers
             # that build a fresh NexusModMeta must not zero it.

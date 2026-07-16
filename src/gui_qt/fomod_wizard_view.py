@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from gui_qt.theme_qt import active_palette, _c
 from Utils.fomod_installer import (
     get_visible_steps, get_default_selections, update_flags,
-    validate_selections, resolve_plugin_type,
+    validate_selections, resolve_plugin_type, plugin_dep_unmet,
 )
 from Utils.fomod_parser import resolve_path_ci
 
@@ -184,6 +184,12 @@ class FomodWizardView(QWidget):
                 return self._plugin_type(p)
         return "Optional"
 
+    def _plugin_dep_unmet_by_name(self, group, name: str) -> bool:
+        for p in group.plugins:
+            if p.name == name:
+                return plugin_dep_unmet(p, self._active)
+        return False
+
     def _load_step(self, idx: int):
         self._cur = max(0, min(idx, len(self._visible_steps) - 1))
         step = self._visible_steps[self._cur]
@@ -218,15 +224,33 @@ class FomodWizardView(QWidget):
                     saved_plugins = saved.get(group_name, [])
                     group = group_map.get(group_name)
                     if group and saved_plugins:
-                        # Drop any saved plugin whose type is now NotUsable; if
-                        # that empties the group, fall back to the defaults.
+                        # Drop any saved plugin that's now NotUsable OR whose
+                        # plugin fileDependency is no longer met (its required mod
+                        # was removed/disabled since last install) — don't restore
+                        # a stale choice whose reqs no longer hold. If that empties
+                        # the group, fall back to the defaults.
                         filtered = [
                             p for p in saved_plugins
                             if self._plugin_type_by_name(group, p) != "NotUsable"
+                            and not self._plugin_dep_unmet_by_name(group, p)
                         ]
                         if not filtered and saved_plugins:
                             existing[group_name] = default_plugins
+                        elif group.group_type in ("SelectAtLeastOne", "SelectAny",
+                                                  "SelectAll"):
+                            # Multi-select: UNION the now Required/Recommended
+                            # defaults into the saved choices so a patch option
+                            # that only became eligible since last install (its
+                            # fileDependency plugin is now present) is auto-ticked
+                            # while the user's prior picks are preserved.
+                            merged = list(filtered)
+                            for p in default_plugins:
+                                if p not in merged:
+                                    merged.append(p)
+                            existing[group_name] = merged
                         else:
+                            # Single-select (ExactlyOne/AtMostOne): keep the saved
+                            # choice; forcing a second selection is invalid.
                             existing[group_name] = filtered
                     else:
                         existing[group_name] = saved_plugins or default_plugins
@@ -271,15 +295,23 @@ class FomodWizardView(QWidget):
         gl.setObjectName("FomodGroupTitle")
         bl.addWidget(gl)
 
-        def _style(control, locked: bool, plugin):
+        def _style(control, locked: bool, plugin, dep_unmet: bool = False):
             # Tk parity: Required/NotUsable options are locked + dimmed; a
             # choice saved by the previous install shows in green so the user
-            # can revert if they change their mind.
+            # can revert if they change their mind. An option whose plugin
+            # fileDependency isn't met yet is dimmed as a HINT (still selectable —
+            # the user may plan to install that mod next), unless it's already
+            # locked or a saved choice (those styles take precedence).
             if locked:
                 control.setEnabled(False)
                 control.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
             elif plugin.name in previously_saved:
                 control.setStyleSheet(f"color:{self._c('TEXT_OK')};")
+            elif dep_unmet:
+                control.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
+                control.setToolTip(self.tr(
+                    "This option's required plugin isn't enabled — enable it "
+                    "first, or select this only if you plan to add it."))
 
         controls = []
         if gtype in ("SelectExactlyOne", "SelectAtMostOne"):
@@ -289,7 +321,8 @@ class FomodWizardView(QWidget):
                 ptype = self._plugin_type(plugin)
                 rb = QRadioButton(plugin.name)
                 rb.setChecked(plugin.name in selected_names)
-                _style(rb, ptype in ("Required", "NotUsable"), plugin)
+                _style(rb, ptype in ("Required", "NotUsable"), plugin,
+                       dep_unmet=plugin_dep_unmet(plugin, self._active))
                 self._hook_hover(rb, plugin)
                 bg.addButton(rb)
                 bl.addWidget(rb)
@@ -307,7 +340,8 @@ class FomodWizardView(QWidget):
                     cb.setChecked(plugin.name in selected_names)
                 locked = (gtype == "SelectAll"
                           or ptype in ("Required", "NotUsable"))
-                _style(cb, locked, plugin)
+                _style(cb, locked, plugin,
+                       dep_unmet=plugin_dep_unmet(plugin, self._active))
                 self._hook_hover(cb, plugin)
                 bl.addWidget(cb)
                 controls.append((plugin, cb))

@@ -47,11 +47,14 @@ class QtWizardContext:
     (mutex/coalesce + progress popup); on_done(ok: bool) fires on the UI
     thread when the final deploy completes. Returns False if a deploy could
     not be started. refresh_modlist() re-syncs the mods folder + reloads the
-    panels (footer Refresh).
+    panels (footer Refresh).  refresh_plugins() re-runs LOOT to refresh plugin
+    metadata WITHOUT reordering the load order (footer Refresh Plugins) — used by
+    the xEdit wizards after a clean/edit session so dirty/message flags update.
     """
     profile_name: str = "default"
     run_deploy: Callable | None = None
     refresh_modlist: Callable | None = None
+    refresh_plugins: Callable | None = None
 
 
 # Deliberately dropped from the Qt app (not even shown greyed out).

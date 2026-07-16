@@ -471,8 +471,16 @@ class XEditView(QWidget):
         box.setWidget(inner)
         box.setFrameShape(QScrollArea.NoFrame)
 
-        # Insert between the header (0) and the stretch, so the list absorbs
-        # the space above the run status / Done button.
+        # Drop the placeholder stretch so it doesn't split the free vertical
+        # space with the box — then the box (stretch 1) gets the full height.
+        for i in range(self._run_page_lay.count()):
+            item = self._run_page_lay.itemAt(i)
+            if item is not None and item.widget() is None and item.spacerItem() is not None:
+                self._run_page_lay.takeAt(i)
+                break
+
+        # Insert the header + list just under the step title (index 0), above
+        # the run status / Done button, so the list absorbs the free height.
         self._run_page_lay.insertWidget(1, head)
         self._run_page_lay.insertWidget(2, box, 1)
 
@@ -611,6 +619,8 @@ class XEditView(QWidget):
             return
         self._closing = True
         do_refresh = self._ran and getattr(self._ctx, "refresh_modlist", None)
+        do_refresh_plugins = self._ran and getattr(
+            self._ctx, "refresh_plugins", None)
         self._on_close_cb()
         if do_refresh:
             # The post-run restore un-deployed the game and may have moved
@@ -619,3 +629,5 @@ class XEditView(QWidget):
             # refresh path also rescans the mod index, which the QAC flow
             # depends on).
             do_refresh()
+        if do_refresh_plugins:
+            do_refresh_plugins()

@@ -483,7 +483,9 @@ def load_plugins(game, profile: str,
     with span("plugins.master_checks"):
         _apply_master_checks(rows, resolved, data_dir)
     with span("plugins.loot_flags"):
-        _apply_loot_flags(rows, p.parent)
+        enabled_lower = {r.name.lower() for r in rows if r.enabled}
+        resolver = RequirementResolver(game, p.parent, staging, enabled_lower)
+        _apply_loot_flags(rows, p.parent, resolver)
     with span("plugins.userlist_flags"):
         _apply_userlist_flags(rows, p.parent)
     if cancelled():
@@ -655,8 +657,210 @@ def _apply_master_checks(rows: list[PluginRow], resolved: dict[str, Path],
             r.vmm_masters = list(vm)
 
 
-def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
-    """Flag LOOT messages / dirty edits / bash tags from the cached loot.json."""
+_FILENAME_REQ_RE = re.compile(r'^Filename\(["\'](.+?)["\']\)$')
+_NEXUS_ID_RE = re.compile(r"nexusmods\.com/[^/\s)]+/mods/(\d+)")
+_SE_LOADER_RE = re.compile(
+    r"\b(sk?se(64|vr)?|f4se(vr)?|fose|nvse|obse|sfse|mwse)\b")
+
+
+class RequirementResolver:
+    """Resolves LOOT "Requires" entries against the active profile so a
+    requirement that IS satisfied — but not by an *enabled plugin name* — is not
+    flagged as missing.
+
+    Ported from Tk gui/plugin_panel_loot.py (`_is_requirement_satisfied` and its
+    helpers). The Qt v1 tooltip only checked enabled plugin filenames, so an
+    SKSE-plugin requirement like "PapyrusUtil SE" (a Nexus link / a bare
+    `SKSE/Plugins/*.dll`, never a plugin file) always read as missing even when
+    the mod was installed and enabled. This resolver adds the other three
+    strategies the Tk app used:
+
+      1. enabled plugin filename (Filename("foo.esp"))
+      2. staged file path (filemap.txt) or a top-level game-root file
+      3. an enabled mod's Nexus mod_id (from the requirement's Nexus URL)
+      4. script-extender heuristic → an installed extender loader
+
+    Built once per plugin load; all lookups are lazy + cached on the instance.
+    """
+
+    def __init__(self, game, profile_dir: Path, staging_root: Path | None,
+                 enabled_plugins_lower: set[str]):
+        self._game = game
+        self._profile_dir = profile_dir
+        self._staging_root = staging_root
+        self._enabled_lower = enabled_plugins_lower
+        self._staged_paths: set[str] | None = None
+        self._mod_ids: set[int] | None = None
+        self._root_files: set[str] | None = None
+        self._se_detected: bool | None = None
+
+    # -- lazy context sets ------------------------------------------------
+    def _staged(self) -> set[str]:
+        if self._staged_paths is not None:
+            return self._staged_paths
+        paths: set[str] = set()
+        fm = (self._staging_root.parent / "filemap.txt") \
+            if self._staging_root is not None else None
+        if fm is not None and fm.is_file():
+            try:
+                with fm.open(encoding="utf-8") as f:
+                    for line in f:
+                        if "\t" not in line:
+                            continue
+                        rel = line.split("\t", 1)[0].strip()
+                        if rel:
+                            paths.add(rel.replace("\\", "/").lower())
+            except OSError:
+                pass
+        self._staged_paths = paths
+        return paths
+
+    def _enabled_mod_ids(self) -> set[int]:
+        if self._mod_ids is not None:
+            return self._mod_ids
+        ids: set[int] = set()
+        modlist_path = self._profile_dir / "modlist.txt"
+        if (self._staging_root is not None and self._staging_root.is_dir()
+                and modlist_path.is_file()):
+            try:
+                from Utils.modlist import read_modlist
+                from Nexus.nexus_meta import read_meta
+                for e in read_modlist(modlist_path):
+                    if not e.enabled:
+                        continue
+                    meta_path = self._staging_root / e.name / "meta.ini"
+                    if not meta_path.is_file():
+                        continue
+                    try:
+                        meta = read_meta(meta_path)
+                        if meta.mod_id:
+                            ids.add(int(meta.mod_id))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        self._mod_ids = ids
+        return ids
+
+    def _game_root_files(self) -> set[str]:
+        if self._root_files is not None:
+            return self._root_files
+        names: set[str] = set()
+        game = self._game
+        root = None
+        if game is not None and hasattr(game, "get_game_path"):
+            try:
+                root = game.get_game_path()
+            except Exception:
+                root = None
+        if root is not None:
+            root = Path(root)
+            if root.is_dir():
+                try:
+                    for entry in root.iterdir():
+                        if entry.is_file():
+                            names.add(entry.name.lower())
+                except OSError:
+                    pass
+        self._root_files = names
+        return names
+
+    def _script_extender_detected(self) -> bool:
+        if self._se_detected is not None:
+            return self._se_detected
+        self._se_detected = self._detect_script_extender()
+        return self._se_detected
+
+    def _detect_script_extender(self) -> bool:
+        """True if a script-extender loader is installed (game root / staged).
+
+        Mirrors Tk _script_extender_detected: a loader counts if it sits in the
+        game root or is present in the staged filemap. Root_Folder staging and
+        disabled-mod detection from Tk are approximated by the staged-path check,
+        which already includes Root_Folder deploys."""
+        game = self._game
+        if game is None:
+            return False
+        try:
+            frameworks = game.frameworks or {}
+        except Exception:
+            frameworks = {}
+        se_exes = [
+            exe for label, exe in frameworks.items()
+            if "script extender" in label.lower()
+            or _SE_LOADER_RE.search(exe.rsplit("/", 1)[-1].lower())
+        ]
+        if not se_exes:
+            return False
+        root_files = self._game_root_files()
+        staged = self._staged()
+        for exe in se_exes:
+            base = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
+            if base in root_files:
+                return True
+            rel = exe.replace("\\", "/").lstrip("./").lstrip("../").lower()
+            if rel in staged or any(p.rsplit("/", 1)[-1] == base for p in staged):
+                return True
+        return False
+
+    # -- resolution -------------------------------------------------------
+    def is_satisfied(self, raw: str, display: str) -> bool:
+        """True if a LOOT requirement entry is met in the current profile."""
+        m = _FILENAME_REQ_RE.match(raw)
+        if m:
+            inner = m.group(1).replace("\\", "/").lstrip("./").lstrip("../")
+            inner_lower = inner.lower()
+            if inner_lower in self._enabled_lower:
+                return True
+            if inner_lower in self._staged():
+                return True
+            base = inner_lower.rsplit("/", 1)[-1]
+            if base and base in self._game_root_files():
+                return True
+        mod_id = _extract_nexus_mod_id(display) or _extract_nexus_mod_id(raw)
+        if mod_id is not None and mod_id in self._enabled_mod_ids():
+            return True
+        text = f"{display} {raw}".lower()
+        if "script extender" in text or _SE_LOADER_RE.search(text):
+            if self._script_extender_detected():
+                return True
+        return False
+
+    def unsatisfied_requirements(self, reqs: list) -> list:
+        """Filter a requirements list down to the entries not satisfied."""
+        out = []
+        for r in reqs:
+            raw = r.get("name", "")
+            display = r.get("display_name") or raw
+            if not self.is_satisfied(raw, display):
+                out.append(r)
+        return out
+
+
+def _extract_nexus_mod_id(text: str) -> int | None:
+    """Pull a Nexus mod_id out of a URL or markdown link, if present."""
+    if not text:
+        return None
+    m = _NEXUS_ID_RE.search(text)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path,
+                      resolver: "RequirementResolver | None" = None) -> None:
+    """Flag LOOT messages / dirty edits / bash tags from the cached loot.json.
+
+    *resolver* (when given) filters each plugin's LOOT "requirements" down to the
+    entries not already satisfied by the active profile (enabled plugin, staged
+    file, enabled Nexus mod, or installed script extender). The filtered list is
+    what drives both the PF_LOOT flag icon and the rendered tooltip, so a
+    requirement met by a non-plugin mod (e.g. PapyrusUtil SE) no longer shows as
+    missing. Without a resolver the old enabled-plugin-only behaviour is used by
+    the tooltip renderer."""
     try:
         from LOOT.loot_sorter import read_loot_info
         data = read_loot_info(profile_dir)
@@ -674,8 +878,20 @@ def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
         d = info.get(r.name.lower())
         if not d:
             continue
+        # Resolve "requirements" against the active profile so a requirement
+        # already satisfied (by an enabled mod's Nexus id, a staged file, or an
+        # installed script extender — not just an enabled plugin name) doesn't
+        # light the flag or show up as missing. Shallow-copy before overwriting
+        # so the shared cached `info` dict is left intact for other consumers.
+        reqs = d.get("requirements") or []
+        if reqs and resolver is not None:
+            unmet = resolver.unsatisfied_requirements(reqs)
+            if len(unmet) != len(reqs):
+                d = dict(d)
+                d["requirements"] = unmet
+                reqs = unmet
         matched = False
-        if d.get("messages") or d.get("requirements") or d.get("incompatibilities"):
+        if d.get("messages") or reqs or d.get("incompatibilities"):
             r.flags |= PF_LOOT
             matched = True
         if d.get("dirty"):
@@ -685,7 +901,8 @@ def _apply_loot_flags(rows: list[PluginRow], profile_dir: Path) -> None:
             r.flags |= PF_TAGS
             matched = True
         if matched:
-            # Keep the raw per-plugin dict so the Flags tooltip can render it.
+            # Keep the (requirement-filtered) per-plugin dict so the Flags
+            # tooltip renders only the still-missing requirements.
             r.loot_info = d
 
 
@@ -960,9 +1177,11 @@ def format_loot_tooltip(info: dict, enabled_lower: set[str]) -> str:
 
     *enabled_lower* is the set of enabled plugin filenames (lowercase); it filters
     requirements to those not met by an enabled plugin, and incompatibilities to
-    those whose conflicting plugin is currently enabled. The Tk app additionally
-    resolves requirements against staged files / Nexus mod ids / script-extender
-    detection — that refinement is deferred here (Qt v1)."""
+    those whose conflicting plugin is currently enabled. The richer resolution
+    (staged files / enabled Nexus mod ids / script-extender detection — Tk parity)
+    is applied upstream by RequirementResolver in _apply_loot_flags, which stores
+    only the still-unsatisfied requirements in `info["requirements"]`, so a
+    non-plugin requirement like PapyrusUtil SE no longer reads as missing."""
     if not info:
         return ""
     sections: list[str] = []

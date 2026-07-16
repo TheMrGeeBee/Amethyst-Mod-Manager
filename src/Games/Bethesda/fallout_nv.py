@@ -49,7 +49,7 @@ class Fallout_NV(Fallout_3):
                 label="Install Tale of Two Wastelands",
                 description="Run the native Linux TTW installer (merges Fallout 3 + New Vegas) and add the result as a mod. Requires Fallout 3 installed and a TTW .mpi package from mod.pub.",
                 dialog_class_path="wizards.ttw.TTWInstallerWizard",
-                category="Setup & Installers",
+                category="Setup and Installers",
             ),
             WizardTool(
                 id="run_bethini_fonv",

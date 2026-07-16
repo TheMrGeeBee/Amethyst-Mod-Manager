@@ -16,13 +16,14 @@ if TYPE_CHECKING:
     from Games.base_game import WizardTool
 
 CATEGORY_ORDER = [
-    "Setup & Installers",
-    "Body & Outfits",
-    "Animation & Physics",
-    "LOD & Textures",
+    "Setup and Installers",
+    "Body and Outfits",
+    "Animation and Physics",
+    "DynDOLOD",
     "RSuite (experimental)",
-    "Patchers & Cleanup",
-    "Load Order & Config",
+    "Patchers and Cleanup",
+    "xEdit",
+    "Load Order and Config",
     "INI Tweaks",
     "Other",
 ]
@@ -31,24 +32,27 @@ CATEGORY_ORDER = [
 # stable machine keys (e.g. "run_dyndolod_skyrimse") so these survive label
 # wording changes.
 _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
-    # Body & outfits
-    (("bodyslide", "outfitstudio", "outfit_studio"), "Body & Outfits"),
-    # Animation & physics
-    (("pandora",), "Animation & Physics"),
+    # Body and outfits
+    (("bodyslide", "outfitstudio", "outfit_studio"), "Body and Outfits"),
+    # Animation and physics
+    (("pandora",), "Animation and Physics"),
     # RSuite (experimental) — checked before LOD so these don't fall into it
     (("vramr", "bendr", "parallaxr"), "RSuite (experimental)"),
-    # LOD & textures
-    (("texgen", "dyndolod", "xlodgen"), "LOD & Textures"),
-    # Patchers & cleanup
+    # DynDOLOD (LOD & textures)
+    (("texgen", "dyndolod", "xlodgen"), "DynDOLOD"),
+    # xEdit
     #   xEdit ships under many build names (SSEEdit, FO4Edit, FNVEdit, TES5Edit,
     #   SF1Edit, …) whose wizard ids share the "<build>edit_<suffix>" shape, so
     #   match the generic "edit_" infix to catch the whole family — not just
     #   SSEEdit.  Trailing "_" keeps it from matching unrelated ids like
-    #   "editor"/"credits".
-    (("pgpatcher", "edit_", "eslifier", "skygen", "plugin_audit",
-      "script_merger", "gpak"), "Patchers & Cleanup"),
-    # Load order & config
-    (("wrye_bash", "bethini"), "Load Order & Config"),
+    #   "editor"/"credits".  Checked before Patchers so the xEdit family lands
+    #   in its own category for every game.
+    (("edit_",), "xEdit"),
+    # Patchers and cleanup
+    (("pgpatcher", "eslifier", "skygen", "plugin_audit",
+      "script_merger", "gpak"), "Patchers and Cleanup"),
+    # Load order and config
+    (("wrye_bash", "bethini"), "Load Order and Config"),
     # Setup & installers (script extenders, downgraders, patches, framework installs)
     (("install_se", "install_reshade", "install_bepinex", "install_mgexe",
       "install_mcp", "downgrade", "4gb_patch", "dtkit", "_patch"),

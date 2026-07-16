@@ -13,7 +13,7 @@ the standard wizard dialog signature::
         "game_ids":     ["skyrim_se"],      # list of supported game_ids
         "all_games":    False,              # True = show for every game
         "dialog_class": "MyToolDialog",     # class name in this file
-        "category":     "Patchers & Cleanup",  # optional: picker group header.
+        "category":     "Patchers and Cleanup",  # optional: picker group header.
                                                 # Omit to auto-infer; a new name
                                                 # not in CATEGORY_ORDER is shown
                                                 # automatically, before "Other".
@@ -77,7 +77,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": _BETHESDA_GAME_IDS,
         "all_games": False,
         "dialog_class": "wizards.bethesda_register_game_path.RegisterGamePathWizard",
-        "category": "Setup & Installers",
+        "category": "Setup and Installers",
     },
     {
         "id": "bethesda_synthesis",
@@ -86,7 +86,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": [g for g in _BETHESDA_GAME_IDS if g != "FalloutNV"],
         "all_games": False,
         "dialog_class": "wizards.bethesda_synthesis.SynthesisWizard",
-        "category": "Patchers & Cleanup",
+        "category": "Patchers and Cleanup",
     },
     {
         "id": "bg3_import_modlist_json",
@@ -96,7 +96,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": ["baldurs_gate_3"],
         "all_games": False,
         "dialog_class": "wizards.bg3_import.BG3ImportWizard",
-        "category": "Load Order & Config",
+        "category": "Load Order and Config",
     },
     {
         "id": "sdv_smapi",
@@ -105,7 +105,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": ["Stardew_Valley"],
         "all_games": False,
         "dialog_class": "wizards.sdv_smapi.SmapiWizard",
-        "category": "Setup & Installers",
+        "category": "Setup and Installers",
     },
     {
         "id": "sr_srml",
@@ -114,7 +114,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": ["Slime_Rancher"],
         "all_games": False,
         "dialog_class": "wizards.sr_srml.SRMLWizard",
-        "category": "Setup & Installers",
+        "category": "Setup and Installers",
     },
     {
         "id": "msc_mscloader",
@@ -123,7 +123,7 @@ BUILTIN_WIZARD_TOOLS: list[dict] = [
         "game_ids": ["My_Summer_Car"],
         "all_games": False,
         "dialog_class": "wizards.msc_mscloader.MSCLoaderWizard",
-        "category": "Setup & Installers",
+        "category": "Setup and Installers",
     },
 ]
 

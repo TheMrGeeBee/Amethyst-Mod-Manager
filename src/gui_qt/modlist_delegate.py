@@ -24,6 +24,7 @@ from gui_qt.modlist_data import (
     FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF, FLAG_MISSING_REQS,
     FLAG_COLLECTION_BUNDLED, FLAG_COLLECTION_PATCHED, FLAG_NOTE, FLAG_XEDIT,
     FLAG_BUNDLE, FLAG_MODIO_UPDATE, FLAG_PRERTX, FLAG_ROOT_RULE,
+    FLAG_RERUN_FOMOD,
 )
 
 # Flag bit → icon filename, painted left-to-right in the Flags column, in the
@@ -34,6 +35,7 @@ _FLAG_ICONS = [
     (FLAG_NOTE, "note.png"),
     (FLAG_BUNDLE, "bundle_settings.png#ffffff"),
     (FLAG_MISSING_REQS, "warning.png"),
+    (FLAG_RERUN_FOMOD, "rerun_fomod.png"),
     (FLAG_UPDATE, "update.png"),
     (FLAG_MODIO_UPDATE, "update_modio.png"),
     (FLAG_ENDORSED, "endorsed.png"),
@@ -62,6 +64,7 @@ _FLAG_TIPS = {
     FLAG_NOTE: QT_TRANSLATE_NOOP("ModRowDelegate", "Note"),
     FLAG_BUNDLE: QT_TRANSLATE_NOOP("ModRowDelegate", "Click here to open bundle settings"),
     FLAG_MISSING_REQS: QT_TRANSLATE_NOOP("ModRowDelegate", "Missing requirements"),
+    FLAG_RERUN_FOMOD: QT_TRANSLATE_NOOP("ModRowDelegate", "A FOMOD patch option's plugin is now installed — click to re-run the FOMOD installer"),
     FLAG_UPDATE: QT_TRANSLATE_NOOP("ModRowDelegate", "Update available on Nexus Mods"),
     FLAG_MODIO_UPDATE: QT_TRANSLATE_NOOP("ModRowDelegate", "Update available on mod.io"),
     FLAG_ENDORSED: QT_TRANSLATE_NOOP("ModRowDelegate", "Endorsed"),

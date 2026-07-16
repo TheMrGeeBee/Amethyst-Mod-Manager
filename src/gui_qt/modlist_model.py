@@ -131,6 +131,10 @@ class ModListModel(QAbstractTableModel):
         # mods that own files with a custom root-routing rule. OR'd into FlagsRole.
         self._prertx_mods: set[str] = set()
         self._root_rule_mods: set[str] = set()
+        # Live overlay: mods whose FOMOD recorded a fileDependency plugin that is
+        # now present + enabled in the load order (→ rerun the FOMOD). Computed on
+        # every plugin reload from meta.ini fomodPendingDeps. See FLAG_RERUN_FOMOD.
+        self._rerun_fomod_mods: set[str] = set()
         # Highlight state: mod names tinted green (wins over selection) / red
         # (loses to selection), and a set of "anchor" mods (orange) — the mod a
         # selected plugin belongs to. Driven by the view's cross-panel wiring.
@@ -340,6 +344,13 @@ class ModListModel(QAbstractTableModel):
         self._root_rule_mods = set(mods or ())
         self._emit_flags_changed()
 
+    def set_rerun_fomod_mods(self, mods: set[str]) -> None:
+        """Set which mods have a recorded FOMOD fileDependency plugin now present
+        in the load order — the rerun-FOMOD icon (live overlay, recomputed on
+        each plugin reload). See FLAG_RERUN_FOMOD."""
+        self._rerun_fomod_mods = set(mods or ())
+        self._emit_flags_changed()
+
     def _emit_flags_changed(self) -> None:
         if self._entries:
             self.dataChanged.emit(self.index(0, COL_FLAGS),
@@ -539,7 +550,7 @@ class ModListModel(QAbstractTableModel):
     def _effective_flags(self, name: str) -> int:
         """Meta flag bits + the Mod-Files / filemap-derived overlays."""
         from gui_qt.modlist_data import (
-            FLAG_MODIFIED_MF, FLAG_PRERTX, FLAG_ROOT_RULE)
+            FLAG_MODIFIED_MF, FLAG_PRERTX, FLAG_ROOT_RULE, FLAG_RERUN_FOMOD)
         bits = self._flags.get(name, 0)
         if name in self._modified_mf:
             bits |= FLAG_MODIFIED_MF
@@ -547,6 +558,8 @@ class ModListModel(QAbstractTableModel):
             bits |= FLAG_PRERTX
         if name in self._root_rule_mods:
             bits |= FLAG_ROOT_RULE
+        if name in self._rerun_fomod_mods:
+            bits |= FLAG_RERUN_FOMOD
         return bits
 
     def data(self, index, role=Qt.DisplayRole):
@@ -692,6 +705,10 @@ class ModListModel(QAbstractTableModel):
 
     def entry(self, row: int) -> ModEntry:
         return self._entries[row]
+
+    def mod_names(self) -> list[str]:
+        """All non-separator mod names in the natural (unfiltered) order."""
+        return [e.name for e in self._natural if not e.is_separator]
 
     def description(self, name: str) -> str:
         """Nexus summary for *name* (name-column hover tooltip), or "" if none."""

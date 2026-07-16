@@ -241,6 +241,41 @@ def _make_ue5_conflict_key_fn(game, index_path: Path):
     return _ck
 
 
+def _make_custom_routing_conflict_key_fn(game):
+    """Build a (mod_name, rel_key) → ck callback from a custom game's routing
+    rules, or ``None`` if the game has no rules.
+
+    Custom routing rules decide a file's *actual* deploy destination at deploy
+    time; without this, conflict detection keys files by their staged path and
+    misses two mods that route to the same game location under different staged
+    prefixes (e.g. FF12's ``gamedata/…`` and ``ff12data/gamedata/…`` both
+    flatten to ``mods/deploy/ff12data/gamedata/…``). Feeding the effective
+    destination back as the conflict key makes build_filemap flag them.
+    """
+    rules = getattr(game, "custom_routing_rules", None)
+    if not rules:
+        return None
+    from Utils.deploy_custom_rules import compute_routed_dest, normalise_rules
+
+    norm = normalise_rules(rules)
+    strip = {p.lower() for p in (getattr(game, "mod_folder_strip_prefixes", None) or ())}
+    # Non-routed files deploy under mod_data_path (standard games) — anchor the
+    # verbatim fallback to the same game-root frame as the routed dests. Root
+    # and UE5 games have no data path (files land at the game root).
+    _defn = getattr(game, "_defn", None)
+    data_prefix = (_defn.get("mod_data_path", "") if isinstance(_defn, dict) else "") or ""
+    cache: dict[str, str] = {}
+
+    def _ck(_mod_name: str, rel_key: str) -> str:
+        ck = cache.get(rel_key)
+        if ck is None:
+            ck = compute_routed_dest(rel_key, norm, strip, data_prefix)
+            cache[rel_key] = ck
+        return ck
+
+    return _ck
+
+
 def _build_filemap_for_game(game, profile, *, log_fn: LogFn,
                             rescan_index: bool = False):
     """Rebuild filemap.txt + filemap_root.txt for *profile* of *game*.
@@ -339,7 +374,11 @@ def _build_filemap_for_game(game, profile, *, log_fn: LogFn,
                 def conflict_key_fn(_mod: str, rk: str, _f=_legacy) -> str:
                     return _f(rk)
             else:
-                conflict_key_fn = None
+                # Custom games with routing rules: key conflicts by effective
+                # deploy path so mods routing to the same location under
+                # different staged prefixes are flagged (e.g. FF12 gamedata/
+                # vs ff12data/gamedata/).
+                conflict_key_fn = _make_custom_routing_conflict_key_fn(game)
 
         with span("build_filemap"):
             result = build_filemap(

@@ -89,6 +89,10 @@ class PluginModel(QAbstractTableModel):
         requirement/incompatibility filtering."""
         return {r.name.lower() for r in self._rows if r.enabled}
 
+    def all_lower(self) -> set[str]:
+        """Set of ALL plugin filenames (lowercase), regardless of enabled state."""
+        return {r.name.lower() for r in self._rows}
+
     def set_highlights(self, highlights: dict[str, int]) -> None:
         """highlights maps plugin name (lower) → code (3 master / 2 anchor /
         1 higher / -1 lower). Replaces the whole map and repaints."""

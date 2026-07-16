@@ -56,8 +56,12 @@ def evaluate_dependency(dep: Dependency, flag_state: dict[str, str],
         return flag_state.get(dep.flag_name, "") == dep.flag_value
 
     if dep.dep_type == "file":
-        # Case-insensitive — FOMOD was designed for Windows.
-        key = dep.file_name.lower()
+        # Case-insensitive — FOMOD was designed for Windows. Strip surrounding
+        # whitespace: some FOMODs ship a stray trailing space in the name (e.g.
+        # "Blacksmith Chests.esp "), which would otherwise fail the plugin-suffix
+        # test → misrouted to the loose-asset path → the plugin condition never
+        # matches even when it's installed + active.
+        key = dep.file_name.strip().lower()
         # A fileDependency may reference an arbitrary loose asset path, not just
         # a plugin name. Detect that (path separator, or an extension that isn't
         # a plugin) and resolve it against the deployed file tree when we have
@@ -406,6 +410,168 @@ def resolve_files(config: ModuleConfig,
         for _, src, dst, is_folder in bucket:
             result.append((src, dst, is_folder))
     return result
+
+
+def _dep_plugin_name(dep: "Dependency") -> str:
+    """The cleaned plugin name of a fileDependency, or "" if it isn't a real
+    plugin dep. Strips surrounding whitespace (some FOMODs ship names with a
+    stray trailing space, e.g. "Blacksmith Chests.esp ", which would otherwise
+    fail the .esp suffix test and never match plugins.txt) and skips loose-asset
+    paths and Missing-state gates."""
+    if dep is None or dep.dep_type != "file" or dep.file_state == "Missing":
+        return ""
+    name = (dep.file_name or "").strip()
+    norm = name.lower().replace("\\", "/")
+    if "/" in norm or not norm.endswith((".esp", ".esm", ".esl")):
+        return ""
+    return name
+
+
+def _is_plugin_file_dep(dep: "Dependency") -> bool:
+    """True if *dep* is a fileDependency on a real plugin (a .esp/.esm/.esl with
+    no path separator — loose assets skipped) that would need to be PRESENT
+    (Active/Inactive, not Missing) for the pattern to match."""
+    return bool(_dep_plugin_name(dep))
+
+
+def _pattern_dep_groups(dep: "Dependency") -> list[list[str]]:
+    """Turn a pattern's Dependency tree into AND-groups of plugin names, where
+    the pattern matches when EVERY plugin in ANY one group is present. Each inner
+    list is an AND-clause; the outer list is an OR over clauses.
+
+    Handles the shapes real FOMODs use: a bare fileDependency, an And-composite
+    of fileDependencies (all must be present → one group), and an Or-composite
+    (each branch → its own group). Nested composites recurse. Non-file leaves
+    (flag/version) are ignored — a plugin appearing can't satisfy those, so they
+    don't gate the rerun hint.
+    """
+    if dep is None:
+        return []
+    if dep.dep_type == "file":
+        name = _dep_plugin_name(dep)
+        return [[name]] if name else []
+    if dep.dep_type != "composite":
+        return []  # flag / version / unsatisfiable — not plugin-driven
+    if not dep.sub_deps:
+        return []
+    if dep.operator.lower() == "or":
+        # Union of each branch's groups.
+        out: list[list[str]] = []
+        for sub in dep.sub_deps:
+            out.extend(_pattern_dep_groups(sub))
+        return out
+    # "And": every sub must hold. Cartesian-combine the sub-groups so the result
+    # is still a flat OR-of-ANDs. In practice sub-deps are single fileDependencies
+    # (one group each), so this collapses to a single combined AND-group.
+    combos: list[list[str]] = [[]]
+    for sub in dep.sub_deps:
+        sub_groups = _pattern_dep_groups(sub)
+        if not sub_groups:
+            continue  # non-plugin clause (flag/version) — doesn't add plugins
+        new_combos: list[list[str]] = []
+        for base in combos:
+            for g in sub_groups:
+                new_combos.append(base + g)
+        combos = new_combos
+    return [c for c in combos if c]
+
+
+def _collect_dep_plugin_clauses(config: ModuleConfig, all_selections: dict,
+                                want_selected: bool) -> list[str]:
+    """Shared walk for the two dep collectors. Returns AND-clauses (``+``-joined
+    plugin names) from the ``fileDependency`` patterns of options that were
+    SELECTED (``want_selected=True``) or NOT selected (``False``).
+
+    Mirrors :func:`resolve_files`: invisible steps (unsatisfied visibility
+    conditions) are skipped, SelectAll groups count every plugin as selected.
+    Deduped case-insensitively, first-seen casing preserved.
+    """
+    all_selections = all_selections or {}
+    groups: list[list[str]] = []
+    # Replay flag state so step-visibility gates match what the user actually saw.
+    flag_state: dict[str, str] = {}
+    for i, step in enumerate(config.steps):
+        if step.visible_condition is not None:
+            if not evaluate_dependency(step.visible_condition, flag_state,
+                                       set(), None, version_pass=True):
+                continue
+        step_selections = all_selections.get(str(i)) or \
+            all_selections.get(step.name, {})
+        for group in step.groups:
+            selected_names = set(step_selections.get(group.name, []))
+            for plugin in group.plugins:
+                is_selected = (group.group_type == "SelectAll"
+                               or plugin.name in selected_names)
+                if is_selected:
+                    flag_state.update(plugin.condition_flags)
+                if is_selected == want_selected:
+                    for pattern_dep, _t in plugin.type_descriptor.patterns:
+                        groups.extend(_pattern_dep_groups(pattern_dep))
+
+    # Dedupe whole clauses case-insensitively (order within a clause preserved).
+    seen: set[str] = set()
+    result: list[str] = []
+    for g in groups:
+        if not g:
+            continue
+        key = "+".join(n.lower() for n in g)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append("+".join(g))
+    return result
+
+
+def collect_unselected_dep_plugins(config: ModuleConfig,
+                                   all_selections: dict) -> list[str]:
+    """AND-groups of plugin names from the ``fileDependency`` patterns of options
+    the user did NOT select. Each returned string is one AND-clause: ``+``-joined
+    plugin names that must ALL be present for the pattern (and thus a rerun hint)
+    to apply. A single-plugin clause is just the bare name (backward compatible
+    with the earlier flat format). The caller stores these ``;``-joined; the flag
+    fires when EVERY plugin in ANY one clause is present in the load order.
+
+    These are patches the FOMOD would offer (or make required/recommended) *if*
+    the named plugin(s) were present — so if they appear later the FOMOD is worth
+    re-running.
+    """
+    return _collect_dep_plugin_clauses(config, all_selections,
+                                       want_selected=False)
+
+
+def collect_selected_dep_plugins(config: ModuleConfig,
+                                 all_selections: dict) -> list[str]:
+    """AND-groups of plugin names from the ``fileDependency`` patterns of options
+    the user DID select — the plugins those installed patches depend on. Same
+    ``+``/``;`` clause format as :func:`collect_unselected_dep_plugins`. The flag
+    fires when ANY one of these clauses is NO LONGER fully present (its required
+    mod was removed) — the installed patch is now orphaned, so rerun to drop it.
+    """
+    return _collect_dep_plugin_clauses(config, all_selections,
+                                       want_selected=True)
+
+
+def plugin_dep_unmet(plugin: "Plugin", active_files: set[str] | None) -> bool:
+    """True when *plugin* has plugin fileDependency condition(s) that are NOT
+    currently satisfied — i.e. every type-descriptor pattern that references
+    plugin(s) needs at least one plugin that isn't active. Used to dim (as a
+    hint, not to lock) an option whose required mod isn't present yet.
+
+    Returns False when the plugin has no plugin-driven pattern at all (nothing to
+    be unmet) or when at least one pattern's AND-group is fully satisfied.
+    ``active_files`` is the lowercase set of enabled plugins; None/empty means
+    nothing is active (so any real dependency is unmet).
+    """
+    active = active_files or set()
+    saw_plugin_dep = False
+    for pattern_dep, _type_name in plugin.type_descriptor.patterns:
+        for group in _pattern_dep_groups(pattern_dep):
+            if not group:
+                continue
+            saw_plugin_dep = True
+            if all(n.lower() in active for n in group):
+                return False   # this AND-group is met → dependency satisfied
+    return saw_plugin_dep
 
 
 # ---------------------------------------------------------------------------
