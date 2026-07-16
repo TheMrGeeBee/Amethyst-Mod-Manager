@@ -187,7 +187,8 @@ class FomodWizardView(QWidget):
     def _plugin_dep_unmet_by_name(self, group, name: str) -> bool:
         for p in group.plugins:
             if p.name == name:
-                return plugin_dep_unmet(p, self._active)
+                return plugin_dep_unmet(p, self._active, self._installed,
+                                        self._loose)
         return False
 
     def _load_step(self, idx: int):
@@ -316,17 +317,26 @@ class FomodWizardView(QWidget):
         controls = []
         if gtype in ("SelectExactlyOne", "SelectAtMostOne"):
             bg = QButtonGroup(box)
+            # SelectExactlyOne: exclusive (one always stays picked). SelectAtMostOne:
+            # NON-exclusive so the user can click the checked option again to clear
+            # it (zero is valid). But a non-exclusive group won't auto-uncheck
+            # siblings, so a manual handler enforces "at most one" when a new one is
+            # ticked — otherwise two radios could show checked at once (only the
+            # first would actually install, misleading the user).
             bg.setExclusive(gtype == "SelectExactlyOne")
             for plugin in group.plugins:
                 ptype = self._plugin_type(plugin)
                 rb = QRadioButton(plugin.name)
                 rb.setChecked(plugin.name in selected_names)
                 _style(rb, ptype in ("Required", "NotUsable"), plugin,
-                       dep_unmet=plugin_dep_unmet(plugin, self._active))
+                       dep_unmet=plugin_dep_unmet(plugin, self._active,
+                                                  self._installed, self._loose))
                 self._hook_hover(rb, plugin)
                 bg.addButton(rb)
                 bl.addWidget(rb)
                 controls.append((plugin, rb))
+            if gtype == "SelectAtMostOne":
+                self._wire_at_most_one(controls)
             self._group_state[group.name] = ("radio", gtype, controls)
         else:   # SelectAtLeastOne / SelectAny / SelectAll
             for plugin in group.plugins:
@@ -341,12 +351,33 @@ class FomodWizardView(QWidget):
                 locked = (gtype == "SelectAll"
                           or ptype in ("Required", "NotUsable"))
                 _style(cb, locked, plugin,
-                       dep_unmet=plugin_dep_unmet(plugin, self._active))
+                       dep_unmet=plugin_dep_unmet(plugin, self._active,
+                                                  self._installed, self._loose))
                 self._hook_hover(cb, plugin)
                 bl.addWidget(cb)
                 controls.append((plugin, cb))
             self._group_state[group.name] = ("check", gtype, controls)
         self._opts_layout.addWidget(box)
+
+    def _wire_at_most_one(self, controls):
+        """Enforce 'at most one' on a non-exclusive radio group: when one radio is
+        toggled ON, clear the others. Toggling it OFF (clicking the checked one)
+        leaves the group empty — which SelectAtMostOne permits."""
+        radios = [w for _p, w in controls]
+
+        def _make(this):
+            def _on_toggled(checked):
+                if not checked:
+                    return
+                for other in radios:
+                    if other is not this and other.isChecked():
+                        other.blockSignals(True)
+                        other.setChecked(False)
+                        other.blockSignals(False)
+            return _on_toggled
+
+        for rb in radios:
+            rb.toggled.connect(_make(rb))
 
     def _hook_hover(self, control, plugin):
         """Show the option's image+description when the cursor HOVERS the control

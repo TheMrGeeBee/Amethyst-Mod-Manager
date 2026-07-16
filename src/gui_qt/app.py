@@ -9586,20 +9586,33 @@ class MainWindow(QMainWindow):
                 if members:
                     yield members
 
+        def _member_holds(m: str) -> bool:
+            # "!name" = the plugin must be ABSENT (a state="Missing" gate);
+            # "name" = the plugin must be present + enabled.
+            if m.startswith("!"):
+                return m[1:] not in enabled
+            return m in enabled
+
+        def _clause_holds(members) -> bool:
+            return all(_member_holds(m) for m in members)
+
         for name in candidates:
             try:
                 meta = read_meta(staging / name / "meta.ini")
             except Exception:
                 continue
-            # Pending: an UNSELECTED option's deps are now all present → rerun to
-            # pick up the newly-relevant patch.
-            if any(all(m in enabled for m in members)
+            # Pending: an UNSELECTED option's condition is now fully met → rerun to
+            # pick up the newly-relevant patch. Require at least one PRESENT-member
+            # (a non-"!" literal) so a clause that only needs something ABSENT —
+            # true almost always — doesn't fire the flag constantly.
+            if any(_clause_holds(members)
+                   and any(not m.startswith("!") for m in members)
                    for members in _clauses(getattr(meta, "fomod_pending_deps", ""))):
                 out.add(name)
                 continue
-            # Active: a SELECTED option's deps are no longer all present → rerun to
-            # drop the now-orphaned patch.
-            if any(not all(m in enabled for m in members)
+            # Active: a SELECTED option's condition is no longer met → rerun to
+            # drop the now-orphaned/invalid patch.
+            if any(not _clause_holds(members)
                    for members in _clauses(getattr(meta, "fomod_active_deps", ""))):
                 out.add(name)
         return out

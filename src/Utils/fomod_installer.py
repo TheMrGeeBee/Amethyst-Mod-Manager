@@ -417,33 +417,38 @@ def _dep_plugin_name(dep: "Dependency") -> str:
     plugin dep. Strips surrounding whitespace (some FOMODs ship names with a
     stray trailing space, e.g. "Blacksmith Chests.esp ", which would otherwise
     fail the .esp suffix test and never match plugins.txt) and skips loose-asset
-    paths and Missing-state gates."""
-    if dep is None or dep.dep_type != "file" or dep.file_state == "Missing":
+    paths. A ``Missing``-state dep is returned with a leading ``!`` (the plugin
+    must be ABSENT for the clause to hold)."""
+    if dep is None or dep.dep_type != "file":
         return ""
     name = (dep.file_name or "").strip()
     norm = name.lower().replace("\\", "/")
     if "/" in norm or not norm.endswith((".esp", ".esm", ".esl")):
         return ""
-    return name
+    return ("!" + name) if dep.file_state == "Missing" else name
 
 
 def _is_plugin_file_dep(dep: "Dependency") -> bool:
     """True if *dep* is a fileDependency on a real plugin (a .esp/.esm/.esl with
     no path separator — loose assets skipped) that would need to be PRESENT
     (Active/Inactive, not Missing) for the pattern to match."""
-    return bool(_dep_plugin_name(dep))
+    name = _dep_plugin_name(dep)
+    return bool(name) and not name.startswith("!")
 
 
 def _pattern_dep_groups(dep: "Dependency") -> list[list[str]]:
-    """Turn a pattern's Dependency tree into AND-groups of plugin names, where
-    the pattern matches when EVERY plugin in ANY one group is present. Each inner
-    list is an AND-clause; the outer list is an OR over clauses.
+    """Turn a pattern's Dependency tree into AND-groups of plugin-name literals,
+    where the pattern matches when EVERY literal in ANY one group holds. Each
+    inner list is an AND-clause; the outer list is an OR over clauses.
+
+    A literal is a plugin name (must be PRESENT) or ``!name`` (must be ABSENT, from
+    a ``state="Missing"`` gate). So a mixed
+    ``And(Thaumaturgy.esp Active, gaunt.esl Missing)`` → ``[["Thaumaturgy.esp",
+    "!cccbhsse001-gaunt.esl"]]``.
 
     Handles the shapes real FOMODs use: a bare fileDependency, an And-composite
-    of fileDependencies (all must be present → one group), and an Or-composite
-    (each branch → its own group). Nested composites recurse. Non-file leaves
-    (flag/version) are ignored — a plugin appearing can't satisfy those, so they
-    don't gate the rerun hint.
+    (all must hold → one group), and an Or-composite (each branch → its own
+    group). Nested composites recurse. Non-file leaves (flag/version) are ignored.
     """
     if dep is None:
         return []
@@ -551,27 +556,46 @@ def collect_selected_dep_plugins(config: ModuleConfig,
                                        want_selected=True)
 
 
-def plugin_dep_unmet(plugin: "Plugin", active_files: set[str] | None) -> bool:
-    """True when *plugin* has plugin fileDependency condition(s) that are NOT
-    currently satisfied — i.e. every type-descriptor pattern that references
-    plugin(s) needs at least one plugin that isn't active. Used to dim (as a
-    hint, not to lock) an option whose required mod isn't present yet.
+def _dep_references_file(dep: "Dependency") -> bool:
+    """True if *dep*'s tree contains any fileDependency leaf (of any state) — i.e.
+    its satisfaction depends on the presence/absence of a plugin or asset. Used to
+    decide whether an option is 'plugin-driven' (dimmable) at all."""
+    if dep is None:
+        return False
+    if dep.dep_type == "file":
+        return True
+    if dep.dep_type == "composite":
+        return any(_dep_references_file(s) for s in dep.sub_deps)
+    return False
 
-    Returns False when the plugin has no plugin-driven pattern at all (nothing to
-    be unmet) or when at least one pattern's AND-group is fully satisfied.
-    ``active_files`` is the lowercase set of enabled plugins; None/empty means
-    nothing is active (so any real dependency is unmet).
+
+def plugin_dep_unmet(plugin: "Plugin", active_files: set[str] | None,
+                     installed_files: set[str] | None = None,
+                     loose_files: set[str] | None = None) -> bool:
+    """True when *plugin* has a fileDependency-driven type pattern that is NOT
+    currently satisfied — used to dim (as a hint, not lock) an option whose
+    condition isn't met. Evaluates each pattern with the real
+    :func:`evaluate_dependency`, so it honours mixed conditions correctly:
+    ``And(Thaumaturgy.esp Active, gaunt.esl Missing)`` is met only when
+    Thaumaturgy is active AND gaunt is absent. Flag/version-only patterns are not
+    plugin-driven and never dim the option.
+
+    Returns False when no pattern references a file at all, or when at least one
+    file-referencing pattern currently evaluates True.
     """
     active = active_files or set()
-    saw_plugin_dep = False
+    installed = installed_files if installed_files is not None else active
+    saw_file_dep = False
     for pattern_dep, _type_name in plugin.type_descriptor.patterns:
-        for group in _pattern_dep_groups(pattern_dep):
-            if not group:
-                continue
-            saw_plugin_dep = True
-            if all(n.lower() in active for n in group):
-                return False   # this AND-group is met → dependency satisfied
-    return saw_plugin_dep
+        if not _dep_references_file(pattern_dep):
+            continue
+        saw_file_dep = True
+        # version_pass=True: unknown engine/extender version gates are lenient,
+        # matching resolve_plugin_type — we only want to dim on FILE state.
+        if evaluate_dependency(pattern_dep, {}, installed, active,
+                               version_pass=True, loose_files=loose_files):
+            return False   # a file-driven pattern is satisfied → not unmet
+    return saw_file_dep
 
 
 # ---------------------------------------------------------------------------
