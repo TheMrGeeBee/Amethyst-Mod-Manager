@@ -263,7 +263,7 @@ jobs:
             $SIGN \
             site/repo
 
-      - name: Export public key + .flatpakrepo
+      - name: Export public key + .flatpakrepo + .flatpakref
         env:
           # HAVE_GPG comes from the job-level env (can't reference secrets in
           # a step `if:`, but the run body reads the inherited env var fine).
@@ -286,6 +286,30 @@ jobs:
           Icon=${PAGES_URL}/icon.png
           ${GPGLINE}
           EOF
+          # One-command install files: `flatpak install --user <url>.flatpakref`
+          # adds the remote (GPG key embedded) AND installs the app — no
+          # separate remote-add. Also double-clickable in GNOME Software /
+          # Discover. One file per branch, written only when that branch
+          # actually exists in the repo (a ref file pointing at a missing
+          # branch would just error at install time).
+          for BR in stable beta; do
+            if ostree --repo=site/repo refs | grep -qx "app/${APP_ID}/x86_64/${BR}"; then
+              SUFFIX=""; [ "$BR" = "beta" ] && SUFFIX="-beta"
+              cat > "site/amethyst${SUFFIX}.flatpakref" <<EOF
+          [Flatpak Ref]
+          Name=${APP_ID}
+          Branch=${BR}
+          Title=Amethyst Mod Manager (${BR})
+          Url=${PAGES_URL}/repo/
+          SuggestRemoteName=amethyst
+          Homepage=https://github.com/ChrisDKN/Amethyst-Mod-Manager
+          Icon=${PAGES_URL}/icon.png
+          IsRuntime=false
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          ${GPGLINE}
+          EOF
+            fi
+          done
           # A .nojekyll file keeps GitHub Pages from mangling the OSTree object
           # dirs (which start with characters Jekyll would try to process).
           touch site/.nojekyll
@@ -347,5 +371,10 @@ jobs:
               echo ""
               echo "Remote file: ${PAGES_URL}/amethyst.flatpakrepo"
               echo "Repo URL:    ${PAGES_URL}/repo/"
+              echo ""
+              echo "One-command install:"
+              echo '```'
+              echo "flatpak install --user ${PAGES_URL}/amethyst.flatpakref"
+              echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
