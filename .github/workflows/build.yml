@@ -314,20 +314,43 @@ jobs:
 
       # Build via the flathub action (it registers the flathub remote, handles
       # the container quirks, and caches the builder). We use its native inputs
-      # to (a) stamp the OSTree branch (stable/beta), (b) keep the exported
-      # repo/ dir, and (c) also emit the bundle for the fallback path — so we
-      # no longer hand-roll flatpak-builder and re-introduce the "No remote refs
-      # found for flathub" failure.
-      - name: Build Flatpak (repo + bundle)
+      # to (a) stamp the OSTree branch (stable/beta) and (b) keep the exported
+      # repo/ dir — so we no longer hand-roll flatpak-builder and re-introduce
+      # the "No remote refs found for flathub" failure. The bundle is built in
+      # the next step instead (the action doesn't expose --repo-url).
+      - name: Build Flatpak (repo)
         uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
           manifest-path: flatpak/io.github.Amethyst.ModManager.yml
           branch: ${{ steps.branch.outputs.name }}
-          bundle: AmethystModManager.flatpak
-          build-bundle: true
+          build-bundle: false
           repo-dir: repo
           cache-key: flatpak-builder-${{ github.sha }}
           upload-artifact: false
+
+      # Bundle with --repo-url: installing the .flatpak then auto-configures
+      # the hosted remote as the app's origin, so bundle users get native
+      # `flatpak update` / Discover updates from day one (no enroll button).
+      # --gpg-keys embeds the remote's public signing key so those updates are
+      # signature-verified; fetched from the live Pages site (it's public, and
+      # build.yml has no access to the signing secrets) — skipped gracefully
+      # when absent (unsigned repo).
+      - name: Bundle (auto-enrolling remote)
+        shell: bash
+        run: |
+          set -euo pipefail
+          GPGOPT=""
+          if curl -fsSL -o amethyst.gpg \
+               https://chrisdkn.github.io/Amethyst-Mod-Manager/amethyst.gpg; then
+            GPGOPT="--gpg-keys=amethyst.gpg"
+          else
+            echo "No published signing key — bundle will not embed one."
+          fi
+          flatpak build-bundle repo AmethystModManager.flatpak \
+            io.github.Amethyst.ModManager '${{ steps.branch.outputs.name }}' \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            --repo-url=https://chrisdkn.github.io/Amethyst-Mod-Manager/repo/ \
+            $GPGOPT
 
       - uses: actions/upload-artifact@v4
         with:
