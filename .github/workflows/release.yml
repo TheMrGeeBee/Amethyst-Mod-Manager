@@ -217,12 +217,19 @@ jobs:
 
       - name: Import GPG signing key
         id: gpg
-        if: env.HAVE_GPG == 'true'
+        if: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY != '' }}
         env:
-          HAVE_GPG: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY != '' }}
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
         run: |
-          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | gpg --batch --import
-          echo "sign=--gpg-sign=${{ secrets.FLATPAK_GPG_KEY_ID }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # Pipe the (multi-line, armored) key from an env var, NOT inline
+          # interpolation, so newlines survive intact.
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # Confirm the signing key is actually present before we rely on it —
+          # a silent import failure would otherwise ship an UNSIGNED repo.
+          gpg --list-secret-keys "$GPG_KEY_ID" >/dev/null
+          echo "sign=--gpg-sign=${GPG_KEY_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Merge build into live repo
         run: |
@@ -247,11 +254,12 @@ jobs:
       - name: Export public key + .flatpakrepo
         env:
           HAVE_GPG: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY != '' }}
+          GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
         run: |
           set -euo pipefail
           GPGLINE=""
           if [ "$HAVE_GPG" = "true" ]; then
-            gpg --export "${{ secrets.FLATPAK_GPG_KEY_ID }}" > site/amethyst.gpg
+            gpg --export "$GPG_KEY_ID" > site/amethyst.gpg
             B64=$(base64 -w0 site/amethyst.gpg)
             GPGLINE="GPGKey=${B64}"
           fi
