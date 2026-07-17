@@ -5,6 +5,7 @@
 - Selecting and installing multiple mods in the downloads tab will now install them in parallel, like collections
 - When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
 - Added the option to change download speed limits
+- Added a flatpak remote for easier flatpak updating
 
 - v2.0.3
 ### Game support
