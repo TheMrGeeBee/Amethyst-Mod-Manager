@@ -9832,6 +9832,14 @@ class MainWindow(QMainWindow):
         # Narrow to FOMOD-installed mods when we know them (avoids reading meta for
         # every mod); fall back to all mods if the set isn't populated yet.
         candidates = getattr(self, "_mod_fomod", None) or self._modlist_model.mod_names()
+        # A DISABLED mod isn't deployed, so "rerun to fix it" is meaningless — and
+        # its own plugins leave the load order when disabled, which would break its
+        # self-referential fomodActiveDeps and falsely raise the flag. Skip them.
+        try:
+            enabled_mods = self._modlist_model.enabled_mod_names()
+            candidates = [m for m in candidates if m in enabled_mods]
+        except Exception:
+            pass
         out: set[str] = set()
         try:
             from Nexus.nexus_meta import read_meta

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from gui_qt.theme_qt import active_palette, _c
 from Utils.fomod_installer import (
     get_visible_steps, get_default_selections, update_flags,
-    validate_selections, resolve_plugin_type, plugin_dep_unmet,
+    validate_selections, resolve_plugin_type, plugin_dep_unmet, plugin_dep_met,
 )
 from Utils.fomod_parser import resolve_path_ci
 
@@ -191,6 +191,21 @@ class FomodWizardView(QWidget):
                                         self._loose)
         return False
 
+    def _is_rerun(self) -> bool:
+        """True when this install has prior saved selections — i.e. the user has
+        run this FOMOD before. 'Newly available' highlighting only applies then
+        (on a fresh install every option is 'new', so it would be noise)."""
+        return bool(self._saved_selections)
+
+    def _newly_available(self, plugin, previously_saved) -> bool:
+        """True on a RERUN when this option is gated on a plugin, that gate is now
+        MET, and the option was NOT selected last time — so it's newly selectable
+        and worth flagging in blue."""
+        return (self._is_rerun()
+                and plugin.name not in previously_saved
+                and plugin_dep_met(plugin, self._active, self._installed,
+                                   self._loose))
+
     def _load_step(self, idx: int):
         self._cur = max(0, min(idx, len(self._visible_steps) - 1))
         step = self._visible_steps[self._cur]
@@ -296,18 +311,28 @@ class FomodWizardView(QWidget):
         gl.setObjectName("FomodGroupTitle")
         bl.addWidget(gl)
 
-        def _style(control, locked: bool, plugin, dep_unmet: bool = False):
+        def _style(control, locked: bool, plugin, dep_unmet: bool = False,
+                   newly_available: bool = False):
             # Tk parity: Required/NotUsable options are locked + dimmed; a
             # choice saved by the previous install shows in green so the user
-            # can revert if they change their mind. An option whose plugin
-            # fileDependency isn't met yet is dimmed as a HINT (still selectable —
-            # the user may plan to install that mod next), unless it's already
-            # locked or a saved choice (those styles take precedence).
+            # can revert if they change their mind. On a RERUN, an option that is
+            # NOW available (its fileDependency plugin appeared since last install)
+            # but wasn't picked before shows in BLUE so the user can spot what's
+            # newly selectable — the whole reason the rerun-FOMOD flag fired. An
+            # option whose fileDependency still isn't met is dimmed as a HINT
+            # (still selectable). Precedence: locked > saved(green) > new(blue) >
+            # unmet(dim).
             if locked:
                 control.setEnabled(False)
                 control.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
             elif plugin.name in previously_saved:
                 control.setStyleSheet(f"color:{self._c('TEXT_OK')};")
+            elif newly_available:
+                control.setStyleSheet(
+                    f"color:{self._c('ACCENT')}; font-weight:600;")
+                control.setToolTip(self.tr(
+                    "Newly available — this option's required plugin is now "
+                    "installed since your last run of this installer."))
             elif dep_unmet:
                 control.setStyleSheet(f"color:{self._c('TEXT_DIM')};")
                 control.setToolTip(self.tr(
@@ -330,7 +355,9 @@ class FomodWizardView(QWidget):
                 rb.setChecked(plugin.name in selected_names)
                 _style(rb, ptype in ("Required", "NotUsable"), plugin,
                        dep_unmet=plugin_dep_unmet(plugin, self._active,
-                                                  self._installed, self._loose))
+                                                  self._installed, self._loose),
+                       newly_available=self._newly_available(plugin,
+                                                             previously_saved))
                 self._hook_hover(rb, plugin)
                 bg.addButton(rb)
                 bl.addWidget(rb)
@@ -352,7 +379,9 @@ class FomodWizardView(QWidget):
                           or ptype in ("Required", "NotUsable"))
                 _style(cb, locked, plugin,
                        dep_unmet=plugin_dep_unmet(plugin, self._active,
-                                                  self._installed, self._loose))
+                                                  self._installed, self._loose),
+                       newly_available=self._newly_available(plugin,
+                                                             previously_saved))
                 self._hook_hover(cb, plugin)
                 bl.addWidget(cb)
                 controls.append((plugin, cb))
