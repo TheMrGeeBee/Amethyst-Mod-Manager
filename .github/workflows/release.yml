@@ -211,6 +211,15 @@ jobs:
           if [ ! -d site/repo/objects ]; then
             ostree --repo=site/repo init --mode=archive-z2
           fi
+          # Git does NOT store empty directories, so checking out gh-pages
+          # loses the empty parts of the OSTree layout (refs/remotes,
+          # refs/mirrors, state, tmp). ostree then dies with
+          # "opendir(refs/remotes): No such file or directory" on the second
+          # publish. Recreate them unconditionally — mkdir -p is idempotent.
+          mkdir -p site/repo/objects \
+                   site/repo/refs/heads site/repo/refs/mirrors \
+                   site/repo/refs/remotes site/repo/state \
+                   site/repo/extensions site/repo/tmp/cache
 
       - name: Download this build's repo
         uses: actions/download-artifact@v4
