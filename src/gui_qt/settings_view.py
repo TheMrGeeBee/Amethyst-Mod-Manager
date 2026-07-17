@@ -549,6 +549,21 @@ class SettingsView(QWidget):
             g, self.tr("Extractions are gated by available memory; the effective number "
                "may be lower than set."))
 
+        # Download speed limit — global cap shared by all download threads.
+        lim_sld, lim_lbl = self._slider(
+            g, self.tr("Download speed limit"), 0, 250,
+            int(uc.load_download_speed_limit()), self._save_speed_limit)
+        def _fmt_limit(v, _lbl=lim_lbl):
+            _lbl.setText(self.tr("Unlimited") if int(v) == 0 else
+                         self.tr("{0} MB/s").format(int(v)))
+        lim_sld.valueChanged.connect(_fmt_limit)
+        _fmt_limit(lim_sld.value())
+        self._add_help(
+            g, self.tr("Cap the combined download speed of all downloads "
+               "(collections, single mods, nxm links) so they don't use the "
+               "whole connection. Applies immediately, including to a running "
+               "collection install."))
+
         # Extraction resource limits — apply to every install (single mods,
         # Downloads tab and collections), not just collection installs.
         import os as _os
@@ -670,6 +685,12 @@ class SettingsView(QWidget):
     def _save_max_extract(self, value: int):
         self._cs["max_extract_workers"] = int(value)
         self._persist_collection()
+
+    def _save_speed_limit(self, value: int):
+        # Apply to in-flight downloads immediately, then persist.
+        from Utils import bandwidth_limit
+        bandwidth_limit.set_limit_mbps(float(value))
+        self._safe_save(uc.save_download_speed_limit, float(value))
 
 
     # ---- path browse / clear ----------------------------------------------

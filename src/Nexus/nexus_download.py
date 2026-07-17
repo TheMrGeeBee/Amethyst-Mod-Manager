@@ -38,6 +38,7 @@ import requests
 
 from .nexus_api import NexusAPI, NexusDownloadLink, NexusAPIError
 from .nxm_handler import NxmLink
+from Utils import bandwidth_limit
 from Utils.app_log import app_log
 from Utils.ca_bundle import resolve_ca_bundle
 
@@ -754,6 +755,7 @@ class NexusDownloader:
 
                     fh.write(chunk)
                     downloaded += len(chunk)
+                    bandwidth_limit.throttle(len(chunk), cancel)
 
                     if progress_cb:
                         progress_cb(downloaded, total)

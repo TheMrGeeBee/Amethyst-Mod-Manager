@@ -3445,9 +3445,12 @@ class MainWindow(QMainWindow):
                 on_cancel=self._on_col_cancel_clicked)
         else:
             from gui_qt.collection_install_overlay import CollectionInstallOverlay
+            from Utils.ui_config import load_download_speed_limit
             self._col_install_overlay = CollectionInstallOverlay.show_over(
                 self, title, on_pause=self._on_col_pause_clicked,
-                on_cancel=self._on_col_cancel_clicked)
+                on_cancel=self._on_col_cancel_clicked,
+                limit_mbps=load_download_speed_limit(),
+                on_limit_change=self._on_col_limit_changed)
 
         callbacks = self._build_collection_callbacks()
 
@@ -3704,6 +3707,17 @@ class MainWindow(QMainWindow):
                 ov.raise_()
             except Exception:
                 pass
+
+    def _on_col_limit_changed(self, mbps: float):
+        """Overlay speed-limit spinbox changed: apply to in-flight downloads
+        immediately (global token bucket) and persist for next time."""
+        from Utils import bandwidth_limit
+        from Utils.ui_config import save_download_speed_limit
+        bandwidth_limit.set_limit_mbps(mbps)
+        try:
+            save_download_speed_limit(mbps)
+        except Exception:
+            pass
 
     # ---- pause / cancel --------------------------------------------------
     def _on_col_pause_clicked(self):

@@ -732,6 +732,44 @@ def load_collection_settings() -> dict:
         return defaults
 
 
+# Download speed limit (all Nexus downloads, MB/s; 0 = unlimited). Stored in
+# the [collections] section because the collection installer is its main UI
+# entry point, but the cap applies to every download the app performs.
+_DL_SPEED_LIMIT_KEY = "download_speed_limit"
+_DL_SPEED_LIMIT_CEILING = 1000.0
+
+
+def load_download_speed_limit() -> float:
+    """Return the download speed limit in MB/s (0 = unlimited)."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return 0.0
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        if not parser.has_section(_COLLECTIONS_SECTION):
+            return 0.0
+        raw = parser[_COLLECTIONS_SECTION].get(_DL_SPEED_LIMIT_KEY, "0")
+        return max(0.0, min(_DL_SPEED_LIMIT_CEILING, float(raw)))
+    except Exception:
+        return 0.0
+
+
+def save_download_speed_limit(mbps: float) -> None:
+    """Persist the download speed limit (MB/s, 0 = unlimited) to amethyst.ini."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _COLLECTIONS_SECTION not in parser:
+        parser[_COLLECTIONS_SECTION] = {}
+    value = max(0.0, min(_DL_SPEED_LIMIT_CEILING, float(mbps or 0)))
+    parser[_COLLECTIONS_SECTION][_DL_SPEED_LIMIT_KEY] = f"{value:g}"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 def save_collection_settings(max_concurrent: int,
                               check_download_locations: bool = True,
                               clear_archive_after_install: bool = False,
