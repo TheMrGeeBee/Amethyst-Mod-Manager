@@ -305,13 +305,33 @@ def run_collection_install(
     if download_link_path and not collection_schema:
         _set_status("Downloading collection manifest…")
         try:
-            collection_schema = api.get_collection_archive_json(download_link_path)
+            # Cache-first (reads/keeps <slug>_rev<rev>.7z in the download cache)
+            # — the detail view usually cached it already, so a flaky CDN at
+            # install time doesn't cost us the manifest.
+            from Utils.collection_manifest import load_collection_manifest
+            collection_schema = load_collection_manifest(
+                api, getattr(game, "name", "") or "", _slug, revision_number,
+                download_link_path, log_fn=log)
             log(f"Collection install: parsed collection.json "
                 f"({len(collection_schema.get('mods', []))} mod entries, "
                 f"{len(collection_schema.get('plugins', []))} plugins)")
         except Exception as exc:
-            log(f"Collection install: could not download collection.json: {exc} — "
-                "continuing with GraphQL order")
+            log(f"Collection install: could not download collection.json: {exc}")
+    if not collection_schema and not _is_append_run:
+        # Last resort (continue/update runs): the profile's saved manifest from
+        # the original install. Never on append — that file belongs to the
+        # profile's primary collection, not the one being appended.
+        _saved = profile_dir / "collection.json"
+        if _saved.is_file():
+            try:
+                collection_schema = json.loads(_saved.read_text(encoding="utf-8"))
+                log("Collection install: using the profile's saved collection.json")
+            except Exception:
+                collection_schema = {}
+    if not collection_schema:
+        log("WARNING: collection manifest unavailable — install order falls "
+            "back to GraphQL and FOMOD/BAIN choices canNOT be auto-applied "
+            "(installers will prompt at the end)")
 
     if _is_append_run:
         # Append: record under installed_collections/ — do NOT clobber the
