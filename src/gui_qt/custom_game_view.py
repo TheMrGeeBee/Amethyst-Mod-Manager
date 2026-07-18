@@ -34,6 +34,7 @@ from Games.Custom.custom_game import (
     decode_custom_game_definition,
     delete_custom_game_definition,
     encode_custom_game_definition,
+    load_builtin_game_templates,
     load_custom_game_definitions,
     make_custom_game,
     save_custom_game_definition,
@@ -255,6 +256,11 @@ class CustomGameView(QWidget):
             self._preset_combo.setMaxVisibleItems(15)
             self._preset_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
             self._preset_combo.addItem(self.tr("— Select a game to copy from —"), userData=None)
+            for defn in load_builtin_game_templates():
+                nm = defn.get("name", "")
+                if nm:
+                    self._preset_combo.addItem(
+                        self.tr("{0}  (built-in template)").format(nm), userData=defn)
             for defn in load_custom_game_definitions():
                 nm = defn.get("name", "")
                 if nm:
