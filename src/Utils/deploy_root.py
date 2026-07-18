@@ -103,7 +103,10 @@ def deploy_root_folder(
     def _write_log(rels: "list[str]") -> None:
         # Files on the first line block, then a separator, then directories
         # we created that should be fully removed on restore.
-        with log_path.open("w", encoding="utf-8") as f:
+        # surrogateescape: filenames with non-UTF-8 bytes surface as surrogate
+        # code points (via the filesystem's surrogateescape decode) and would
+        # otherwise raise UnicodeEncodeError here.  Round-trips the bytes out.
+        with log_path.open("w", encoding="utf-8", errors="surrogateescape") as f:
             f.write("\n".join(rels))
             if created_dirs:
                 f.write("\n---dirs---\n")
@@ -200,7 +203,7 @@ def deploy_root_flagged_mods(
     existing_placed: list[str] = []
     existing_dirs: list[str] = []
     if log_path.is_file():
-        content = log_path.read_text(encoding="utf-8")
+        content = log_path.read_text(encoding="utf-8", errors="surrogateescape")
         if "---dirs---" in content:
             _files_sec, _dirs_sec = content.split("---dirs---", 1)
             existing_placed = [p for p in _files_sec.splitlines() if p]
@@ -262,7 +265,7 @@ def deploy_root_flagged_mods(
 
     def _write_log(rels: "list[str]") -> None:
         # Merge with any existing entries from deploy_root_folder.
-        with log_path.open("w", encoding="utf-8") as f:
+        with log_path.open("w", encoding="utf-8", errors="surrogateescape") as f:
             f.write("\n".join(existing_placed + rels))
             if created_dirs:
                 f.write("\n---dirs---\n")
@@ -343,7 +346,7 @@ def restore_root_folder(
         return 0
 
     # Parse log: files section and optional ---dirs--- section.
-    content = log_path.read_text(encoding="utf-8")
+    content = log_path.read_text(encoding="utf-8", errors="surrogateescape")
     if "---dirs---" in content:
         files_section, dirs_section = content.split("---dirs---", 1)
     else:

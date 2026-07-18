@@ -2011,7 +2011,9 @@ def _join_and_write(
     Returns the number of lines written.
     """
     output = _join_filtered(sorted_keys, lines, filemap, disabled_lower)
-    write_atomic_text(output_path, output)
+    # surrogateescape: deployed relative paths may carry non-UTF-8 filename
+    # bytes (surfaced as surrogate code points by the filesystem decode).
+    write_atomic_text(output_path, output, errors="surrogateescape")
     return output.count("\n")
 
 
@@ -2571,12 +2573,12 @@ def build_filemap(
                 mismatch.append("overrides")
             if _vob != overridden_by:
                 mismatch.append("overridden_by")
-            _disk = (output_path.read_text(encoding="utf-8")
+            _disk = (output_path.read_text(encoding="utf-8", errors="surrogateescape")
                      if output_path.is_file() else "")
             if _vtexts[0] != _disk:
                 mismatch.append("filemap.txt")
             _rp = output_path.parent / "filemap_root.txt"
-            _rdisk = _rp.read_text(encoding="utf-8") if _rp.is_file() else ""
+            _rdisk = _rp.read_text(encoding="utf-8", errors="surrogateescape") if _rp.is_file() else ""
             if (_vtexts[1] or "") != _rdisk:
                 mismatch.append("filemap_root.txt")
             if mismatch:

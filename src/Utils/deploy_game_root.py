@@ -125,7 +125,10 @@ def deploy_filemap_to_root(
     _dir_listing_cache: dict[str, dict[str, str]] = {}
     _resolved_dir_cache: dict[str, str] = {}
 
-    with filemap_path.open(encoding="utf-8") as f:
+    # surrogateescape throughout: filemap.txt entries and the deploy log carry
+    # filesystem-derived relative paths whose non-UTF-8 bytes decode to
+    # surrogate code points; a plain utf-8 read/write raises on them.
+    with filemap_path.open(encoding="utf-8", errors="surrogateescape") as f:
         _tab_lines = [ln.rstrip("\n") for ln in f if "\t" in ln]
     total_lines = len(_tab_lines)
     line_idx = 0
@@ -215,7 +218,7 @@ def deploy_filemap_to_root(
     total = len(tasks)
     if total == 0:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text("", encoding="utf-8")
+        log_path.write_text("", encoding="utf-8", errors="surrogateescape")
         snapshot_path = filemap_path.parent / _FILEMAP_SNAPSHOT_NAME
         try:
             _write_deploy_snapshot(game_root, snapshot_path, log_fn=_log)
@@ -229,7 +232,8 @@ def deploy_filemap_to_root(
     # It is re-written with the actually-placed list after the transfers.
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
-        "\n".join(t[3].replace("\\", "/") for t in tasks), encoding="utf-8"
+        "\n".join(t[3].replace("\\", "/") for t in tasks), encoding="utf-8",
+        errors="surrogateescape"
     )
 
     # Pre-create all destination directories up front (single-threaded).
@@ -272,7 +276,8 @@ def deploy_filemap_to_root(
 
     # Write the deployment log so restore knows what to remove.
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text("\n".join(placed_log), encoding="utf-8")
+    log_path.write_text("\n".join(placed_log), encoding="utf-8",
+                        errors="surrogateescape")
 
     # Snapshot the game root so restore can identify runtime-generated files.
     snapshot_path = filemap_path.parent / _FILEMAP_SNAPSHOT_NAME

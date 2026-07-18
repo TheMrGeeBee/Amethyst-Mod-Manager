@@ -432,7 +432,10 @@ def deploy_custom_rules(
     # Pre-load every entry once so the per-rule loop below can iterate them
     # repeatedly (skipping any already claimed by an earlier rule).
     seen_lower: set[str] = set()
-    with filemap_path.open(encoding="utf-8") as f:
+    # surrogateescape throughout: filemap.txt entries and the deploy log carry
+    # filesystem-derived paths whose non-UTF-8 bytes decode to surrogate code
+    # points; a plain utf-8 read/write raises on them.
+    with filemap_path.open(encoding="utf-8", errors="surrogateescape") as f:
         for line in f:
             line = line.rstrip("\n")
             if "\t" not in line:
@@ -755,7 +758,8 @@ def deploy_custom_rules(
     log_path = filemap_path.parent / _CUSTOM_RULES_LOG_NAME
     try:
         if placed_abs:
-            log_path.write_text("\n".join(placed_abs), encoding="utf-8")
+            log_path.write_text("\n".join(placed_abs), encoding="utf-8",
+                                errors="surrogateescape")
         elif log_path.exists():
             log_path.unlink()
     except OSError:
@@ -791,7 +795,8 @@ def restore_custom_rules(
     if not log_path.is_file():
         return 0
 
-    placed = [p for p in log_path.read_text(encoding="utf-8").splitlines() if p]
+    placed = [p for p in log_path.read_text(
+        encoding="utf-8", errors="surrogateescape").splitlines() if p]
     removed = 0
     dirs_to_prune: set[Path] = set()
     _game_root_resolved = game_root.resolve()

@@ -201,7 +201,7 @@ def _reconstruct_custom_deploy_list(
     _dir_listing_cache: dict[str, dict[str, str]] = {}
     _resolved_dir_cache: dict[str, str] = {}
     try:
-        with fm.open(encoding="utf-8") as f:
+        with fm.open(encoding="utf-8", errors="surrogateescape") as f:
             for line in f:
                 if "\t" not in line:
                     continue
@@ -266,7 +266,7 @@ def cleanup_custom_deploy_dirs(
     fallback_mode: bool
     if log_path is not None:
         fallback_mode = False
-        file_list = [(p, None) for p in log_path.read_text(encoding="utf-8").splitlines() if p]
+        file_list = [(p, None) for p in log_path.read_text(encoding="utf-8", errors="surrogateescape").splitlines() if p]
         backup_dir = log_path.parent / "custom_deploy_backup"
     else:
         # No log on disk (e.g. deploy happened with an older build, log got
@@ -433,11 +433,11 @@ def restore_custom_deploy_backup_for_path(
     # try to delete the now-restored originals.
     if log_path.is_file() and restored:
         try:
-            lines = [l for l in log_path.read_text(encoding="utf-8").splitlines() if l]
+            lines = [l for l in log_path.read_text(encoding="utf-8", errors="surrogateescape").splitlines() if l]
             kept = [l for l in lines if not Path(l).is_relative_to(custom_path)]
             if len(kept) < len(lines):
                 if kept:
-                    log_path.write_text("\n".join(kept), encoding="utf-8")
+                    log_path.write_text("\n".join(kept), encoding="utf-8", errors="surrogateescape")
                 else:
                     log_path.unlink()
         except OSError:
@@ -1135,7 +1135,7 @@ def _restore_from_log(
     if not log_path.is_file():
         return 0
 
-    placed = [p for p in log_path.read_text(encoding="utf-8").splitlines() if p]
+    placed = [p for p in log_path.read_text(encoding="utf-8", errors="surrogateescape").splitlines() if p]
     removed = 0
 
     # Pre-filter for path traversal (cheap, serial) so the worker pool only
@@ -1636,7 +1636,7 @@ def _load_deploy_snapshot(snapshot_path: Path) -> set[str]:
         return set()
     try:
         known: set[str] = set()
-        with snapshot_path.open(encoding="utf-8") as fh:
+        with snapshot_path.open(encoding="utf-8", errors="surrogateescape") as fh:
             for line in fh:
                 if line[0] == "#":
                     continue
@@ -1663,7 +1663,7 @@ def _append_overwrite_log(dest_dir: Path, rels: "list[str]", log_fn=None) -> Non
     section = "\n".join([header, *sorted(rels)]) + "\n\n"
     try:
         try:
-            existing = log_path.read_text(encoding="utf-8")
+            existing = log_path.read_text(encoding="utf-8", errors="surrogateescape")
         except OSError:
             existing = ""
         combined = existing + section
@@ -1674,7 +1674,7 @@ def _append_overwrite_log(dest_dir: Path, rels: "list[str]", log_fn=None) -> Non
             cut = headers[len(headers) - _OVERWRITE_LOG_MAX_SECTIONS]
             combined = "\n".join(lines[cut:]) + "\n"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(combined, encoding="utf-8")
+        log_path.write_text(combined, encoding="utf-8", errors="surrogateescape")
     except OSError as e:
         if log_fn is not None:
             log_fn(f"  WARN: could not write overwrite log: {e}")

@@ -1857,7 +1857,11 @@ def _filemap_deployed_plugins(game, profile_dir) -> "dict[str, str]":
         or (".esp", ".esm", ".esl")
     found: "dict[str, str]" = {}
     try:
-        for line in fm.read_text(encoding="utf-8").splitlines():
+        # surrogateescape: filemap.txt paths derive from on-disk filenames that
+        # may contain non-UTF-8 bytes (decoded to surrogate code points); a
+        # plain utf-8 read would crash on them.
+        for line in fm.read_text(encoding="utf-8",
+                                 errors="surrogateescape").splitlines():
             if "\t" not in line:
                 continue
             rel_path = line.split("\t", 1)[0].replace("\\", "/")

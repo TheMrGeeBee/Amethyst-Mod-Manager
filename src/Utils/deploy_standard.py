@@ -197,7 +197,10 @@ _MTIME_TOLERANCE_NS = 2_000_000_000
 def _write_deploy_stats(stats_path: Path, entries: "list[str]", log_fn=None) -> None:
     """Atomically write deploy_stats.txt from pre-formatted lines."""
     try:
-        with atomic_writer(stats_path, "w") as fh:
+        # surrogateescape: the rel-path column derives from on-disk filenames
+        # whose non-UTF-8 bytes decode to surrogate code points; symmetric with
+        # _load_deploy_stats below so the round-trip never raises.
+        with atomic_writer(stats_path, "w", errors="surrogateescape") as fh:
             fh.write("# deploy_stats v1\n")
             for line in entries:
                 fh.write(line)
@@ -209,7 +212,7 @@ def _load_deploy_stats(stats_path: Path) -> "dict[str, tuple[int, int]]":
     """Read deploy_stats.txt into {rel_lower: (size, mtime_ns)}; {} if absent."""
     stats: dict[str, tuple[int, int]] = {}
     try:
-        with stats_path.open(encoding="utf-8") as fh:
+        with stats_path.open(encoding="utf-8", errors="surrogateescape") as fh:
             for line in fh:
                 if line.startswith("#"):
                     continue
@@ -238,7 +241,7 @@ _VANILLA_DEPLOYED_NAME = "vanilla_deployed.txt"
 def _write_vanilla_deployed(path: Path, rels: "list[str]", log_fn=None) -> None:
     """Atomically write the vanilla gap-fill manifest (one rel path per line)."""
     try:
-        with atomic_writer(path, "w") as fh:
+        with atomic_writer(path, "w", errors="surrogateescape") as fh:
             fh.write("# vanilla_deployed v1\n")
             for rel in rels:
                 fh.write(rel.replace("\\", "/") + "\n")
@@ -250,7 +253,7 @@ def _load_vanilla_deployed(path: Path) -> "set[str]":
     """Read the vanilla gap-fill manifest into a set of lowercased rel paths."""
     rels: set[str] = set()
     try:
-        with path.open(encoding="utf-8") as fh:
+        with path.open(encoding="utf-8", errors="surrogateescape") as fh:
             for line in fh:
                 if line.startswith("#"):
                     continue
@@ -505,7 +508,7 @@ def deploy_filemap(
     mod_index_cache: dict[Path, dict[str, Path]] = {}
 
     _t_resolve_start = _time.perf_counter()
-    with filemap_path.open(encoding="utf-8") as f:
+    with filemap_path.open(encoding="utf-8", errors="surrogateescape") as f:
         _tab_lines = [ln.rstrip("\n") for ln in f if "\t" in ln]
     total_lines = len(_tab_lines)
     line_idx = 0
@@ -695,7 +698,10 @@ def deploy_filemap(
     def _write_custom_log(paths: "list[str]") -> None:
         try:
             if paths:
-                _custom_log_path.write_text("\n".join(paths), encoding="utf-8")
+                # surrogateescape: custom-deploy log holds absolute dest paths
+                # that carry surrogate-escaped on-disk filename bytes.
+                _custom_log_path.write_text("\n".join(paths), encoding="utf-8",
+                                            errors="surrogateescape")
             elif _custom_log_path.exists():
                 _custom_log_path.unlink()
         except OSError:
@@ -1248,7 +1254,8 @@ def restore_data_core(
         filemap_lower: set[str] = set()
         filemap_rel_to_mod: dict[str, str] = {}
         if filemap_path.is_file():
-            with filemap_path.open(encoding="utf-8") as _fm:
+            with filemap_path.open(encoding="utf-8",
+                                   errors="surrogateescape") as _fm:
                 for _line in _fm:
                     _line = _line.rstrip("\n")
                     if "\t" in _line:
@@ -1273,7 +1280,8 @@ def restore_data_core(
         _filemap_root_path = overwrite_dir.parent / "filemap_root.txt"
         if _filemap_root_path.is_file():
             _deploy_prefix = (deploy_dir.name + "/").lower()
-            with _filemap_root_path.open(encoding="utf-8") as _fmr:
+            with _filemap_root_path.open(encoding="utf-8",
+                                         errors="surrogateescape") as _fmr:
                 for _line in _fmr:
                     _line = _line.rstrip("\n")
                     if "\t" not in _line:

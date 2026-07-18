@@ -82,7 +82,10 @@ def compute_mod_conflicts(
     # Build winner map from filemap.txt, keyed by deploy path (or staged path).
     winning_map: dict[str, tuple[str, str]] = {}
     if filemap_path.is_file():
-        with filemap_path.open(encoding="utf-8") as f:
+        # surrogateescape: filemap.txt rel paths derive from on-disk filenames
+        # whose non-UTF-8 bytes decode to surrogate code points — a plain utf-8
+        # read raises on them.
+        with filemap_path.open(encoding="utf-8", errors="surrogateescape") as f:
             for line in f:
                 line = line.rstrip("\n")
                 if "\t" not in line:
