@@ -40,8 +40,17 @@ Run the following command in a terminal. It will appear in your applications men
 curl -sSL https://raw.githubusercontent.com/ChrisDKN/Amethyst-Mod-Manager/main/src/appimage/Amethyst-MM-installer.sh | bash
 ```
 
+The application will notifiy when a new update goes live, Pressing the update button will rerun the script and update to any new version
+
 ### Flatpak
-Download the .flatpak from [releases](https://github.com/ChrisDKN/Amethyst-Mod-Manager/releases) and install with your package manager (I use warehouse). Currently does not include an auto update feature.
+
+Run the following command
+
+```bash
+flatpak install --user https://chrisdkn.github.io/Amethyst-Mod-Manager/amethyst.flatpakref
+```
+
+Updates will be shown in your package manager
 
 Installing from a bundle skips the 32-bit compat extensions that running Windows tools (Proton/wine) requires - The app installs them automatically on first launch, or you can add them yourself:
 

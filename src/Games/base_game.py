@@ -865,21 +865,6 @@ class BaseGame(ABC):
         return False
 
     @property
-    def plugins_include_cc(self) -> bool:
-        """
-        Whether Creation Club plugins (from the .ccc manifest) should be written
-        into plugins.txt, even when base-game/DLC plugins are excluded.
-
-        Skyrim AE/SE, Fallout 4 and Starfield need their active CC plugins listed
-        in plugins.txt for a correct, LOOT-/xEdit-consistent load order (MO2 writes
-        them the same way — as always-active "foreign" entries). Base-game and DLC
-        masters do NOT need listing; the engine auto-loads those. Defaults to
-        plugins_include_vanilla so a game that already lists all vanilla plugins
-        keeps doing so.
-        """
-        return self.plugins_include_vanilla
-
-    @property
     def vanilla_plugins(self) -> list[str]:
         """Hardcoded vanilla plugin filenames for this game."""
         return []

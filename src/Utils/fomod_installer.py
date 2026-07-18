@@ -412,6 +412,18 @@ def resolve_files(config: ModuleConfig,
     return result
 
 
+# Delimiters for the rerun-flag clause strings stored in meta.ini. These MUST be
+# characters that can never appear in a Bethesda plugin filename — Windows forbids
+# < > : " / \ | ? * in filenames, so all four below are collision-proof. (An
+# earlier version used "+"/"!", which ARE legal in plugin names — e.g. "YUP - Base
+# Game + All DLC.esm" — so splitting on "+" shredded the name into non-existent
+# members and the flag fired forever. Never use a filename-legal delimiter here.)
+FLAG_OPT_SEP = ";"      # separates independent option-conditions
+FLAG_OR_SEP = "|"       # OR alternatives within one option
+FLAG_AND_SEP = "<"      # AND members within one alternative clause
+FLAG_ABSENT = ">"       # prefix: this plugin must be ABSENT (state="Missing")
+
+
 def _dep_plugin_name(dep: "Dependency") -> str:
     """The cleaned plugin-name literal of a fileDependency for the rerun-flag
     clauses, or "" if it shouldn't drive the flag. Strips surrounding whitespace
@@ -433,7 +445,7 @@ def _dep_plugin_name(dep: "Dependency") -> str:
     norm = name.lower().replace("\\", "/")
     if "/" in norm or not norm.endswith((".esp", ".esm", ".esl")):
         return ""
-    return ("!" + name) if dep.file_state == "Missing" else name
+    return (FLAG_ABSENT + name) if dep.file_state == "Missing" else name
 
 
 def _is_plugin_file_dep(dep: "Dependency") -> bool:
@@ -442,7 +454,7 @@ def _is_plugin_file_dep(dep: "Dependency") -> bool:
     enabled (Active) for the pattern to match. Inactive/Missing gates are not
     'present-required' so return False."""
     name = _dep_plugin_name(dep)
-    return bool(name) and not name.startswith("!")
+    return bool(name) and not name.startswith(FLAG_ABSENT)
 
 
 def _pattern_has_inactive_plugin(dep: "Dependency") -> bool:
@@ -515,13 +527,14 @@ def _collect_dep_plugin_clauses(config: ModuleConfig, all_selections: dict,
     (``want_selected=True``) or NOT selected (``False``).
 
     Each string is an OR-of-ANDs (the original pattern shape, preserved so OR
-    conditions evaluate correctly):
-      * ``+`` joins an AND-clause (all plugins must hold),
-      * ``|`` joins the OR alternatives of ONE option (any clause satisfies it),
-      * a ``!``-prefixed name means the plugin must be ABSENT (state="Missing").
+    conditions evaluate correctly), using the FLAG_* delimiters (all
+    filename-illegal so plugin names with "+"/"!" don't collide):
+      * FLAG_AND_SEP ("<") joins an AND-clause (all plugins must hold),
+      * FLAG_OR_SEP ("|") joins the OR alternatives of ONE option,
+      * FLAG_ABSENT (">") prefixes a name that must be ABSENT (state="Missing").
     e.g. ``UntarnishedUI_Subtitle.esp|UntarnishedUI_Blur.esp`` (OR),
-         ``Thaumaturgy.esp+!gaunt.esl`` (AND with a Missing gate).
-    The caller ``;``-joins these per-option strings.
+         ``Thaumaturgy.esp<>gaunt.esl`` (AND with a Missing gate).
+    The caller FLAG_OPT_SEP (";")-joins these per-option strings.
 
     Mirrors :func:`resolve_files`: invisible steps (unsatisfied visibility
     conditions) are skipped, SelectAll groups count every plugin as selected.
@@ -570,7 +583,8 @@ def _collect_dep_plugin_clauses(config: ModuleConfig, all_selections: dict,
                 clauses = [c for c in clauses if c]
                 if not clauses:
                     continue
-                cond = "|".join("+".join(c) for c in clauses)
+                cond = FLAG_OR_SEP.join(
+                    FLAG_AND_SEP.join(c) for c in clauses)
                 key = cond.lower()
                 if key in seen:
                     continue
@@ -582,7 +596,7 @@ def _collect_dep_plugin_clauses(config: ModuleConfig, all_selections: dict,
 def collect_unselected_dep_plugins(config: ModuleConfig,
                                    all_selections: dict) -> list[str]:
     """One OR-of-ANDs condition string per UNSELECTED option (see
-    :func:`_collect_dep_plugin_clauses` for the ``+``/``|``/``!`` format). The
+    :func:`_collect_dep_plugin_clauses` for the FLAG_* delimiter format). The
     caller ``;``-joins these; the pending flag fires when ANY option's condition
     becomes fully satisfiable — a patch you skipped is now relevant.
 
@@ -597,7 +611,7 @@ def collect_unselected_dep_plugins(config: ModuleConfig,
 def collect_selected_dep_plugins(config: ModuleConfig,
                                  all_selections: dict) -> list[str]:
     """One OR-of-ANDs condition string per SELECTED option — the plugins those
-    installed patches depend on. Same ``+``/``|``/``!`` format as
+    installed patches depend on. Same FLAG_* delimiter format as
     :func:`collect_unselected_dep_plugins`. The active flag fires when ANY option's
     condition is NO LONGER satisfied (none of its OR alternatives hold) — the
     installed patch is now orphaned/invalid, so rerun to drop it.

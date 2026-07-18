@@ -69,6 +69,32 @@ def _normalise_ext(name: str) -> str:
     return name[:dot] + name[dot:].lower()
 
 
+def _read_text_game_compat(path: Path) -> str:
+    """Read a plugins/loadorder file tolerating either encoding.
+
+    The game rewrites plugins.txt in Windows-1252 (loadorder.txt is UTF-8);
+    we historically wrote UTF-8. ASCII content is byte-identical in both, so
+    try UTF-8 first and fall back to cp1252 — a game-rewritten file with a
+    non-ASCII plugin name must never crash the loader.
+    """
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", errors="replace")
+
+
+def _plugins_txt_encoding(text: str) -> str:
+    """Encoding for a plugins.txt payload: cp1252 when the engine can read it
+    (Bethesda engines parse plugins.txt as Windows-1252 — MO2/Vortex/LOOT write
+    it that way), UTF-8 as a lossless fallback for names cp1252 can't hold."""
+    try:
+        text.encode("cp1252")
+        return "cp1252"
+    except UnicodeEncodeError:
+        return "utf-8"
+
+
 def read_plugins(path: Path, star_prefix: bool = True) -> list[PluginEntry]:
     """
     Parse plugins.txt and return entries in file order (index 0 = first loaded).
@@ -94,7 +120,7 @@ def read_plugins(path: Path, star_prefix: bool = True) -> list[PluginEntry]:
             # Rebuild fresh objects so callers can mutate the list safely.
             return [PluginEntry(name=n, enabled=en) for n, en in cached[1]]
     parsed: list[tuple[str, bool]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in _read_text_game_compat(path).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -130,7 +156,8 @@ def write_plugins(path: Path, entries: list[PluginEntry], star_prefix: bool = Tr
         lines = [(f"*{e.name}" if e.enabled else e.name) for e in entries]
     else:
         lines = [e.name for e in entries if e.enabled]
-    write_atomic_text(path, "\n".join(lines) + ("\n" if lines else ""))
+    text = "\n".join(lines) + ("\n" if lines else "")
+    write_atomic_text(path, text, encoding=_plugins_txt_encoding(text))
     # Refresh the parse cache from what we just wrote so a same-mtime-resolution
     # write (e.g. exFAT's coarse timestamps) can't serve stale data on the next
     # read. We cache under both star_prefix variants of the parsed content.
@@ -164,7 +191,9 @@ def deploy_plugins_copy(directory: Path, filename: str, content: str, log_fn=Non
     try:
         if target.exists() or target.is_symlink():
             target.unlink()
-        target.write_text(content, encoding="utf-8")
+        # The engine parses plugins.txt as Windows-1252 — write the copy it
+        # actually reads in that encoding whenever the content allows it.
+        target.write_text(content, encoding=_plugins_txt_encoding(content))
         _log(f"  Wrote {filename} → {target}")
     except OSError as exc:
         _log(f"  WARN: could not write {target}: {exc}")
@@ -199,7 +228,7 @@ def read_loadorder(path: Path) -> list[str]:
         if cached is not None and cached[0] == mtime:
             return list(cached[1])  # fresh list; names are immutable str
     names: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in _read_text_game_compat(path).splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             names.append(line)

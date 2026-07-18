@@ -184,6 +184,99 @@ def load_custom_game_definitions() -> list[dict]:
     return defs
 
 
+# ---------------------------------------------------------------------------
+# Built-in presets — ready-made starting templates offered in the define-custom-
+# game editor's "Load Preset" dropdown (alongside the user's own definitions).
+# These are never written to disk on their own; selecting one just prefills the
+# form.  The user still supplies a unique name and executable path.
+# ---------------------------------------------------------------------------
+
+BUILTIN_GAME_TEMPLATES: list[dict] = [
+    {
+        "name": "BepInEx",
+        "game_id": "",
+        "exe_name": "",
+        "deploy_type": "standard",
+        "mod_data_path": "BepInEx/plugins",
+        "steam_id": "",
+        "nexus_game_domain": "",
+        "image_url": "",
+        "mod_folder_strip_prefixes": ["BepInEx", "plugins"],
+        "conflict_ignore_filenames": [],
+        "mod_folder_strip_prefixes_post": [],
+        "mod_install_prefix": "",
+        "mod_required_top_level_folders": [],
+        "mod_auto_strip_until_required": False,
+        "mod_required_file_types": [],
+        "mod_install_as_is_if_no_match": False,
+        "restore_before_deploy": True,
+        "normalize_folder_case": True,
+        "filemap_casing": "upper",
+        "wine_dll_overrides": {"winhttp": "native,builtin"},
+        "custom_routing_rules": [
+            {"dest": "", "filenames": ["winhttp.dll"], "flatten": True},
+            {"dest": "", "filenames": ["version.dll"], "flatten": True},
+            {"dest": "", "filenames": ["run_bepinex.sh"], "flatten": True},
+            {"dest": "", "filenames": ["libdoorstop.dylib"], "flatten": True},
+            {"dest": "", "filenames": ["doorstop_config.ini"], "flatten": True},
+            {"dest": "BepInEx", "folders": ["config"], "loose_only": True, "flatten": True},
+            {"dest": "BepInEx", "folders": ["core"], "loose_only": True, "flatten": True},
+            {"dest": "BepInEx", "folders": ["patchers"], "loose_only": True, "flatten": True},
+            {"dest": "BepInEx", "folders": ["plugins"], "loose_only": True, "flatten": True},
+        ],
+        "restore_whitelist": [],
+        "custom_frameworks": {"BepInEx": "winhttp.dll"},
+    },
+    {
+        "name": "UE5 (ue4ss)",
+        "game_id": "",
+        "exe_name": "GAMEID/Binaries/Win64/EXENAME.exe",
+        "deploy_type": "ue5",
+        "mod_data_path": "GAMEID",
+        "steam_id": "",
+        "nexus_game_domain": "",
+        "image_url": "",
+        "mod_folder_strip_prefixes": [
+            "GAMEID", "Content", "Paks", "~mods", "Binaries", "Win64",
+        ],
+        "conflict_ignore_filenames": ["LICENSE", "*.md"],
+        "mod_folder_strip_prefixes_post": [],
+        "mod_install_prefix": "",
+        "mod_required_top_level_folders": [],
+        "mod_auto_strip_until_required": False,
+        "mod_required_file_types": [],
+        "mod_install_as_is_if_no_match": False,
+        "restore_before_deploy": True,
+        "normalize_folder_case": True,
+        "filemap_casing": "upper",
+        "wine_dll_overrides": {"dwmpapi": "native,builtin"},
+        "custom_routing_rules": [
+            {"dest": "Content/Splash", "filenames": ["Splash.bmp"], "flatten": True},
+            {"dest": "Content/Movies", "extensions": [".mp4"], "include_siblings": True},
+            {"dest": "Mods", "folders": ["VTSpectator"], "flatten": True},
+            {"dest": "Content/Paks", "folders": ["LogicMods"], "flatten": True},
+            {"dest": "Binaries/Win64", "folders": ["ue4ss"], "flatten": True},
+            {"dest": "Content/Paks/~mods", "extensions": [".pak"],
+             "companion_extensions": [".ucas", ".utoc"], "include_siblings": True},
+            {"dest": "Binaries/Win64", "extensions": [".asi"],
+             "companion_extensions": [".ini"]},
+            {"dest": "Binaries/Win64/ue4ss/Mods", "folders": ["scripts"], "include_siblings": True},
+            {"dest": "Binaries/Win64/ue4ss/Mods", "filenames": ["enabled.txt"], "include_siblings": True},
+            {"dest": "Binaries/Win64/ue4ss/Mods", "folders": ["dlls"], "include_siblings": True},
+            {"dest": "Binaries/Win64/ue4ss/Mods", "filenames": ["mods.txt"], "flatten": True},
+        ],
+        "restore_whitelist": [],
+        "custom_frameworks": {"UE4SS": "Binaries/Win64/dwmapi.dll"},
+    },
+]
+
+
+def load_builtin_game_templates() -> list[dict]:
+    """Return deep copies of the built-in preset templates (safe to mutate)."""
+    import copy
+    return [copy.deepcopy(t) for t in BUILTIN_GAME_TEMPLATES]
+
+
 def save_custom_game_definition(defn: dict) -> Path:
     """Write a custom game definition to JSON.  Returns the file path."""
     folder = get_custom_games_dir()

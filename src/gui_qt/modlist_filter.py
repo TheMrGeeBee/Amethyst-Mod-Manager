@@ -612,7 +612,11 @@ def build_mods_with_plugins(staging_parent: Path, plugin_exts) -> set[str]:
         exts = (".esp", ".esm", ".esl")
     out: set[str] = set()
     try:
-        for line in fm.read_text(encoding="utf-8").splitlines():
+        # surrogateescape: filemap.txt carries filesystem-derived relative
+        # paths whose non-UTF-8 bytes decode to surrogate code points — a plain
+        # utf-8 read raises UnicodeDecodeError/EncodeError on them.
+        for line in fm.read_text(encoding="utf-8",
+                                 errors="surrogateescape").splitlines():
             if "\t" not in line:
                 continue
             rel_key, mod = line.split("\t", 1)

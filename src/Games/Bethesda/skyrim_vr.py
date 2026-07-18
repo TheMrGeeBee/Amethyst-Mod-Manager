@@ -18,9 +18,11 @@ class SkyrimVR(Fallout_3):
     vanilla_plugins = [
         "Skyrim.esm", "Update.esm",
         "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm",
+        "SkyrimVR.esm",
     ]
     vanilla_dlc_plugins: list[str] = []
-    vanilla_ccc_filename = "Skyrim.ccc"
+    # Skyrim VR has no Creation Club support and ships no Skyrim.ccc
+    # (libloadorder/Vortex parity: hardcoded masters + SkyrimVR.esm only).
     synthesis_registry_name = "Skyrim VR"
 
     @property

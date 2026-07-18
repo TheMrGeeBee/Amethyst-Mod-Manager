@@ -354,46 +354,163 @@ def _host_flatpak(*args: str, timeout: int = 60):
         return None
 
 
-def flatpak_installed_from_remote() -> bool:
-    """True if our flatpak install tracks the `amethyst` remote (not a bundle).
+def _remote_name_for_our_url() -> str | None:
+    """Name of the configured remote pointing at our hosted repo, or None.
 
-    `flatpak info --show-origin <app>` prints the origin remote name for a
-    remote-tracked install, or reports no origin / errors for a bundle install.
+    Matched by URL, NOT by name: a bundle installed with --repo-url gets an
+    auto-created origin named "<app>-origin" (e.g. modmanager-origin), while a
+    manual/one-liner install uses "amethyst". Both point at the same Pages repo,
+    so URL is the reliable identity. Trailing slashes are normalised.
+
+    Queries BOTH scopes and includes --show-disabled: bundle-created origins
+    are flagged `no-enumerate` (and can be disabled by a duplicate-URL clash),
+    so a plain `flatpak remotes` hides them. Scope also matters — a user bundle
+    install lands in the --user list, which the default (system) query omits.
+    """
+    want = _FLATPAK_REMOTE_REPO_URL.rstrip("/")
+    for scope in ("--user", "--system"):
+        cp = _host_flatpak("remotes", scope, "--show-disabled",
+                           "--columns=name,url")
+        if cp is None or cp.returncode != 0:
+            continue
+        for line in cp.stdout.splitlines():
+            parts = line.split("\t") if "\t" in line else line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            name, url = parts[0].strip(), parts[1].strip().rstrip("/")
+            if url == want:
+                return name
+    return None
+
+
+def flatpak_installed_from_remote() -> bool:
+    """True if our install's origin is a remote pointing at our hosted repo.
+
+    Matched by the origin remote's URL (not its name), so it recognises both
+    the "amethyst" remote (manual/one-liner install) AND the auto-created
+    "<app>-origin" a --repo-url bundle install creates. Bundle installs WITHOUT
+    --repo-url (or any non-remote install) have no matching origin → False.
     Conservatively returns False when the host can't be queried.
     """
     cp = _host_flatpak("info", "--show-origin", _APP_ID)
     if cp is None or cp.returncode != 0:
         return False
-    return cp.stdout.strip() == _FLATPAK_REMOTE_NAME
+    origin = cp.stdout.strip()
+    if not origin:
+        return False
+    our_remote = _remote_name_for_our_url()
+    return our_remote is not None and origin == our_remote
 
 
 def flatpak_remote_present() -> bool:
-    """True if the `amethyst` remote is already configured on the host."""
-    cp = _host_flatpak("remotes", "--columns=name")
+    """True if a remote pointing at our hosted repo is configured (any name)."""
+    return _remote_name_for_our_url() is not None
+
+
+def _effective_remote_name() -> str:
+    """The remote name to target for install/update queries.
+
+    Prefers the actually-configured remote for our URL (which may be the
+    auto-created "<app>-origin" on a --repo-url bundle install), falling back
+    to the canonical "amethyst" when none is configured yet.
+    """
+    return _remote_name_for_our_url() or _FLATPAK_REMOTE_NAME
+
+
+def polish_flatpak_origin() -> None:
+    """Make a bundle-created origin remote presentable (idempotent, quiet).
+
+    A --repo-url bundle install auto-creates its origin remote flagged
+    no-enumerate with the bundle filename as its title. Software centers skip
+    appstream downloads for no-enumerate remotes, so Discover shows updates as
+    "<version> → <branch>" (it falls back to the branch name when the target
+    has no appstream version). Flip the flag and set a proper title so update
+    entries read "2.0.4-beta.4 → 2.0.4-beta.5" instead. No-op when the remote
+    is absent, already enumerable, or the host can't be reached.
+    """
+    name = _remote_name_for_our_url()
+    if not name:
+        return
+    cp = _host_flatpak("remotes", "--user", "--show-disabled",
+                       "--columns=name,options")
     if cp is None or cp.returncode != 0:
-        return False
-    return any(line.strip() == _FLATPAK_REMOTE_NAME
-               for line in cp.stdout.splitlines())
+        return
+    for line in cp.stdout.splitlines():
+        parts = line.split("\t")
+        if parts and parts[0].strip() == name:
+            if "no-enumerate" in (parts[1] if len(parts) > 1 else ""):
+                _host_flatpak("remote-modify", "--user", name, "--enumerate",
+                              "--title=Amethyst Mod Manager")
+            break
 
 
-def enroll_flatpak_remote(*, allow_prerelease: bool = False) -> bool:
-    """Add the hosted remote and reinstall the app from it (detached).
+def flatpak_remote_branch_available(branch: str) -> bool:
+    """True if the hosted remote actually carries our app on *branch*.
 
-    This is the one-time migration for bundle-installed users. After it, all
-    future updates are native `flatpak update`. Adds the remote (idempotent via
-    --if-not-exists), then `flatpak install --reinstall` from it on the chosen
-    branch, then relaunches. Runs detached with a 2s delay so we exit first.
-
-    Returns True if the child launched. GPG verification is left to the remote's
-    own config (the .flatpakrepo carries the key); we add by URL with
-    --no-gpg-verify only as a fallback is NOT used here — the remote file
-    provides the key so verification stays on.
+    The remote's branches are created lazily by CI (`beta` doesn't exist until
+    the first beta tag is published), so an install/switch targeting a missing
+    branch would fail silently in the detached child. Callers use this to
+    surface "channel not published yet" instead.
     """
-    import shutil
-    if not shutil.which("flatpak-spawn"):
-        return False
+    cp = _host_flatpak("remote-info", "--user", _effective_remote_name(),
+                       f"{_APP_ID}//{branch}")
+    return cp is not None and cp.returncode == 0
 
-    branch = "beta" if allow_prerelease else "stable"
+
+def _installed_flatpak_state() -> tuple[str, str] | None:
+    """(branch, commit) of the installed app, or None if undeterminable."""
+    cp = _host_flatpak("info", "--user", _APP_ID)
+    if cp is None or cp.returncode != 0:
+        return None
+    branch = commit = ""
+    for line in cp.stdout.splitlines():
+        k, _, v = line.partition(":")
+        k = k.strip().lower()
+        if k == "branch":
+            branch = v.strip()
+        elif k == "commit":
+            commit = v.strip()
+    return (branch, commit) if branch and commit else None
+
+
+def flatpak_remote_update_ready(branch: str) -> bool | None:
+    """Does the hosted remote's *branch* offer something we don't have?
+
+    True  → remote head differs from the installed commit, or the installed
+            branch differs from the requested channel (a switch is wanted).
+    False → remote is reachable and we're already current — nothing to offer,
+            even if GitHub Releases claims a newer tag (Pages publish lag).
+    None  → couldn't determine (host unreachable etc.); caller falls back to
+            the GitHub-only decision.
+    """
+    if not flatpak_remote_branch_available(branch):
+        return False  # nothing installable on that channel
+    cp = _host_flatpak("remote-info", "--user", _effective_remote_name(),
+                       f"{_APP_ID}//{branch}")
+    if cp is None or cp.returncode != 0:
+        return None
+    remote_commit = ""
+    for line in cp.stdout.splitlines():
+        k, _, v = line.partition(":")
+        if k.strip().lower() == "commit":
+            remote_commit = v.strip()
+            break
+    installed = _installed_flatpak_state()
+    if not remote_commit or installed is None:
+        return None
+    inst_branch, inst_commit = installed
+    if inst_branch != branch:
+        return True  # channel switch requested
+    # flatpak sometimes prints truncated commits; compare by prefix.
+    shorter = min(len(inst_commit), len(remote_commit))
+    return inst_commit[:shorter] != remote_commit[:shorter]
+
+
+def _launch_remote_reinstall(branch: str) -> str:
+    """Detached: reinstall our app from the remote on *branch*, then relaunch.
+
+    Shared tail of enroll/update. Returns "launched" or "unavailable".
+    """
     config_dir = os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
         "AmethystModManager",
@@ -403,12 +520,16 @@ def enroll_flatpak_remote(*, allow_prerelease: bool = False) -> bool:
 
     host = "flatpak-spawn --host"
     ref = f"{_APP_ID}/x86_64/{branch}"
+    # Target the actual configured remote for our URL — a --repo-url bundle
+    # install named it "<app>-origin", not "amethyst". After enroll's own
+    # remote-add this resolves to "amethyst"; for an update it's whatever the
+    # user has. Reinstall pins the branch (handles same-branch update AND
+    # channel switch — `flatpak update` won't cross branches).
+    remote = _effective_remote_name()
     cmd = (
         f"sleep 2 && "
-        f"{host} flatpak remote-add --user --if-not-exists "
-        f"{_FLATPAK_REMOTE_NAME} {_FLATPAK_REMOTE_FILE_URL} && "
         f"{host} flatpak install --user --reinstall --noninteractive -y "
-        f"{_FLATPAK_REMOTE_NAME} {ref} && "
+        f"{remote} {ref} && "
         f"{host} flatpak run {_APP_ID} &>/dev/null &"
     )
     try:
@@ -418,49 +539,53 @@ def enroll_flatpak_remote(*, allow_prerelease: bool = False) -> bool:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        return True
+        return "launched"
     except Exception:
-        return False
+        return "unavailable"
 
 
-def update_flatpak_from_remote(*, allow_prerelease: bool = False) -> bool:
-    """Update (or branch-switch) the app from the hosted remote (detached).
+def enroll_flatpak_remote(*, allow_prerelease: bool = False) -> str:
+    """Add the hosted remote and reinstall the app from it.
 
-    If the running branch matches the requested channel, a plain
-    `flatpak update` pulls the delta. If the channel changed (user toggled the
-    pre-release box), reinstall the other branch instead — `flatpak update`
-    won't cross branches. Relaunches afterwards. Returns True if launched.
+    One-time migration for bundle-installed users; afterwards updates are
+    native `flatpak update`. The remote-add runs SYNCHRONOUSLY (idempotent via
+    --if-not-exists) so we can probe the requested channel before committing;
+    the reinstall+relaunch then runs detached with a 2s delay so we exit first.
+
+    Returns "launched" (child started — caller should close the app),
+    "no-branch" (remote reachable but the requested channel isn't published
+    yet, e.g. beta before the first beta release), or "unavailable" (host
+    flatpak unreachable). GPG verification stays on — the .flatpakrepo the
+    remote-add consumes carries the signing key.
     """
     import shutil
     if not shutil.which("flatpak-spawn"):
-        return False
+        return "unavailable"
 
     branch = "beta" if allow_prerelease else "stable"
-    config_dir = os.path.join(
-        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
-        "AmethystModManager",
-    )
-    os.makedirs(config_dir, exist_ok=True)
-    log_path = os.path.join(config_dir, "amethyst-update.log")
+    cp = _host_flatpak("remote-add", "--user", "--if-not-exists",
+                       _FLATPAK_REMOTE_NAME, _FLATPAK_REMOTE_FILE_URL,
+                       timeout=120)
+    if cp is None or cp.returncode != 0:
+        return "unavailable"
+    if not flatpak_remote_branch_available(branch):
+        return "no-branch"
+    return _launch_remote_reinstall(branch)
 
-    host = "flatpak-spawn --host"
-    ref = f"{_APP_ID}/x86_64/{branch}"
-    # Reinstall pins the branch (handles both same-branch update and channel
-    # switch); it's a no-op download when already current, so it's safe as the
-    # single path. --reinstall forces a re-pull even if the ref looks present.
-    cmd = (
-        f"sleep 2 && "
-        f"{host} flatpak install --user --reinstall --noninteractive -y "
-        f"{_FLATPAK_REMOTE_NAME} {ref} && "
-        f"{host} flatpak run {_APP_ID} &>/dev/null &"
-    )
-    try:
-        subprocess.Popen(
-            ["bash", "-c", cmd],
-            stdout=open(log_path, "w", encoding="utf-8"),
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        return True
-    except Exception:
-        return False
+
+def update_flatpak_from_remote(*, allow_prerelease: bool = False) -> str:
+    """Update (or branch-switch) the app from the hosted remote.
+
+    Returns "launched" (reinstall started — caller should close the app),
+    "no-branch" (the requested channel isn't published on the remote, so the
+    detached install would fail silently — surface it instead), or
+    "unavailable" (host flatpak unreachable).
+    """
+    import shutil
+    if not shutil.which("flatpak-spawn"):
+        return "unavailable"
+
+    branch = "beta" if allow_prerelease else "stable"
+    if not flatpak_remote_branch_available(branch):
+        return "no-branch"
+    return _launch_remote_reinstall(branch)

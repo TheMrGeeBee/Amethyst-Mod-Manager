@@ -536,7 +536,9 @@ def reset_collection_load_order(profile_dir: Path, manifest: dict,
                 lines.append(("*" if enabled else "") + name)
                 loadorder_lines.append(name)
             plugins_path = profile_dir / "plugins.txt"
-            plugins_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            from Utils.plugins import _plugins_txt_encoding
+            text = "\n".join(lines) + "\n"
+            plugins_path.write_text(text, encoding=_plugins_txt_encoding(text))
             log(f"Reset load order: wrote plugins.txt with {len(lines)} plugins")
             # Preserve vanilla plugins already in loadorder.txt (they stay on top)
             loadorder_path = profile_dir / "loadorder.txt"

@@ -132,6 +132,23 @@ class Cyberpunk2077(BaseGame):
         # on case-sensitive Linux filesystems.  Prefer lowercase canonicals.
         return "lower"
 
+    @property
+    def filemap_casing_pins(self) -> dict[str, str]:
+        # The engine reads these skeleton folders by lowercase literal paths;
+        # pin them so the filemap says e.g. ``archive/pc/mod`` even when the
+        # only enabled mod ships ``archive/PC/Mod`` (the "lower" strategy can
+        # only pick among casings that mods actually ship).  Deploy then
+        # exact-matches the vanilla dirs instead of guessing between
+        # case-variant duplicates left by manual installs.
+        return {
+            "archive": "archive", "pc": "pc", "mod": "mod", "ep1": "ep1",
+            "bin": "bin", "x64": "x64", "plugins": "plugins",
+            "cyber_engine_tweaks": "cyber_engine_tweaks", "mods": "mods",
+            "r6": "r6", "scripts": "scripts", "tweaks": "tweaks",
+            "config": "config", "input": "input",
+            "red4ext": "red4ext", "engine": "engine", "tools": "tools",
+        }
+
 
     @property
     def frameworks(self) -> dict[str, str]:

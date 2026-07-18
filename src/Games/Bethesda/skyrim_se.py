@@ -22,9 +22,10 @@ class SkyrimSE(Fallout_3):
     _archive_list_needs_mod_bsas = False
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
-    # Skyrim AE Creation Club plugins (Skyrim.ccc) must be written into
-    # plugins.txt for a correct, LOOT-/xEdit-consistent load order.
-    plugins_include_cc = True
+    # Vanilla incl. Skyrim.ccc content (and _ResourcePack.esl, which is listed
+    # inside Skyrim.ccc since 1.6.1130) stays OUT of plugins.txt — the engine
+    # force-loads it before reading the file and strips any such entries on
+    # launch. MO2/Vortex/LOOT exclude it identically.
     supports_esl_flag = True
     vanilla_plugins = [
         "Skyrim.esm", "Update.esm",

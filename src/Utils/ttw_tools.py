@@ -57,6 +57,63 @@ def find_ttw_installer(game: "BaseGame") -> Path | None:
     return p if p.is_file() else None
 
 
+def download_installer(game: "BaseGame",
+                       status_fn: Callable[[str], None] = _noop,
+                       log_fn: Callable[[str], None] = _noop) -> Path:
+    """Download the latest MPI-installer release from GitHub into
+    Applications/TTW and return the executable path. Raises on failure.
+    Shared by the TTW and BSA-Decompressor wizards (same binary)."""
+    import json
+    import os
+    import shutil
+    import tempfile
+    import urllib.request
+    from Utils.ca_bundle import download_file, get_ssl_context
+    from Utils.wizard_archives import extract_archive
+
+    req = urllib.request.Request(
+        GITHUB_API_URL,
+        headers={"Accept": "application/vnd.github+json",
+                 "User-Agent": "ModManager/1.0"})
+    with urllib.request.urlopen(req, timeout=15,
+                                context=get_ssl_context()) as resp:
+        data = json.loads(resp.read().decode())
+    tag = data.get("tag_name", "unknown")
+    url = None
+    for asset in data.get("assets", []):
+        name = asset.get("name", "").lower()
+        if "linux" in name and name.endswith((".zip", ".tar.gz")):
+            url = asset["browser_download_url"]
+            break
+    if not url:
+        raise RuntimeError(
+            f"No Linux installer asset found in the latest TTW release ({tag}).")
+
+    log_fn(f"downloading TTW installer {tag} from {url}")
+    status_fn(f"Downloading TTW installer {tag}…")
+    tmp_dir = Path(tempfile.mkdtemp())
+    archive = tmp_dir / Path(url).name
+    try:
+        download_file(url, archive)
+        dest = applications_dir(game)
+        dest.mkdir(parents=True, exist_ok=True)
+        status_fn("Extracting installer…")
+        log_fn(f"extracting {archive.name} → {dest}")
+        paths = extract_archive(archive, dest)
+        log_fn(f"extracted {len([p for p in paths if p.is_file()])} file(s).")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    exe = dest / EXE_NAME
+    if not exe.is_file():
+        raise RuntimeError(f"{EXE_NAME} not found after extraction at {dest}.")
+    try:
+        os.chmod(exe, 0o755)
+    except OSError:
+        pass
+    return exe
+
+
 def find_fo3_install() -> Path | None:
     """Locate the Fallout 3 install folder via Steam libraries, or None."""
     try:
@@ -68,6 +125,76 @@ def find_fo3_install() -> Path | None:
                 return hit
     except Exception:
         pass
+    return None
+
+
+def packages_dir(game: "BaseGame") -> Path:
+    """Where extracted .mpi packages are kept (next to the installer)."""
+    return applications_dir(game) / "packages"
+
+
+def find_mpi_archive(keywords: "list[str]") -> "Path | None":
+    """Newest archive matching all *keywords* across the configured download
+    locations, or None."""
+    from Utils.download_locations import get_effective_download_locations
+    from Utils.wizard_archives import find_archive
+
+    best: "Path | None" = None
+    best_mtime = -1.0
+    for directory in get_effective_download_locations():
+        hit = find_archive(directory, keywords)
+        if hit is None:
+            continue
+        try:
+            mtime = hit.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > best_mtime:
+            best, best_mtime = hit, mtime
+    return best
+
+
+def extract_mpi_from_archive(archive: Path, dest_dir: Path,
+                             log_fn: Callable[[str], None] = _noop) -> Path:
+    """Extract *archive* to a temp dir, move the .mpi inside it into
+    *dest_dir* and return its path. An already-extracted .mpi of the same
+    name is reused. Raises when the archive holds no .mpi."""
+    import shutil
+    import tempfile
+    from Utils.wizard_archives import extract_to_dir
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        log_fn(f"extracting {archive.name}…")
+        extract_to_dir(archive, tmp)
+        mpis = sorted(tmp.rglob("*.mpi"))
+        if not mpis:
+            raise RuntimeError(f"No .mpi package found inside {archive.name}.")
+        src = mpis[0]
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / src.name
+        if dest.is_file() and dest.stat().st_size == src.stat().st_size:
+            log_fn(f"reusing already-extracted {dest.name}")
+            return dest
+        shutil.move(str(src), str(dest))
+        log_fn(f"extracted {dest.name} → {dest_dir}")
+        return dest
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def find_extracted_mpi(game: "BaseGame",
+                       keywords: "list[str]") -> "Path | None":
+    """A previously-extracted .mpi matching all *keywords* in the packages
+    dir, or None."""
+    try:
+        hits = sorted(packages_dir(game).glob("*.mpi"))
+    except OSError:
+        return None
+    for p in hits:
+        low = p.name.lower()
+        if all(kw in low for kw in keywords):
+            return p
     return None
 
 

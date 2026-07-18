@@ -133,7 +133,7 @@ def active_for(deploy_dir) -> "IncrementalPlan | None":
 def write_deployed_filemap(path: Path, entries, log_fn=None) -> None:
     """Atomically write the deployed rel→mod record (one entry per line)."""
     try:
-        with atomic_writer(path, "w") as fh:
+        with atomic_writer(path, "w", errors="surrogateescape") as fh:
             fh.write("# deployed_filemap v1\n")
             for rel_str, mod_name in entries:
                 fh.write(f"{rel_str}\t{mod_name}\n")
@@ -145,7 +145,7 @@ def load_deployed_filemap(path: Path) -> "dict[str, tuple[str, str]]":
     """Read deployed_filemap.txt into {rel_lower: (rel_str, mod)}; {} if absent."""
     out: dict[str, tuple[str, str]] = {}
     try:
-        with path.open(encoding="utf-8") as fh:
+        with path.open(encoding="utf-8", errors="surrogateescape") as fh:
             for line in fh:
                 if line.startswith("#") or "\t" not in line:
                     continue

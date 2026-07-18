@@ -1800,12 +1800,10 @@ def _write_collection_plugins(game, profile_dir, plugins_path, collection_schema
             author_lower = {e.name.lower() for e in author_entries}
             vanilla_map = _vanilla_plugins_for_game(game)
             plugins_include_vanilla = getattr(game, "plugins_include_vanilla", False)
+            # The full vanilla set (base + DLC + .ccc-listed CC content) stays out
+            # of plugins.txt: the engine force-loads it before reading the file and
+            # strips any such entries on launch. MO2/Vortex/LOOT exclude it too.
             vanilla_lower = set() if plugins_include_vanilla else set(vanilla_map.keys())
-            # CC plugins are "vanilla" but must still be written to plugins.txt for
-            # a correct load order (same carve-out as plugin_state.save_plugins).
-            if not plugins_include_vanilla and getattr(game, "plugins_include_cc", plugins_include_vanilla):
-                from Utils.game_helpers import _cc_plugins_for_game
-                vanilla_lower -= set(_cc_plugins_for_game(game).keys())
             deployed = _filemap_deployed_plugins(game, profile_dir)
             # Drop manifest plugins whose file was never installed. A collection's
             # ``plugins`` array covers ALL its mods including optional ones the
@@ -1934,7 +1932,11 @@ def _filemap_deployed_plugins(game, profile_dir) -> "dict[str, str]":
         or (".esp", ".esm", ".esl")
     found: "dict[str, str]" = {}
     try:
-        for line in fm.read_text(encoding="utf-8").splitlines():
+        # surrogateescape: filemap.txt paths derive from on-disk filenames that
+        # may contain non-UTF-8 bytes (decoded to surrogate code points); a
+        # plain utf-8 read would crash on them.
+        for line in fm.read_text(encoding="utf-8",
+                                 errors="surrogateescape").splitlines():
             if "\t" not in line:
                 continue
             rel_path = line.split("\t", 1)[0].replace("\\", "/")

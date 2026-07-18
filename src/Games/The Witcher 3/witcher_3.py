@@ -305,7 +305,7 @@ class Witcher3(BaseGame):
         skipped   = 0
         backed_up = 0
         nocase_cache: dict[Path, dict[str, list[Path]]] = {}
-        _dst_dir_cache: dict[Path, dict[str, str]] = {}
+        _dst_dir_cache: dict[str, dict[str, "str | list[str]"]] = {}
         # Track files placed in THIS deploy run so that duplicate filemap
         # entries routing to the same destination don't back each other up.
         # (e.g. Full/mods/modBrutalBlood/… and Lite/mods/modBrutalBlood/…

@@ -346,24 +346,6 @@ def load_plugins(game, profile: str,
     if orphans:
         _diag(f"load_plugins: {len(orphans)} manual orphan plugin(s) found in "
               f"{data_dir}: {[o.name for o in orphans][:10]}")
-    # Always-on catch: the filemap deploys plugins but NONE are listed or
-    # recoverable → the panel will render empty despite enabled mods. This is
-    # the "copied mod's plugins don't show up" signature. filemap present but
-    # deploys nothing is logged too (an enabled mod contributed no plugins).
-    if not entries and not vanilla:
-        fm_exists = False
-        try:
-            staging = (game.get_effective_mod_staging_path()
-                       if hasattr(game, "get_effective_mod_staging_path") else None)
-            fm_exists = (staging is not None
-                         and (staging.parent / "filemap.txt").is_file())
-        except Exception:
-            pass
-        app_log(f"WARN plugins: 0 plugins for profile {profile!r} — "
-                f"plugins.txt empty, filemap deploys {len(deployed)} plugin(s), "
-                f"filemap.txt exists={fm_exists}. If mods are enabled this points "
-                f"to a stale/mislocated filemap or wrong staging path.")
-
     mod_map = {e.name.lower(): e for e in entries}
 
     ordered: list[PluginEntry] = []
@@ -415,9 +397,28 @@ def load_plugins(game, profile: str,
     # resolver to have found at least one path before trusting a miss.
     staging = (game.get_effective_mod_staging_path()
                if hasattr(game, "get_effective_mod_staging_path") else None)
-    filemap_ok = (staging is not None
-                  and (staging.parent / "filemap.txt").is_file()
-                  and bool(resolved))
+    fm_path = (staging.parent / "filemap.txt") if staging is not None else None
+    # SAFETY 4 (freshness): plugins.txt newer than filemap.txt means entries
+    # were appended AFTER the filemap was built — a just-committed install
+    # (_add_plugins) or toggle sync whose conflict rebuild hasn't landed yet.
+    # The resolver can't see those mods, so an unresolved name proves nothing.
+    # Without this guard the prune deleted a freshly installed mod's plugin
+    # from plugins.txt within the same second as its install (SkyUI_SE.esp,
+    # 2026-07-17); later reloads then recovered it from the fresh filemap for
+    # DISPLAY only, so it never returned to plugins.txt. Also gates the
+    # recovered-entry persist below (a stale filemap could re-add a
+    # just-disabled mod's plugins).
+    filemap_fresh = True
+    try:
+        if fm_path is not None and fm_path.is_file():
+            filemap_fresh = fm_path.stat().st_mtime >= p.stat().st_mtime
+    except OSError:
+        pass
+    if not filemap_fresh:
+        _diag(f"load_plugins: SAFETY-4 filemap OLDER than plugins.txt "
+              f"({fm_path}) — prune + recovered-persist skipped this reload")
+    filemap_ok = (fm_path is not None and fm_path.is_file()
+                  and bool(resolved) and filemap_fresh)
     # SAFETY 2: never prune while the game object points at a DIFFERENT
     # profile than the one being loaded. Background workers (deploy pipeline,
     # collection install/cleanup) swap game._active_profile_dir and can leave
@@ -438,6 +439,12 @@ def load_plugins(game, profile: str,
               f"active={active} vs plugins.txt dir={p.parent} "
               f"(resolver ran against the wrong profile; prune skipped)")
         filemap_ok = False
+    # A superseded load must never mutate the files: its plugins.txt read AND
+    # its filemap resolution may both predate the reload that superseded it
+    # (observed: a superseded gen's prune fired with stale data, then the
+    # current gen's result was applied on top of the damaged files).
+    if cancelled():
+        return None
     if filemap_ok:
         kept: list[PluginEntry] = []
         pruned: list[str] = []
@@ -473,6 +480,19 @@ def load_plugins(game, profile: str,
         still = {e.name.lower() for e in ordered}
         _append_orphans_to_plugins(
             p, star, [o for o in orphans if o.name.lower() in still])
+
+    # Persist filemap-recovered plugins too (Tk parity: Tk's Data/ orphan scan
+    # fed the same sync that wrote them back to plugins.txt). Without this, a
+    # plugin that lost its plugins.txt entry — e.g. pruned by an earlier
+    # stale-filemap reload — shows in the panel forever but never reaches
+    # plugins.txt, so deploy's prefix plugins.txt omits it and the game never
+    # loads it. filemap_fresh: only trust the recovery when the filemap is at
+    # least as new as plugins.txt (see SAFETY 4).
+    if recovered and _active_matches and filemap_fresh:
+        still = {e.name.lower() for e in ordered}
+        _append_orphans_to_plugins(
+            p, star, [PluginEntry(name=n, enabled=True) for n in recovered
+                      if n.lower() in still])
 
     if cancelled():
         return None
@@ -549,19 +569,19 @@ def _scan_orphan_plugins(game, data_dir: Path | None,
 
 def _append_orphans_to_plugins(plugins_path: Path, star: bool,
                                orphans: list[PluginEntry]) -> None:
-    """Append manually-installed orphan plugins to plugins.txt so they stay
+    """Append plugins missing from plugins.txt (manually-installed Data/
+    orphans AND filemap-recovered entries from enabled mods) so they stay
     listed (and get deployed / LOOT-sorted) without requiring a panel edit.
     Best-effort and idempotent — names already listed are skipped, failures
-    are swallowed (the orphan just re-surfaces from the Data/ scan next
-    reload)."""
+    are swallowed (the plugin just re-surfaces from its scan next reload)."""
     try:
         entries = read_plugins(plugins_path, star_prefix=star)
         listed = {e.name.lower() for e in entries}
         new = [o for o in orphans if o.name.lower() not in listed]
         if new:
             write_plugins(plugins_path, entries + new, star_prefix=star)
-            app_log(f"Plugins: added {len(new)} manually installed plugin(s) "
-                    f"to plugins.txt: {', '.join(o.name for o in new)}")
+            app_log(f"Plugins: added {len(new)} plugin(s) missing from "
+                    f"plugins.txt: {', '.join(o.name for o in new)}")
     except Exception:
         pass
 
@@ -1333,22 +1353,14 @@ def save_plugins(game, profile: str, rows: list[PluginRow]) -> None:
         return
     star = getattr(game, "plugins_use_star_prefix", True)
     include_vanilla = bool(getattr(game, "plugins_include_vanilla", False))
-    # Creation Club plugins are "vanilla" (they're pinned/greyed like base+DLC),
-    # but unlike base-game masters they DO need to appear in plugins.txt for a
-    # correct load order — MO2 writes them the same way. When the game opts into
-    # plugins_include_cc, keep CC vanilla rows in plugins.txt even though the
-    # rest of the vanilla set is excluded.
-    include_cc = bool(getattr(game, "plugins_include_cc", include_vanilla))
-    cc_lower: set[str] = set()
-    if include_cc and not include_vanilla:
-        try:
-            from Utils.game_helpers import _cc_plugins_for_game
-            cc_lower = set(_cc_plugins_for_game(game).keys())
-        except Exception:
-            cc_lower = set()
+    # The whole vanilla set — base masters, DLC AND .ccc-listed Creation Club
+    # content (incl. _ResourcePack.esl, which ships inside Skyrim.ccc) — stays
+    # out of plugins.txt: the engine force-loads it at fixed early positions
+    # before reading the file, ignores any entries for it, and strips them when
+    # it rewrites plugins.txt on launch. MO2 (primaryPlugins skip), Vortex
+    # (nativePlugins filter) and libloadorder/LOOT all exclude it the same way.
     mod_entries = [PluginEntry(r.name, r.enabled) for r in rows
-                   if include_vanilla or not r.vanilla
-                   or r.name.lower() in cc_lower]
+                   if include_vanilla or not r.vanilla]
     write_plugins(p, mod_entries, star_prefix=star)
     full = [PluginEntry(r.name, True) for r in rows]
     write_loadorder(p.parent / "loadorder.txt", full)

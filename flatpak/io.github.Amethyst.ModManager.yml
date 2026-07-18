@@ -151,6 +151,25 @@ modules:
       - chmod +x /app/bin/amethyst-mod-manager-cli
       - install -d /app/share/applications
       - install -m 644 flatpak/io.github.Amethyst.ModManager.desktop /app/share/applications/
+
+      # AppStream metainfo — gives Discover / GNOME Software / Warehouse the
+      # app's version + release info ("No version information found" without it).
+      # Stamp @VERSION@ from src/version.py and @DATE@ from git (fallback:
+      # build date) so the <release> entry matches the build, no hand-editing.
+      - install -d /app/share/metainfo
+      - |
+        VER=$(python3 -c "import re,pathlib; \
+          print(re.search(r'\"([^\"]+)\"', \
+          pathlib.Path('src/version.py').read_text()).group(1))")
+        DATE=$(git -C . log -1 --format=%cd --date=short 2>/dev/null \
+               || date +%Y-%m-%d)
+        sed -e "s/@VERSION@/${VER}/" -e "s/@DATE@/${DATE}/" \
+          flatpak/io.github.Amethyst.ModManager.metainfo.xml \
+          > /app/share/metainfo/io.github.Amethyst.ModManager.metainfo.xml
+      # Validate so a malformed metainfo fails the build (relaxed: the only
+      # note is the uppercase app-id, which must match the flatpak id).
+      - appstreamcli validate --no-net
+        /app/share/metainfo/io.github.Amethyst.ModManager.metainfo.xml
       - install -d /app/share/icons/hicolor/64x64/apps /app/share/icons/hicolor/128x128/apps /app/share/icons/hicolor/256x256/apps
       - install -m 644 src/appimage/mod-manager.png /app/share/icons/hicolor/64x64/apps/io.github.Amethyst.ModManager.png
       - install -m 644 src/appimage/mod-manager.png /app/share/icons/hicolor/128x128/apps/io.github.Amethyst.ModManager.png

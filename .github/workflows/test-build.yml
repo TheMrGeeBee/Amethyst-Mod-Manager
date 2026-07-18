@@ -13,11 +13,24 @@ on:
           - appimage
           - flatpak
         default: both
+      flatpak_channel:
+        description: >-
+          OSTree branch the flatpak bundle tracks. Defaults to beta — a
+          dispatch run has no version tag, so without this it would land on
+          stable and the installed bundle would then follow the stable channel.
+        type: choice
+        options:
+          - beta
+          - stable
+        default: beta
 
 jobs:
   build:
     name: Build
     uses: ./.github/workflows/build.yml
+    # Sign flatpak export commits so the bundle's embedded --gpg-keys verifies.
+    secrets: inherit
     with:
       build_appimage: ${{ inputs.target != 'flatpak' }}
       build_flatpak: ${{ inputs.target != 'appimage' }}
+      flatpak_channel: ${{ inputs.flatpak_channel }}

@@ -105,11 +105,19 @@ def _read_ccc_manifest(game, ccc_name: str, present: "set[str]") -> dict[str, st
     result: dict[str, str] = {}
     if not ccc_name:
         return result
+    candidates: list = []
+    # Starfield reads its .ccc from My Games first, then the game root
+    # (libloadorder 17.0.0 behavior); other games only ship it in the root.
+    if getattr(game, "ccc_in_my_games", False) and hasattr(game, "_mygames_paths"):
+        try:
+            candidates.extend(d / ccc_name for d in game._mygames_paths())
+        except Exception:
+            pass
     game_path = game.get_game_path()
-    if not game_path:
-        return result
-    ccc = game_path / ccc_name
-    if not ccc.is_file():
+    if game_path:
+        candidates.append(game_path / ccc_name)
+    ccc = next((c for c in candidates if c.is_file()), None)
+    if ccc is None:
         return result
     try:
         for line in ccc.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -119,28 +127,6 @@ def _read_ccc_manifest(game, ccc_name: str, present: "set[str]") -> dict[str, st
     except OSError:
         pass
     return result
-
-
-def _cc_plugins_for_game(game) -> dict[str, str]:
-    """Return {lowercase_name: original_name} for Creation Club plugins only.
-
-    These are the plugins listed in the game's .ccc manifest AND present in the
-    Data folder. Unlike base-game/DLC masters, active CC plugins need to be
-    written into plugins.txt for a correct load order (see plugins_include_cc).
-    """
-    ccc_name = getattr(game, "vanilla_ccc_filename", None)
-    if not ccc_name:
-        return {}
-    data_dir = game.get_vanilla_plugins_path() if hasattr(game, "get_vanilla_plugins_path") else None
-    present: set[str] = set()
-    if data_dir and data_dir.is_dir():
-        try:
-            present = {entry.name.lower() for entry in data_dir.iterdir() if entry.is_file()}
-        except OSError:
-            pass
-    if not present:
-        return {}
-    return _read_ccc_manifest(game, ccc_name, present)
 
 
 def _load_games() -> list[str]:

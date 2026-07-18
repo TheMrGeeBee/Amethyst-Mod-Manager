@@ -50,11 +50,18 @@ class QtWizardContext:
     panels (footer Refresh).  refresh_plugins() re-runs LOOT to refresh plugin
     metadata WITHOUT reordering the load order (footer Refresh Plugins) — used by
     the xEdit wizards after a clean/edit session so dirty/message flags update.
+    import_manifest(manifest, source_stem, bundle_zip) opens the Profile-import
+    tab (the collection detail + install pipeline) for an already-parsed
+    Amethyst manifest — used by the curated-profile wizard. current_profile()
+    returns the LIVE active profile name (profile_name is frozen at open, so a
+    wizard spanning a profile switch — e.g. a profile import — reads this).
     """
     profile_name: str = "default"
     run_deploy: Callable | None = None
     refresh_modlist: Callable | None = None
     refresh_plugins: Callable | None = None
+    import_manifest: Callable | None = None
+    current_profile: Callable | None = None
 
 
 # Deliberately dropped from the Qt app (not even shown greyed out).
@@ -191,6 +198,14 @@ REGISTRY: dict[str, QtWizardSpec] = {
         QtWizardSpec(_param("wizards_qt.texture_tool_view", "TextureToolView", tool="parallaxr")),
     "wizards.ttw.TTWInstallerWizard":
         QtWizardSpec(_simple("wizards_qt.ttw_view", "TTWView")),
+    "wizards.bsa_decompressor.BSADecompressorWizard":
+        QtWizardSpec(_simple("wizards_qt.bsa_decompressor_view",
+                             "BSADecompressorView")),
+    "wizards.esm_fixes.ESMFixesWizard":
+        QtWizardSpec(_simple("wizards_qt.esm_fixes_view", "ESMFixesView")),
+    "wizards.curated_profile.CuratedProfileWizard":
+        QtWizardSpec(_simple("wizards_qt.curated_profile_view",
+                             "CuratedProfileView")),
     "wizards.dtkit_patch.DtkitPatchWizard":
         QtWizardSpec(_simple("wizards_qt.dtkit_patch_view", "DtkitPatchView")),
     "Games.Morrowind.mgexe_wizard.MGEXEWizard":

@@ -25,6 +25,9 @@ jobs:
   build:
     name: Build
     uses: ./.github/workflows/build.yml
+    # Passes the FLATPAK_GPG_* secrets through so the flatpak job can sign its
+    # export commits (required for the bundle's embedded --gpg-keys to verify).
+    secrets: inherit
     with:
       # A Pages dry-run only needs the Flatpak repo artifact — skip the
       # AppImage build to save CI time. Real runs build both.
@@ -249,10 +252,19 @@ jobs:
           BRANCH='${{ steps.mode.outputs.ostree }}'
           SIGN='${{ steps.gpg.outputs.sign }}'
           REF="app/${APP_ID}/x86_64/${BRANCH}"
+          # Commit subject = the version. Warehouse's "Change Version" picker
+          # (and `ostree log`) shows subject + hash + date per commit — the
+          # default "Export <app-id>" subject tells users nothing.
+          if [ '${{ steps.mode.outputs.dry }}' = 'true' ]; then
+            SUBJECT="dry-run ${GITHUB_SHA:0:7}"
+          else
+            SUBJECT="${GITHUB_REF_NAME#v}"
+          fi
           # Copy the app ref (and its runtime refs are pulled by clients from
           # flathub, so only the app ref needs to live here) into the live repo.
           flatpak build-commit-from \
             --src-repo=newrepo \
+            --subject="$SUBJECT" \
             $SIGN \
             site/repo "$REF"
           # Regenerate summary + static deltas so clients fetch deltas, not

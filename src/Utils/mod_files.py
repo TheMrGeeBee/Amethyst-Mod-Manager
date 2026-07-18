@@ -153,7 +153,11 @@ def build_conflict_cache(index_path: Path | None,
     filemap_winner: dict[str, str] = {}
     if fm_path.is_file():
         try:
-            for line in fm_path.read_text(encoding="utf-8").splitlines():
+            # surrogateescape: filemap.txt rel paths derive from on-disk
+            # filenames whose non-UTF-8 bytes decode to surrogate code points;
+            # a plain utf-8 read would raise on them.
+            for line in fm_path.read_text(
+                    encoding="utf-8", errors="surrogateescape").splitlines():
                 if "\t" in line:
                     rk, mn = line.split("\t", 1)
                     filemap_winner[rk.lower()] = mn

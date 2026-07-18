@@ -832,7 +832,13 @@ class ModListModel(QAbstractTableModel):
         aren't user-collapsible (Tk excludes them from the toggle set), so a
         stale '[Overwrite]' in the persisted collapsed set must NOT hide the
         ungrouped mods that sit between Overwrite and the first real separator.
+
+        While the 'hide separators' filter is active the separators aren't shown
+        at all, so their collapse state is meaningless — every mod stays visible
+        (a collapsed separator must not swallow its mods behind a hidden header).
         """
+        if self._separators_hidden:
+            return set()
         hidden: set[int] = set()
         collapsing = False
         for i, e in enumerate(self._entries):

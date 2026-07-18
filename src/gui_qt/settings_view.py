@@ -668,10 +668,29 @@ class SettingsView(QWidget):
             if not ok:
                 return
             allow_pre = load_allow_prerelease()
-            if enroll_flatpak_remote(allow_prerelease=allow_pre):
+            status = enroll_flatpak_remote(allow_prerelease=allow_pre)
+            if status == "launched":
                 win = self._window
                 if win is not None:
                     win.close()  # the detached child relaunches from the remote
+            elif status == "no-branch":
+                channel = self.tr("beta") if allow_pre else self.tr("stable")
+                ConfirmOverlay.show_message(
+                    self._window,
+                    self.tr("Channel not available"),
+                    self.tr("The {0} channel isn't published on the update "
+                            "remote yet. Try again after the next {0} "
+                            "release (or change the pre-release setting)."
+                            ).format(channel))
+            else:
+                ConfirmOverlay.show_message(
+                    self._window,
+                    self.tr("Could not reach Flatpak"),
+                    self.tr("The host Flatpak service couldn't be reached. "
+                            "You can add the remote manually:\n\n"
+                            "flatpak remote-add --user amethyst "
+                            "https://chrisdkn.github.io/Amethyst-Mod-Manager/"
+                            "amethyst.flatpakrepo"))
         ConfirmOverlay.show_over(
             self._window,
             self.tr("Enable automatic updates?"),

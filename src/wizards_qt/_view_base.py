@@ -57,7 +57,7 @@ class WizardViewBase(QWidget):
     _run_finished_sig = Signal()          # worker chain complete → close
 
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
-                 *, title: str):
+                 *, title: str, show_header: bool = True):
         super().__init__()
         self._game = game
         self._log = log_fn or (lambda _m: None)
@@ -84,18 +84,21 @@ class WizardViewBase(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
-        bar = QWidget(); bar.setObjectName("HeaderBar")
-        hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
-        head = QLabel(title)
-        head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
-        hb.addWidget(head)
-        hb.addStretch(1)
-        close = QPushButton(self.tr("✕ Close"))
-        close.setCursor(Qt.PointingHandCursor)
-        close.setStyleSheet(button_qss("BTN_DANGER", pal=p, padding="5px 12px"))
-        close.clicked.connect(self._finish)
-        hb.addWidget(close)
-        v.addWidget(bar)
+        # show_header=False embeds this view inside another wizard's page —
+        # the host provides the title bar / close, so skip building ours.
+        if show_header:
+            bar = QWidget(); bar.setObjectName("HeaderBar")
+            hb = QHBoxLayout(bar); hb.setContentsMargins(12, 8, 8, 8); hb.setSpacing(8)
+            head = QLabel(title)
+            head.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-weight:600;")
+            hb.addWidget(head)
+            hb.addStretch(1)
+            close = QPushButton(self.tr("✕ Close"))
+            close.setCursor(Qt.PointingHandCursor)
+            close.setStyleSheet(button_qss("BTN_DANGER", pal=p, padding="5px 12px"))
+            close.clicked.connect(self._finish)
+            hb.addWidget(close)
+            v.addWidget(bar)
 
         self._stack = QStackedWidget()
         v.addWidget(self._stack, 1)

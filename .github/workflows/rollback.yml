@@ -1,0 +1,172 @@
+name: Rollback Flatpak Remote
+
+# Manually roll a channel of the hosted Flatpak remote back to a previous
+# commit — for pulling a broken release. OSTree remotes are commit chains, so
+# "removing" a version means: (1) republish the last good commit as the NEW
+# branch head (clients follow the head, so everyone auto-"updates" back to the
+# good build), and (2) optionally prune the broken commit's objects so it also
+# vanishes from Warehouse's "Change Version" list.
+#
+# NB this only fixes the REMOTE. The matching GitHub release (bundle/AppImage)
+# must be deleted separately:  gh release delete <tag> --cleanup-tag
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to roll back
+        type: choice
+        options: [stable, beta]
+        required: true
+      commit:
+        description: >-
+          Commit to roll back TO (full checksum). Leave empty to use the
+          current head's parent (i.e. undo the most recent publish).
+        type: string
+        default: ""
+      delete_broken:
+        description: Also delete the broken (current head) commit's objects
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.channel }}
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: io.github.Amethyst.ModManager
+      HAVE_GPG: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY != '' }}
+    steps:
+      - name: Install flatpak + ostree
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak ostree
+
+      - name: Checkout gh-pages (live repo)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+
+      - name: Restore OSTree empty dirs
+        run: |
+          # Git doesn't store empty dirs — same skeleton fix as publish-pages.
+          mkdir -p site/repo/objects \
+                   site/repo/refs/heads site/repo/refs/mirrors \
+                   site/repo/refs/remotes site/repo/state \
+                   site/repo/extensions site/repo/tmp/cache
+
+      - name: Import GPG signing key
+        id: gpg
+        if: env.HAVE_GPG == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys "$GPG_KEY_ID" >/dev/null
+          echo "sign=--gpg-sign=${GPG_KEY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Roll back the branch
+        id: rb
+        run: |
+          set -euo pipefail
+          REF="app/${APP_ID}/x86_64/${{ inputs.channel }}"
+          SIGN='${{ steps.gpg.outputs.sign }}'
+
+          BROKEN=$(ostree --repo=site/repo rev-parse "$REF")
+          echo "current (broken) head: $BROKEN"
+
+          TARGET='${{ inputs.commit }}'
+          if [ -z "$TARGET" ]; then
+            # Default: the head's parent — undo the most recent publish.
+            TARGET=$(ostree --repo=site/repo log "$REF" \
+                     | awk '/^commit /{print $2}' | sed -n 2p)
+            if [ -z "$TARGET" ]; then
+              echo "::error::$REF has no parent commit to roll back to —" \
+                   "pass an explicit target commit."
+              exit 1
+            fi
+          fi
+          if [ "$TARGET" = "$BROKEN" ]; then
+            echo "::error::Target equals the current head — nothing to do."
+            exit 1
+          fi
+          # The target must exist locally (prune may have removed old parents).
+          ostree --repo=site/repo show "$TARGET" >/dev/null
+          echo "rolling back to: $TARGET"
+
+          # Subject the rollback commit with the restored app version so the
+          # Warehouse version picker stays meaningful.
+          VER=$(ostree --repo=site/repo cat "$TARGET" \
+                  /files/share/amethyst-mod-manager/version.py 2>/dev/null \
+                | grep -oE '"[^"]+"' | head -1 | tr -d '"' || true)
+          SUBJECT="rollback${VER:+ to $VER}"
+
+          # Republish the good commit as the new head (new commit, old content)
+          flatpak build-commit-from \
+            --src-repo=site/repo --src-ref="$TARGET" \
+            --subject="$SUBJECT" \
+            $SIGN \
+            site/repo "$REF"
+
+          if [ '${{ inputs.delete_broken }}' = 'true' ]; then
+            echo "pruning broken commit $BROKEN"
+            ostree --repo=site/repo prune --delete-commit="$BROKEN"
+          fi
+
+          # Regenerate summary + deltas so clients see the new head.
+          flatpak build-update-repo \
+            --generate-static-deltas \
+            --prune --prune-depth=20 \
+            $SIGN \
+            site/repo
+
+          echo "broken=$BROKEN" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "subject=$SUBJECT" >> "$GITHUB_OUTPUT"
+
+      - name: Verify repo integrity
+        run: |
+          set -euo pipefail
+          REF="app/${APP_ID}/x86_64/${{ inputs.channel }}"
+          ostree --repo=site/repo refs | grep -Fx "$REF"
+          ostree --repo=site/repo fsck --quiet
+          NEWHEAD=$(ostree --repo=site/repo rev-parse "$REF")
+          echo "new head: $NEWHEAD"
+
+      - name: Push gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd site
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "$REMOTE_URL" 2>/dev/null \
+            || git remote add origin "$REMOTE_URL"
+          git add -A
+          git commit -q -m "Rollback ${{ inputs.channel }}: ${{ steps.rb.outputs.subject }}"
+          git push -f origin "HEAD:refs/heads/gh-pages"
+
+      - name: Summary
+        run: |
+          {
+            echo "### ⏪ Rolled back \`${{ inputs.channel }}\`"
+            echo ""
+            echo "- Broken head: \`${{ steps.rb.outputs.broken }}\`" \
+                 "$( [ '${{ inputs.delete_broken }}' = 'true' ] && echo '(objects pruned)' )"
+            echo "- Restored:    \`${{ steps.rb.outputs.target }}\` → new head (\`${{ steps.rb.outputs.subject }}\`)"
+            echo ""
+            echo "Clients on this channel will move to the restored build on their next \`flatpak update\`."
+            echo ""
+            echo "**Remember:** delete the matching GitHub release separately if its bundle/AppImage are broken:"
+            echo '```'
+            echo 'gh release delete <tag> --cleanup-tag'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

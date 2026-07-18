@@ -1060,16 +1060,39 @@ class MainWindow(QMainWindow):
             else:
                 plugin_order = None
                 plugin_exts = None
+            is_ue = bool(exts & UE_ARCHIVE_EXTENSIONS)
             winner, losers = compute_bsa_winner_map(
                 index, prio, plugin_order or None, plugin_exts or None,
-                staging.parent / "modindex.bin",
-                bool(exts & UE_ARCHIVE_EXTENSIONS))
+                staging.parent / "modindex.bin", is_ue)
             codes = {}
             for fp, lose_list in losers.items():
                 if winner.get(fp) == mod_name:
                     codes[fp] = 1
                 elif mod_name in lose_list:
                     codes[fp] = -1
+            if not is_ue:
+                my_bsa_paths = {
+                    fp
+                    for _bsa, _mt, paths in index.get(mod_name, [])
+                    for fp in paths
+                }
+                if my_bsa_paths:
+                    from Utils.filemap import read_mod_index
+                    loose_index = read_mod_index(
+                        staging.parent / "modindex.bin") or {}
+                    for cand in prio:
+                        if cand == mod_name:
+                            continue
+                        entry = loose_index.get(cand)
+                        if not entry:
+                            continue
+                        normal, _root = entry
+                        for rel_key in normal:
+                            if rel_key in my_bsa_paths:
+                                # A higher-priority loose file wins outright; a
+                                # lower-priority one still beats the BSA (engine
+                                # loads BSAs first, then loose on top).
+                                codes[rel_key] = -1
             return codes
         except Exception:
             return {}
@@ -2277,6 +2300,12 @@ class MainWindow(QMainWindow):
             allow_pre = load_allow_prerelease()
             if is_appimage() or is_flatpak():
                 mode = "appimage" if is_appimage() else "flatpak"
+                if mode == "flatpak":
+                    # Idempotent tidy-up of a bundle-created origin remote
+                    # (enumerate + proper title) so Discover shows real target
+                    # versions instead of the branch name. Cheap; daemon thread.
+                    from Utils.version_check import polish_flatpak_origin
+                    polish_flatpak_origin()
                 result = _fetch_latest_version(
                     allow_prerelease=allow_pre, force=force_fresh)
                 if result is None:
@@ -2284,6 +2313,21 @@ class MainWindow(QMainWindow):
                 latest, is_pre = result
                 newer = _is_newer_version(__version__, latest)
                 if newer or (force_downgrade_prompt and latest != __version__):
+                    # GitHub Releases decides the *version strings*, but for a
+                    # remote-tracked flatpak the *install* comes from our OSTree
+                    # remote — which can lag Pages publishing or lack the beta
+                    # branch entirely. Only show the banner when the remote can
+                    # actually deliver; None (host unreachable) falls back to
+                    # the GitHub-only decision.
+                    if mode == "flatpak":
+                        from Utils.version_check import (
+                            flatpak_installed_from_remote,
+                            flatpak_remote_update_ready,
+                        )
+                        if flatpak_installed_from_remote():
+                            branch = "beta" if allow_pre else "stable"
+                            if flatpak_remote_update_ready(branch) is False:
+                                return
                     safe_emit(self._app_update_found,
                               (__version__, latest, mode, is_pre, not newer))
             else:
@@ -2322,10 +2366,22 @@ class MainWindow(QMainWindow):
                 # Preferred path: installed from our hosted remote → native
                 # delta update. Fallback: bundle-installed → download the .flatpak.
                 if flatpak_installed_from_remote():
-                    ok = update_flatpak_from_remote(allow_prerelease=allow_pre)
+                    status = update_flatpak_from_remote(
+                        allow_prerelease=allow_pre)
                 else:
-                    ok = run_flatpak_installer(latest)
-                if not ok:
+                    status = ("launched" if run_flatpak_installer(latest)
+                              else "unavailable")
+                if status == "no-branch":
+                    # The requested channel isn't on the remote yet (e.g. beta
+                    # before the first beta release is published). The detached
+                    # install would fail silently — tell the user instead.
+                    channel = self.tr("beta") if allow_pre else self.tr("stable")
+                    self._notify(self.tr(
+                        "The {0} channel isn't published on the update remote "
+                        "yet — try again after the next {0} release.").format(
+                            channel), state="warning")
+                    return
+                if status != "launched":
                     # Host flatpak unreachable — fall back to the releases page
                     # rather than silently closing with nothing happening.
                     from Utils.xdg import open_url
@@ -7886,6 +7942,9 @@ class MainWindow(QMainWindow):
             run_deploy=self._wizard_run_deploy,
             refresh_modlist=self._on_refresh_modlist,
             refresh_plugins=self._wizard_refresh_plugins,
+            import_manifest=lambda manifest, stem, bundle_zip:
+                self._open_manifest_import(manifest, stem, bundle_zip=bundle_zip),
+            current_profile=lambda: self._gs.profile or "default",
         )
         try:
             view = spec.view_factory(
@@ -8608,7 +8667,11 @@ class MainWindow(QMainWindow):
 
         def _after_named(final):
             self._reload_modlist()
-            self._reload_plugins()
+            # Plugins reload comes from _on_conflicts_ready after the rebuild —
+            # an immediate reload prunes the fresh plugins.txt entry against the
+            # stale filemap (see _on_install_done).
+            if not getattr(self, "_reload_had_entries", False):
+                self._reload_plugins()
             self._notify(self.tr("Installed {0}").format(final), "success")
             # Change Version landed a different-named version → offer to remove
             # the previous version (Tk parity with _finish_one_install).
@@ -8620,7 +8683,9 @@ class MainWindow(QMainWindow):
             self._maybe_prompt_rename(name, _after_named)
         else:
             self._reload_modlist()
-            self._reload_plugins()
+            # See _after_named — only load directly when no rebuild is coming.
+            if not getattr(self, "_reload_had_entries", False):
+                self._reload_plugins()
             # Failed/cancelled staging (finish_install returned None): keep the
             # queue moving.
             _drain_next()
@@ -8866,7 +8931,16 @@ class MainWindow(QMainWindow):
         if self._progress_popup is not None:
             self._schedule_op_clear(1200)
         self._reload_modlist()
-        self._reload_plugins()
+        # NOTE: the plugin panel is reloaded from _on_conflicts_ready, after the
+        # conflict/filemap rebuild queued by _reload_modlist — NOT here. An
+        # immediate reload reads the STALE filemap (the just-installed mod's
+        # plugin isn't in it yet), so load_plugins' phantom prune deleted the
+        # plugins.txt entry _add_plugins had just appended; the plugin then
+        # appeared in the panel only via filemap recovery, never persisted
+        # (observed: SkyUI_SE.esp pruned within the same second as its install).
+        # Only load directly when the modlist is empty and no rebuild is coming.
+        if not getattr(self, "_reload_had_entries", False):
+            self._reload_plugins()
         # Re-flag Reinstall in the Downloads tab now that meta.ini changed.
         if hasattr(self, "_downloads_view"):
             self._downloads_view.mark_dirty()
@@ -9904,25 +9978,32 @@ class MainWindow(QMainWindow):
         except Exception:
             return set()
 
+        # Clause delimiters — imported so the encode (fomod_installer) and decode
+        # (here) can never drift. They're all filename-illegal chars, so plugin
+        # names containing "+", "!", "&" etc. don't collide.
+        from Utils.fomod_installer import (
+            FLAG_OPT_SEP, FLAG_OR_SEP, FLAG_AND_SEP, FLAG_ABSENT)
+
         def _member_holds(m: str) -> bool:
-            # "!name" = the plugin must be ABSENT (a state="Missing" gate);
+            # ">name" = the plugin must be ABSENT (a state="Missing" gate);
             # "name" = the plugin must be present + enabled.
-            if m.startswith("!"):
-                return m[1:] not in enabled
+            if m.startswith(FLAG_ABSENT):
+                return m[len(FLAG_ABSENT):] not in enabled
             return m in enabled
 
         def _and_clause(clause: str):
-            # A "+"-joined AND-clause → its lowercase members.
-            return [m.strip().lower() for m in clause.split("+") if m.strip()]
+            # An AND-clause → its lowercase members.
+            return [m.strip().lower() for m in clause.split(FLAG_AND_SEP)
+                    if m.strip()]
 
         def _clause_holds(members) -> bool:
             return bool(members) and all(_member_holds(m) for m in members)
 
         def _option_conditions(raw: str):
-            # Each ";"-group is ONE option's condition, an OR-of-ANDs: "|"-joined
-            # AND-clauses. Yield the list of member-lists (the OR alternatives).
-            for cond in (raw or "").split(";"):
-                alts = [_and_clause(c) for c in cond.split("|")]
+            # Each option-group is ONE option's condition, an OR-of-ANDs. Yield the
+            # list of member-lists (the OR alternatives).
+            for cond in (raw or "").split(FLAG_OPT_SEP):
+                alts = [_and_clause(c) for c in cond.split(FLAG_OR_SEP)]
                 alts = [a for a in alts if a]
                 if alts:
                     yield alts
@@ -9932,7 +10013,7 @@ class MainWindow(QMainWindow):
             return any(_clause_holds(a) for a in alts)
 
         def _has_present_member(alts) -> bool:
-            return any(not m.startswith("!") for a in alts for m in a)
+            return any(not m.startswith(FLAG_ABSENT) for a in alts for m in a)
 
         for name in candidates:
             try:

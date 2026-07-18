@@ -14,8 +14,6 @@ class Starfield(Fallout_3):
 
     plugins_use_star_prefix = True
     plugins_include_vanilla = False
-    # CC plugins (Starfield.ccc) must be written into plugins.txt for load order.
-    plugins_include_cc = True
     supports_esl_flag = True
     vanilla_plugins = [
         "Starfield.esm", "Constellation.esm", "ShatteredSpace.esm",
@@ -25,6 +23,8 @@ class Starfield(Fallout_3):
     ]
     vanilla_dlc_plugins: list[str] = []
     vanilla_ccc_filename = "Starfield.ccc"
+    # The game reads Starfield.ccc from My Games\Starfield before the game root.
+    ccc_in_my_games = True
     synthesis_registry_name = "Starfield"
 
     @property

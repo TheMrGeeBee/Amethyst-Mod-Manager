@@ -604,7 +604,8 @@ def disable_plugins(game: "BaseGame", selected: "list[str]") -> "tuple[int, str]
     if not plugins_path.is_file():
         return 0, "plugins.txt not found — cannot disable."
 
-    lines = plugins_path.read_text(encoding="utf-8").splitlines()
+    from Utils.plugins import _plugins_txt_encoding, _read_text_game_compat
+    lines = _read_text_game_compat(plugins_path).splitlines()
     selected_lower = {n.lower() for n in selected}
     new_lines: list[str] = []
     disabled = 0
@@ -617,7 +618,8 @@ def disable_plugins(game: "BaseGame", selected: "list[str]") -> "tuple[int, str]
                 disabled += 1
                 continue
         new_lines.append(line)
-    plugins_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    text = "\n".join(new_lines) + "\n"
+    plugins_path.write_text(text, encoding=_plugins_txt_encoding(text))
     from Utils.plugins import invalidate_plugins_cache
     invalidate_plugins_cache(plugins_path)
     return disabled, f"Disabled {disabled} plugin(s)."

@@ -1,10 +1,20 @@
 - v2.0.4
-- File dependancies (plugins) in fomods are now saved to their meta.ini. If the plugin is later installed or removed a flag is shown as a reminder to reinstall the fomod
-- Added a refresh plugins button to gather loot meta data without sorting plugins. xedit wizards now refresh meta data automatically once they close
-- Fixed fomod flag not being applied to the meta.ini meaning new the show only fomod filter would not work on new fomod installs
-- Selecting and installing multiple mods in the downloads tab will now install them in parallel, like collections
-- When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
+### Additions
 - Added the option to change download speed limits
+- Added a flatpak remote for easier flatpak updating
+- Added a BSA Decompresser wizard for Fallout new Vegas
+- Added a Ultimate ESM fixes wizard for Fallout new Vegas
+- Added a wizard to install Viva New Vegas
+- Added a refresh plugins button to gather loot meta data without sorting plugins. xedit wizards now refresh meta data automatically once they close
+### Changes
+- File dependancies (plugins) in fomods are now saved to their meta.ini. If the plugin is later installed or removed a flag is shown as a reminder to reinstall the fomod
+- When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
+- Selecting and installing multiple mods in the downloads tab will now install them in parallel, like collections
+### Bug Fixes
+- Fixed fomod flag not being applied to the meta.ini meaning new the show only fomod filter would not work on new fomod installs
+- Fixed an issue where vanilla files could be removed from the game folder when removing a mod that contained vanilla file overrides
+
+---
 
 - v2.0.3
 ### Game support

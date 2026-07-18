@@ -26,7 +26,10 @@ def parse_filemap(filemap_path: Path) -> list[tuple[str, str]]:
     """Parse filemap.txt → [(rel_path, mod_name)] (rel_path raw, tab-separated)."""
     entries: list[tuple[str, str]] = []
     try:
-        with filemap_path.open(encoding="utf-8") as f:
+        # surrogateescape: filemap.txt rel paths derive from on-disk filenames
+        # whose non-UTF-8 bytes decode to surrogate code points — a plain utf-8
+        # read raises on them.
+        with filemap_path.open(encoding="utf-8", errors="surrogateescape") as f:
             for line in f:
                 line = line.rstrip("\n")
                 if "\t" not in line:

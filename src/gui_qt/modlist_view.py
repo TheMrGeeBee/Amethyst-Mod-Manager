@@ -712,6 +712,28 @@ class ModListView(QTreeView):
         # Re-apply any active highlight against the fresh maps.
         self._refresh_self_highlights()
 
+    def selectAll(self) -> None:
+        """Ctrl+A → select every *visible*, non-separator mod row. Qt's default
+        selects the whole model (hidden rows + separators too), which is wrong
+        while a filter / hide-separators is active: separators that aren't shown
+        must not become part of the selection."""
+        m = self.model()
+        sm = self.selectionModel()
+        if m is None or sm is None:
+            return
+        root = self.rootIndex()
+        from PySide6.QtCore import QItemSelection, QItemSelectionModel
+        sel = QItemSelection()
+        for r in range(m.rowCount()):
+            if self.isRowHidden(r, root):
+                continue
+            if m.entry(r).is_separator:
+                continue
+            idx = m.index(r, 0)
+            sel.select(idx, idx)
+        sm.select(sel, QItemSelectionModel.ClearAndSelect
+                  | QItemSelectionModel.Rows)
+
     def selected_mod_names(self) -> set[str]:
         """Names of the selected mods. A selected separator contributes all the
         mods in its block (Tk parity)."""
