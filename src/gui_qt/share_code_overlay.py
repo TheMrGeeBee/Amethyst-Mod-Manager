@@ -190,3 +190,135 @@ class ShareCodeImportOverlay(_CodeOverlayBase):
         text = self._area.toPlainText().strip()
         if text:
             self._finish(text)
+
+
+class CustomGameExportOverlay(_CodeOverlayBase):
+    """Show a generated custom-game share code with a Copy-to-clipboard button.
+    The code is also copied to the clipboard automatically on open."""
+
+    def __init__(self, host: QWidget, code: str, game_name: str = "", on_copy=None):
+        super().__init__(host)
+        self._code = code
+        self._on_copy = on_copy
+
+        self._v.addWidget(self._title(self.tr("Export game")))
+        if game_name:
+            sub = self.tr(
+                "Share this code to send someone your \"{0}\" custom game setup. "
+                "They can add it with Import code in Define Custom Game."
+            ).format(game_name)
+        else:
+            sub = self.tr(
+                "Share this code to send someone this custom game setup. They can "
+                "add it with Import code in Define Custom Game.")
+        self._v.addWidget(self._sub(sub))
+
+        self._area = self._text_area(read_only=True)
+        self._area.setPlainText(code)
+        self._v.addWidget(self._area, 1)
+
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        close = QPushButton(self.tr("Close"))
+        close.setObjectName("FormButton")
+        close.setCursor(Qt.PointingHandCursor)
+        close.clicked.connect(lambda: self._finish(None))
+        bar.addWidget(close)
+        self._copy_btn = QPushButton(self.tr("Copy to clipboard"))
+        self._copy_btn.setObjectName("PrimaryButton")
+        self._copy_btn.setCursor(Qt.PointingHandCursor)
+        self._copy_btn.clicked.connect(self._copy)
+        bar.addWidget(self._copy_btn)
+        self._v.addLayout(bar)
+
+        self._present()
+        self._copy()   # auto-copy on open
+
+    def _copy(self):
+        cb = QGuiApplication.clipboard()
+        if cb is not None:
+            cb.setText(self._code)
+        self._copy_btn.setText(self.tr("Copied ✓"))
+        if callable(self._on_copy):
+            self._on_copy()
+
+
+class CustomGameImportOverlay(_CodeOverlayBase):
+    """A multi-line paste box for importing a custom-game share code.
+    ``on_done(defn)`` on Import with the decoded definition dict, or
+    ``on_done(None)`` on Cancel / Esc / backdrop click."""
+
+    def __init__(self, host: QWidget, on_done):
+        super().__init__(host, on_done=on_done)
+        self._defn = None
+
+        self._v.addWidget(self._title(self.tr("Import game")))
+        self._v.addWidget(self._sub(self.tr(
+            "Paste a share code below to prefill the form from another custom "
+            "game's setup. You still need to give it a unique name.")))
+
+        self._area = self._text_area(read_only=False)
+        self._area.setPlaceholderText("AMMGAME1:…")  # i18n: skip — share-code format token
+        self._v.addWidget(self._area, 1)
+
+        self._preview = self._sub("")
+        self._v.addWidget(self._preview)
+        self._area.textChanged.connect(self._update_preview)
+
+        cb = QGuiApplication.clipboard()
+        clip = cb.text() if cb is not None else ""
+        bar = QHBoxLayout()
+        if clip and clip.strip().startswith("AMMGAME"):
+            paste = QPushButton(self.tr("Paste from clipboard"))
+            paste.setObjectName("FormButton")
+            paste.setCursor(Qt.PointingHandCursor)
+            paste.clicked.connect(lambda: self._area.setPlainText(clip))
+            bar.addWidget(paste)
+        bar.addStretch(1)
+        cancel = QPushButton(self.tr("Cancel"))
+        cancel.setObjectName("FormButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(lambda: self._finish(None))
+        bar.addWidget(cancel)
+        self._ok = QPushButton(self.tr("Import"))
+        self._ok.setObjectName("PrimaryButton")
+        self._ok.setCursor(Qt.PointingHandCursor)
+        self._ok.clicked.connect(self._confirm)
+        self._ok.setEnabled(False)
+        bar.addWidget(self._ok)
+        self._v.addLayout(bar)
+
+        self._present()
+        self._area.setFocus()
+
+    def _update_preview(self):
+        text = self._area.toPlainText().strip()
+        self._defn = None
+        if not text:
+            self._preview.setText("")
+            self._ok.setEnabled(False)
+            return
+        try:
+            from Games.Custom.custom_game import decode_custom_game_definition
+            defn = decode_custom_game_definition(text)
+        except Exception:
+            self._preview.setText(self.tr("Not a valid game code."))
+            self._ok.setEnabled(False)
+            return
+        self._defn = defn
+        self._ok.setEnabled(True)
+        parts = []
+        name = (defn.get("name") or "").strip()
+        if name:
+            parts.append(name)
+        exe = (defn.get("exe_name") or "").strip()
+        if exe:
+            parts.append(exe)
+        dep = (defn.get("deploy_type") or "").strip()
+        if dep:
+            parts.append(self.tr("{0} deploy").format(dep))
+        self._preview.setText("  —  ".join(parts))
+
+    def _confirm(self):
+        if self._defn is not None:
+            self._finish(self._defn)

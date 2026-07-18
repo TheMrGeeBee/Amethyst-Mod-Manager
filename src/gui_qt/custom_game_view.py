@@ -31,7 +31,9 @@ from gui_qt.icons import icon, icon_rotated
 from gui_qt.safe_emit import safe_emit
 from Games.Custom.custom_game import (
     _make_game_id,
+    decode_custom_game_definition,
     delete_custom_game_definition,
+    encode_custom_game_definition,
     load_custom_game_definitions,
     make_custom_game,
     save_custom_game_definition,
@@ -226,6 +228,12 @@ class CustomGameView(QWidget):
         title = QLabel(self.tr("Edit Custom Game") if self._existing else self.tr("Define Custom Game"))
         title.setStyleSheet("font-size:15px; font-weight:600;")
         hb.addWidget(title); hb.addStretch(1)
+        if self._existing:
+            export_btn = QPushButton(self.tr("Export code…"))
+            export_btn.setObjectName("FormButton")
+            export_btn.setCursor(Qt.PointingHandCursor)
+            export_btn.clicked.connect(self._on_export_code)
+            hb.addWidget(export_btn)
         outer.addWidget(header)
 
         # Scrollable body.
@@ -254,6 +262,19 @@ class CustomGameView(QWidget):
             no_wheel(self._preset_combo)
             self._preset_combo.currentIndexChanged.connect(self._on_preset_selected)
             v.addWidget(self._preset_combo)
+
+            v.addWidget(self._hint(
+                self.tr("Or paste a share code exported from another custom game "
+                "to prefill every field below.")))
+            import_row = QHBoxLayout()
+            import_btn = QPushButton(self.tr("Import code…"))
+            import_btn.setObjectName("FormButton")
+            import_btn.setCursor(Qt.PointingHandCursor)
+            import_btn.clicked.connect(self._on_import_code)
+            import_row.addWidget(import_btn)
+            import_row.addStretch(1)
+            v.addLayout(import_row)
+
             v.addWidget(self._divider())
 
         # --- Game Name ---
@@ -849,6 +870,43 @@ class CustomGameView(QWidget):
         self._prepopulate(defn, keep_name=False)
         self._update_data_path_visibility()
 
+    # ---- share code export / import ---------------------------------------
+    def _on_export_code(self):
+        """Export the current game's settings as a copy-pasteable share code."""
+        err = self._validate()
+        if err:
+            self._validation.setText(err)
+            return
+        self._validation.setText("")
+        from gui_qt.share_code_overlay import CustomGameExportOverlay
+        defn = self._collect_definition()
+        code = encode_custom_game_definition(defn)
+        CustomGameExportOverlay(self.window(), code, game_name=defn.get("name", ""))
+
+    def _on_import_code(self):
+        """Prefill the (define-mode) form from a pasted share code."""
+        from gui_qt.share_code_overlay import CustomGameImportOverlay
+
+        def _done(defn):
+            if not defn:
+                return
+            # Clear any dynamic-table rows before applying the imported preset.
+            for rd in list(self._routing_rows):
+                self._remove_routing_rule(rd)
+            for rd in list(self._whitelist_rows):
+                self._remove_whitelist_rule(rd)
+            for rd in list(self._framework_rows):
+                self._remove_framework(rd)
+            # Keep the imported name as a starting point; the user can rename it.
+            self._prepopulate(defn, keep_name=True)
+            self._update_data_path_visibility()
+            if hasattr(self, "_preset_combo"):
+                self._preset_combo.blockSignals(True)
+                self._preset_combo.setCurrentIndex(0)
+                self._preset_combo.blockSignals(False)
+
+        CustomGameImportOverlay(self.window(), _done)
+
     # ---- prepopulate (edit mode / preset load) ----------------------------
     def _prepopulate(self, defn: dict | None = None, keep_name: bool = True):
         e = defn if defn is not None else self._existing
@@ -965,13 +1023,12 @@ class CustomGameView(QWidget):
         threading.Thread(target=_worker, daemon=True).start()
 
     # ---- save / delete / cancel -------------------------------------------
-    def _on_save(self):
-        err = self._validate()
-        if err:
-            self._validation.setText(err)
-            return
-        self._validation.setText("")
+    def _collect_definition(self) -> dict:
+        """Build a custom game definition dict from the current form state.
 
+        Shared by Save and Export so the exported code is exactly what would be
+        saved. Callers should run :meth:`_validate` first.
+        """
         name = self._name_edit.text().strip()
         exe = self._exe_edit.text().strip()
         deploy = self._current_deploy_type()
@@ -1024,6 +1081,18 @@ class CustomGameView(QWidget):
             for key in ("version", "editable"):
                 if key in self._existing:
                     defn[key] = self._existing[key]
+        return defn
+
+    def _on_save(self):
+        err = self._validate()
+        if err:
+            self._validation.setText(err)
+            return
+        self._validation.setText("")
+
+        defn = self._collect_definition()
+        image_url = defn.get("image_url", "")
+        game_id = defn.get("game_id", "")
 
         save_custom_game_definition(defn)
         # Materialise the handler so any errors surface here, not later.

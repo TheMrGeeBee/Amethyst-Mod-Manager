@@ -2745,10 +2745,12 @@ class NexusAPI:
                         app_log(f"get_collection_archive_json: mirror {cdn_url!r} failed: {_mirror_exc}")
                 if dl_resp is None:
                     raise RuntimeError("all CDN mirrors failed")
+                from Utils import bandwidth_limit as _bw
                 with open(tmp_path, "wb") as fh:
                     for chunk in dl_resp.iter_content(chunk_size=65536):
                         if chunk:
                             fh.write(chunk)
+                            _bw.throttle(len(chunk))
                 if keep_archive_at:
                     app_log(f"get_collection_archive_json: saved archive to {keep_archive_at}")
 
@@ -2846,10 +2848,12 @@ class NexusAPI:
                         app_log(f"get_collection_archive_full: mirror {cdn_url!r} failed: {_mirror_exc}")
                 if dl_resp is None:
                     raise RuntimeError("all CDN mirrors failed")
+                from Utils import bandwidth_limit as _bw
                 with open(tmp_path, "wb") as fh:
                     for chunk in dl_resp.iter_content(chunk_size=65536):
                         if chunk:
                             fh.write(chunk)
+                            _bw.throttle(len(chunk))
                 if keep_archive_at:
                     app_log(f"get_collection_archive_full: saved archive to {keep_archive_at}")
 

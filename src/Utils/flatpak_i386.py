@@ -27,17 +27,27 @@ from typing import Callable
 
 from Utils.app_log import safe_log as _safe_log
 
-# Extension refs the sandbox needs for 32-bit support. The branch MUST match
-# the freedesktop base of the runtime in flatpak/io.github.Amethyst.ModManager.yml
-# (KDE 6.9 → freedesktop 24.08) — keep in sync with the manifest's
-# add-extensions block.
-I386_EXTENSION_REFS = (
-    "org.freedesktop.Platform.Compat.i386//24.08",
-    "org.freedesktop.Platform.GL32.default//24.08",
-)
+# Extension refs the sandbox needs for 32-bit support. Branches MUST match the
+# manifest's add-extensions block in flatpak/io.github.Amethyst.ModManager.yml.
+#
+# IMPORTANT: the two extensions are branched on DIFFERENT axes:
+#   * Compat.i386 tracks the freedesktop base (KDE 6.9 → 24.08). This ref
+#     provides /lib/ld-linux.so.2 — the 32-bit ELF interpreter wine needs. It
+#     is the ONE that actually matters; without it wine cannot boot at all.
+#   * GL32.default tracks the GL driver version (1.4), NOT the freedesktop base.
+#     There is no "GL32.default//24.08" ref on Flathub — asking for it fails
+#     with "…not installed" / "file doesn't exist". GL32 only supplies 32-bit
+#     OpenGL, which most tools (dtkit-patch, vcredist, wine setup) never touch,
+#     so a GL32 failure must NOT sink the whole repair.
+REQUIRED_I386_REF = "org.freedesktop.Platform.Compat.i386//24.08"
+OPTIONAL_I386_REF = "org.freedesktop.Platform.GL32.default//1.4"
 
-# One-line manual fix, used in error messages and docs.
-MANUAL_INSTALL_CMD = "flatpak install --user flathub " + " ".join(I386_EXTENSION_REFS)
+I386_EXTENSION_REFS = (REQUIRED_I386_REF, OPTIONAL_I386_REF)
+
+# One-line manual fix, used in error messages and docs. Only the required ref
+# is offered — it is what unblocks wine, and it avoids handing the user a GL32
+# ref that may not resolve on every remote.
+MANUAL_INSTALL_CMD = "flatpak install flathub " + REQUIRED_I386_REF
 
 
 def _in_flatpak_sandbox() -> bool:
@@ -88,15 +98,47 @@ def preflight_i386_error(proton_script) -> "str | None":
     return i386_error_message()
 
 
+def _install_ref_on_host(ref: str, log_fn) -> "tuple[bool, str]":
+    """Install a single ref on the host, trying the --user then the system
+    ``flathub`` remote. Returns (ok, last_error_detail).
+
+    Bazzite and other image-based distros ship ``flathub`` as a SYSTEM remote,
+    so ``flatpak install --user flathub …`` fails with "remote not found".
+    We try --user first (works on Steam Deck / most desktops and needs no
+    polkit auth), then fall back to the default/system scope.
+    """
+    _log = _safe_log(log_fn)
+    last_detail = ""
+    for scope in ("--user", "--system"):
+        cmd = [
+            "flatpak-spawn", "--host", "--directory=/",
+            "flatpak", "install", scope, "--noninteractive", "flathub", ref,
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        except Exception as exc:
+            last_detail = str(exc)
+            _log(f"i386 extensions: {ref} ({scope}) failed to run: {exc}")
+            continue
+        if result.returncode == 0:
+            _log(f"i386 extensions: installed {ref} ({scope}).")
+            return True, ""
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        last_detail = detail[-1] if detail else f"exit {result.returncode}"
+        _log(f"i386 extensions: {ref} ({scope}) failed — {last_detail}")
+    return False, last_detail
+
+
 def install_i386_extensions(log_fn: "Callable[[str], None] | None" = None) -> bool:
-    """Install the 32-bit compat extension refs from Flathub (user install).
+    """Install the 32-bit compat extension(s) from Flathub.
 
     Runs ``flatpak install`` on the host via flatpak-spawn (the sandbox has no
     flatpak CLI; the manifest grants --talk-name=org.freedesktop.Flatpak).
-    A --user install satisfies the extension point regardless of whether the
-    app itself is a user or system install. Returns True when the install
-    succeeds — the extensions only MOUNT on the next app launch, so callers
-    should tell the user to restart.
+    Returns True when the REQUIRED ref (Compat.i386, which provides
+    ld-linux.so.2) is installed — that alone unblocks wine. The optional GL32
+    ref is attempted best-effort and never fails the operation. The extensions
+    only MOUNT on the next app launch, so callers should tell the user to
+    restart.
     """
     _log = _safe_log(log_fn)
     if not _in_flatpak_sandbox():
@@ -106,22 +148,23 @@ def install_i386_extensions(log_fn: "Callable[[str], None] | None" = None) -> bo
         _log("i386 extensions: flatpak-spawn is unavailable — install manually: "
              + MANUAL_INSTALL_CMD)
         return False
-    cmd = [
-        "flatpak-spawn", "--host", "--directory=/",
-        "flatpak", "install", "--user", "--noninteractive", "flathub",
-        *I386_EXTENSION_REFS,
-    ]
-    _log("i386 extensions: installing " + " ".join(I386_EXTENSION_REFS) + " …")
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except Exception as exc:
-        _log(f"i386 extensions: install failed to run: {exc}")
-        return False
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip().splitlines()
+
+    _log(f"i386 extensions: installing {REQUIRED_I386_REF} …")
+    ok, detail = _install_ref_on_host(REQUIRED_I386_REF, log_fn)
+    if not ok:
         _log("i386 extensions: install failed"
-             + (f" — {detail[-1]}" if detail else "")
+             + (f" — {detail}" if detail else "")
              + f". Install manually: {MANUAL_INSTALL_CMD}")
         return False
-    _log("i386 extensions: installed — they mount on the next app launch.")
+
+    # Best-effort: 32-bit OpenGL. A failure here (e.g. the GL32 ref not being
+    # present on the user's remote) must not report the whole repair as failed —
+    # wine already works once Compat.i386 is in place.
+    _log(f"i386 extensions: installing optional {OPTIONAL_I386_REF} (best-effort) …")
+    gl_ok, _ = _install_ref_on_host(OPTIONAL_I386_REF, log_fn)
+    if not gl_ok:
+        _log("i386 extensions: optional GL32 not installed — 32-bit OpenGL "
+             "unavailable, but wine will still run.")
+
+    _log("i386 extensions: 32-bit support installed — mounts on the next app launch.")
     return True

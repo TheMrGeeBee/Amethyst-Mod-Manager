@@ -74,7 +74,7 @@ class UpdateOverlay(QFrame):
         bar = QHBoxLayout()
         bar.setSpacing(8)
 
-        if mode == "appimage":
+        if mode in ("appimage", "flatpak"):
             def _do_update():
                 self.close_overlay()
                 if on_update is not None:
@@ -94,8 +94,10 @@ class UpdateOverlay(QFrame):
             aur.clicked.connect(lambda: self._open_and_close(_AUR_PACKAGE_URL))
             bar.addWidget(aur)
         else:
+            # AppImage & Flatpak both now have a primary "Update" button above,
+            # so the releases-page link is secondary for each.
             rel = QPushButton(self.tr("Open releases page"))
-            rel.setObjectName("PrimaryButton" if mode == "flatpak" else "FormButton")
+            rel.setObjectName("FormButton")
             rel.setCursor(Qt.PointingHandCursor)
             rel.clicked.connect(lambda: self._open_and_close(_APP_UPDATE_RELEASES_URL))
             bar.addWidget(rel)

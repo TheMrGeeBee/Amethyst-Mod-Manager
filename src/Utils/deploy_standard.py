@@ -1586,7 +1586,19 @@ def restore_data_core(
                     _index_path = index_path or (overwrite_dir.parent / "modindex.bin")
                     existing = read_mod_index(_index_path) or {}
                     existing_normal, existing_root = existing.get(_OVERWRITE_NAME, ({}, {}))
-                    new_normal: dict[str, str] = dict(existing_normal)
+                    # Reconcile the existing entry against the folder BEFORE
+                    # appending. The [Overwrite] index entry is otherwise
+                    # append-only: an earlier rel that has since left overwrite/
+                    # (folder cleared, profile switch, manual delete) would
+                    # survive here and be written back forever, surfacing in the
+                    # Data tab as a ghost [Overwrite] file that no full Refresh
+                    # can clear (the next restore re-appends it). Drop stale rels
+                    # whose file no longer exists on disk. os.path.exists is a
+                    # cheap stat and overwrite/ is small (runtime files only).
+                    new_normal: dict[str, str] = {}
+                    for _k, _v in existing_normal.items():
+                        if os.path.exists(_overwrite_str + "/" + _v):
+                            new_normal[_k] = _v
                     for _rel_str in rescued_overwrite_rels:
                         # Normalise separators for cross-platform safety
                         _rel_posix = _rel_str.replace("\\", "/")

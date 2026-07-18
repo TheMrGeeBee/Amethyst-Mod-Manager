@@ -27,6 +27,8 @@
 - **Root folder building** - Most mods that need to go to root do so automatically, no setup needed. Anything else can be toggled to go to root with a couple clicks
 - **Smart game restore** - Amethyst uses hardlinks and symlinks but will restore the game to it's previous state while moving any runtime generated files back to staging
 
+---
+
 ## Install
 
 **The Application may ask to set a password, This is for the OS keyring to store your nexus API key as we do not store it in a plain text file. Set the password to anything you want**
@@ -51,6 +53,51 @@ flatpak install --user flathub org.freedesktop.Platform.Compat.i386//24.08 org.f
 <a href='https://aur.archlinux.org/packages/amethyst-mod-manager'>
 	<img width='240' alt='Get on AUR' src='https://upload.wikimedia.org/wikipedia/commons/e/e8/Archlinux-logo-standard-version.png'/>
 </a>
+
+---
+
+## Games Supported
+
+<table>
+<tr>
+  <th>Game</th><th>Notes</th>
+  <th>Game</th><th>Notes</th>
+</tr>
+<tr><td>7 Days to Die</td><td></td><td>Pacific Drive</td><td></td></tr>
+<tr><td>Baldur's Gate 3</td><td></td><td>Palworld</td><td></td></tr>
+<tr><td>Blade &amp; Sorcery</td><td></td><td>Payday 2</td><td></td></tr>
+<tr><td>Crash Bandicoot 4</td><td></td><td>Planet Zoo</td><td></td></tr>
+<tr><td>Cyberpunk 2077</td><td></td><td>Ready Or Not</td><td></td></tr>
+<tr><td>Darktide</td><td></td><td>Red Dead Redemption 2</td><td></td></tr>
+<tr><td>Dragon Age Origins</td><td></td><td>Resident Evil</td><td>2, 3, 4, 7, Village, Requiem</td></tr>
+<tr><td>Enderal</td><td>Normal and SE</td><td>Rimworld</td><td></td></tr>
+<tr><td>Expedition 33</td><td></td><td>RuneScape: Dragonwilds</td><td></td></tr>
+<tr><td>Fallout 3</td><td>Normal and Goty</td><td>Schedule 1</td><td></td></tr>
+<tr><td>Fallout 4</td><td>Normal and VR</td><td>Skyrim</td><td>Normal, SE and VR</td></tr>
+<tr><td>Fallout New Vegas</td><td></td><td>Slay The Spire 2</td><td></td></tr>
+<tr><td>FF VII Remake Intergrade</td><td></td><td>Slime Rancher</td><td></td></tr>
+<tr><td>Gothic 1 Remake</td><td></td><td>Spyro Reignited Trilogy</td><td></td></tr>
+<tr><td>Green Hell</td><td></td><td>Stalker 2</td><td></td></tr>
+<tr><td>Hogwarts Legacy</td><td></td><td>Stardew Valley</td><td></td></tr>
+<tr><td>Jagged Alliance 3</td><td></td><td>Starfield</td><td></td></tr>
+<tr><td>Kingdom Come Deliverance</td><td>1 and 2</td><td>Stellar Blade</td><td></td></tr>
+<tr><td>Kingdom Hearts 3</td><td></td><td>Street Fighter 6</td><td></td></tr>
+<tr><td>Lethal Company</td><td></td><td>Subnautica</td><td></td></tr>
+<tr><td>Marvel Rivals</td><td></td><td>Subnautica 2</td><td></td></tr>
+<tr><td>MechWarrior 5: Mercenaries</td><td></td><td>Subnautica Below Zero</td><td></td></tr>
+<tr><td>Mewgenics</td><td></td><td>Supermarket Simulator</td><td></td></tr>
+<tr><td>Monster Hunter Rise</td><td></td><td>SW: Jedi Fallen Order</td><td></td></tr>
+<tr><td>Monster Hunter Wilds</td><td></td><td>TCG Card Shop Simulator</td><td></td></tr>
+<tr><td>Monster Hunter World</td><td></td><td>The Last Caretaker</td><td></td></tr>
+<tr><td>Morrowind</td><td>Normal and OpenMW</td><td>The Sims 4</td><td></td></tr>
+<tr><td>Mount &amp; Blade II: Bannerlord</td><td></td><td>Valheim</td><td></td></tr>
+<tr><td>My Summer Car</td><td></td><td>Windrose</td><td></td></tr>
+<tr><td>No Mans Sky</td><td></td><td>Witcher 3</td><td></td></tr>
+<tr><td>Oblivion</td><td></td><td>X4 Foundations</td><td></td></tr>
+<tr><td>Oblivion Remastered</td><td></td><td></td><td></td></tr>
+</table>
+
+---
 
 ## Wiki
 

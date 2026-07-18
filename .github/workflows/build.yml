@@ -297,11 +297,35 @@ jobs:
           name: libloot-cp312
           path: src/LOOT/
 
-      - name: Build Flatpak bundle
+      # Decide the OSTree branch this build publishes to. Tag pushes of the
+      # form vX.Y.Z-... (a hyphen ⇒ prerelease) go to `beta`; everything else
+      # (stable tags, manual test builds) goes to `stable`. This lets the
+      # hosted remote carry both channels natively — no tag parsing in the app.
+      - name: Resolve flatpak branch
+        id: branch
+        shell: bash
+        run: |
+          ref='${{ github.ref_name }}'
+          if [[ "$ref" == v*-* ]]; then
+            echo "name=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=stable" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Build via the flathub action (it registers the flathub remote, handles
+      # the container quirks, and caches the builder). We use its native inputs
+      # to (a) stamp the OSTree branch (stable/beta), (b) keep the exported
+      # repo/ dir, and (c) also emit the bundle for the fallback path — so we
+      # no longer hand-roll flatpak-builder and re-introduce the "No remote refs
+      # found for flathub" failure.
+      - name: Build Flatpak (repo + bundle)
         uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
-          bundle: AmethystModManager.flatpak
           manifest-path: flatpak/io.github.Amethyst.ModManager.yml
+          branch: ${{ steps.branch.outputs.name }}
+          bundle: AmethystModManager.flatpak
+          build-bundle: true
+          repo-dir: repo
           cache-key: flatpak-builder-${{ github.sha }}
           upload-artifact: false
 
@@ -309,4 +333,12 @@ jobs:
         with:
           name: AmethystModManager-flatpak
           path: AmethystModManager.flatpak
+          if-no-files-found: error
+
+      # The raw OSTree repo for this build — consumed by release.yml's
+      # publish-pages job, which merges it into the accumulated gh-pages repo.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AmethystModManager-flatpak-repo
+          path: repo/
           if-no-files-found: error

@@ -710,6 +710,11 @@ class ModListModel(QAbstractTableModel):
         """All non-separator mod names in the natural (unfiltered) order."""
         return [e.name for e in self._natural if not e.is_separator]
 
+    def enabled_mod_names(self) -> set[str]:
+        """Names of non-separator mods that are currently ENABLED."""
+        return {e.name for e in self._natural
+                if not e.is_separator and e.enabled}
+
     def description(self, name: str) -> str:
         """Nexus summary for *name* (name-column hover tooltip), or "" if none."""
         return self._descriptions.get(name, "")

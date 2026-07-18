@@ -3,6 +3,8 @@
 - Added a refresh plugins button to gather loot meta data without sorting plugins. xedit wizards now refresh meta data automatically once they close
 - Fixed fomod flag not being applied to the meta.ini meaning new the show only fomod filter would not work on new fomod installs
 - Selecting and installing multiple mods in the downloads tab will now install them in parallel, like collections
+- When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
+- Added the option to change download speed limits
 
 - v2.0.3
 ### Game support

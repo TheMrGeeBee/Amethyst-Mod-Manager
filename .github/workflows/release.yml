@@ -3,9 +3,19 @@ name: Build Release Artifacts
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run_pages:
+        description: >-
+          Test the Flatpak-remote publish end-to-end WITHOUT cutting a release.
+          Publishes to the gh-pages-dryrun branch (never touches gh-pages) so
+          you can verify the OSTree repo builds and serves. No GitHub Release
+          is created.
+        type: boolean
+        default: false
 
-# Required for the release-publish step (softprops/action-gh-release).
+# Required for the release-publish step (softprops/action-gh-release) and the
+# publish-pages step (which pushes the OSTree repo to the gh-pages branch).
 permissions:
   contents: write
 
@@ -16,7 +26,9 @@ jobs:
     name: Build
     uses: ./.github/workflows/build.yml
     with:
-      build_appimage: true
+      # A Pages dry-run only needs the Flatpak repo artifact — skip the
+      # AppImage build to save CI time. Real runs build both.
+      build_appimage: ${{ !inputs.dry_run_pages }}
       build_flatpak: true
 
   # ────────────────────────────────────────────────────────────────────
@@ -121,3 +133,248 @@ jobs:
           body_path: ${{ steps.changelog.outputs.found == 'true' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ steps.changelog.outputs.found != 'true' }}
           fail_on_unmatched_files: true
+
+  # ────────────────────────────────────────────────────────────────────
+  # Publish the OSTree repo to GitHub Pages (the hosted Flatpak remote).
+  #
+  # The gh-pages branch holds the ACCUMULATED repo across all releases —
+  # OSTree is incremental, so we must merge this build's objects into the
+  # existing repo (never rebuild from scratch) to keep delta updates working.
+  #
+  # Flow:
+  #   1. checkout gh-pages (the live repo) into ./site (empty on first run)
+  #   2. pull this build's freshly-exported repo artifact into ./newrepo
+  #   3. flatpak build-commit-from: copy newrepo's ref into site/repo
+  #   4. regenerate summary + static deltas so clients get delta updates
+  #   5. drop the .flatpakrepo enrolment file at the Pages root
+  #   6. commit & push gh-pages
+  #
+  # Signing: if a GPG key is configured (secrets.FLATPAK_GPG_PRIVATE_KEY +
+  # FLATPAK_GPG_KEY_ID), commits and the summary are signed and the public
+  # key is embedded in the .flatpakrepo. Without it, the repo is unsigned
+  # (still works; clients add the remote with --no-gpg-verify).
+  # ────────────────────────────────────────────────────────────────────
+  publish-pages:
+    name: Publish Flatpak remote (GitHub Pages)
+    # Runs on tag pushes (real publish) OR a manual dry-run dispatch. The
+    # dry-run publishes to gh-pages-dryrun so it never touches the live remote.
+    if: |
+      needs.build.result == 'success'
+      && (startsWith(github.ref, 'refs/tags/v') || inputs.dry_run_pages)
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      PAGES_URL: https://chrisdkn.github.io/Amethyst-Mod-Manager
+      APP_ID: io.github.Amethyst.ModManager
+      # `secrets.*` is NOT allowed in a step-level `if:`, but it IS allowed in a
+      # job-level env. Surface a plain flag here so steps can gate on env.HAVE_GPG.
+      HAVE_GPG: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY != '' }}
+    steps:
+      - name: Install flatpak + ostree
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak ostree
+
+      # Resolve BOTH the OSTree branch (stable/beta) and the git branch the
+      # Pages repo lives on. A dry-run forces the `stable` OSTree branch (no
+      # tag to parse) and targets gh-pages-dryrun so the real remote is safe.
+      - name: Resolve mode
+        id: mode
+        run: |
+          if [ "${{ inputs.dry_run_pages }}" = "true" ]; then
+            echo "ostree=stable"       >> "$GITHUB_OUTPUT"
+            echo "git_branch=gh-pages-dryrun" >> "$GITHUB_OUTPUT"
+            echo "dry=true"            >> "$GITHUB_OUTPUT"
+          else
+            ref='${{ github.ref_name }}'
+            if [[ "$ref" == v*-* ]]; then
+              echo "ostree=beta"   >> "$GITHUB_OUTPUT"
+            else
+              echo "ostree=stable" >> "$GITHUB_OUTPUT"
+            fi
+            echo "git_branch=gh-pages" >> "$GITHUB_OUTPUT"
+            echo "dry=false"          >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout Pages branch (live repo)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.mode.outputs.git_branch }}
+          path: site
+        continue-on-error: true
+
+      - name: Ensure site skeleton
+        run: |
+          mkdir -p site/repo
+          # First-ever run: initialise an archive-z2 OSTree repo (the format
+          # served over plain HTTPS).
+          if [ ! -d site/repo/objects ]; then
+            ostree --repo=site/repo init --mode=archive-z2
+          fi
+          # Git does NOT store empty directories, so checking out gh-pages
+          # loses the empty parts of the OSTree layout (refs/remotes,
+          # refs/mirrors, state, tmp). ostree then dies with
+          # "opendir(refs/remotes): No such file or directory" on the second
+          # publish. Recreate them unconditionally — mkdir -p is idempotent.
+          mkdir -p site/repo/objects \
+                   site/repo/refs/heads site/repo/refs/mirrors \
+                   site/repo/refs/remotes site/repo/state \
+                   site/repo/extensions site/repo/tmp/cache
+
+      - name: Download this build's repo
+        uses: actions/download-artifact@v4
+        with:
+          name: AmethystModManager-flatpak-repo
+          path: newrepo
+
+      - name: Import GPG signing key
+        id: gpg
+        if: env.HAVE_GPG == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          # Pipe the (multi-line, armored) key from an env var, NOT inline
+          # interpolation, so newlines survive intact.
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # Confirm the signing key is actually present before we rely on it —
+          # a silent import failure would otherwise ship an UNSIGNED repo.
+          gpg --list-secret-keys "$GPG_KEY_ID" >/dev/null
+          echo "sign=--gpg-sign=${GPG_KEY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge build into live repo
+        run: |
+          set -euo pipefail
+          BRANCH='${{ steps.mode.outputs.ostree }}'
+          SIGN='${{ steps.gpg.outputs.sign }}'
+          REF="app/${APP_ID}/x86_64/${BRANCH}"
+          # Copy the app ref (and its runtime refs are pulled by clients from
+          # flathub, so only the app ref needs to live here) into the live repo.
+          flatpak build-commit-from \
+            --src-repo=newrepo \
+            $SIGN \
+            site/repo "$REF"
+          # Regenerate summary + static deltas so clients fetch deltas, not
+          # full trees, on update.
+          flatpak build-update-repo \
+            --generate-static-deltas \
+            --prune --prune-depth=20 \
+            $SIGN \
+            site/repo
+
+      - name: Export public key + .flatpakrepo + .flatpakref
+        env:
+          # HAVE_GPG comes from the job-level env (can't reference secrets in
+          # a step `if:`, but the run body reads the inherited env var fine).
+          GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          GPGLINE=""
+          if [ "$HAVE_GPG" = "true" ]; then
+            gpg --export "$GPG_KEY_ID" > site/amethyst.gpg
+            B64=$(base64 -w0 site/amethyst.gpg)
+            GPGLINE="GPGKey=${B64}"
+          fi
+          cat > site/amethyst.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Amethyst Mod Manager
+          Url=${PAGES_URL}/repo/
+          Homepage=https://github.com/ChrisDKN/Amethyst-Mod-Manager
+          Comment=Auto-update remote for Amethyst Mod Manager (stable + beta)
+          Description=Adds the Amethyst Mod Manager Flatpak remote so updates arrive via your package manager.
+          Icon=${PAGES_URL}/icon.png
+          ${GPGLINE}
+          EOF
+          # One-command install files: `flatpak install --user <url>.flatpakref`
+          # adds the remote (GPG key embedded) AND installs the app — no
+          # separate remote-add. Also double-clickable in GNOME Software /
+          # Discover. One file per branch, written only when that branch
+          # actually exists in the repo (a ref file pointing at a missing
+          # branch would just error at install time).
+          for BR in stable beta; do
+            if ostree --repo=site/repo refs | grep -qx "app/${APP_ID}/x86_64/${BR}"; then
+              SUFFIX=""; [ "$BR" = "beta" ] && SUFFIX="-beta"
+              cat > "site/amethyst${SUFFIX}.flatpakref" <<EOF
+          [Flatpak Ref]
+          Name=${APP_ID}
+          Branch=${BR}
+          Title=Amethyst Mod Manager (${BR})
+          Url=${PAGES_URL}/repo/
+          SuggestRemoteName=amethyst
+          Homepage=https://github.com/ChrisDKN/Amethyst-Mod-Manager
+          Icon=${PAGES_URL}/icon.png
+          IsRuntime=false
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          ${GPGLINE}
+          EOF
+            fi
+          done
+          # A .nojekyll file keeps GitHub Pages from mangling the OSTree object
+          # dirs (which start with characters Jekyll would try to process).
+          touch site/.nojekyll
+
+      # Sanity-check the repo locally before pushing: pull the just-committed
+      # ref into a throwaway repo. If OSTree can't read it back, the publish is
+      # broken regardless of what Pages later serves — fail loudly here.
+      - name: Verify repo integrity
+        run: |
+          set -euo pipefail
+          BRANCH='${{ steps.mode.outputs.ostree }}'
+          REF="app/${APP_ID}/x86_64/${BRANCH}"
+          ostree --repo=site/repo summary --view | head -40
+          ostree --repo=site/repo refs | grep -F "$REF"
+          ostree --repo=site/repo fsck --quiet
+          echo "OSTree repo OK — ref $REF present and fsck clean."
+
+      - name: Push Pages branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GIT_BRANCH='${{ steps.mode.outputs.git_branch }}'
+          cd site
+          # `site/` may already be a git repo (actions/checkout initialised it,
+          # even when it fell back on a non-existent branch) or may be a bare
+          # skeleton (first-ever run). `git init` is idempotent; use set-url
+          # (add-if-missing) for origin so we never hit "remote already exists".
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "$REMOTE_URL" 2>/dev/null \
+            || git remote add origin "$REMOTE_URL"
+          git add -A
+          git commit -q -m "Publish ${{ github.ref_name }} (${{ steps.mode.outputs.ostree }})"
+          # Force-push a single-commit history: the repo can get large, and we
+          # don't need Pages-branch history (the OSTree repo carries its own).
+          # HEAD:branch avoids `git branch -M` renaming a checked-out ref.
+          git push -f origin "HEAD:refs/heads/${GIT_BRANCH}"
+
+      - name: Summary
+        run: |
+          {
+            if [ '${{ steps.mode.outputs.dry }}' = 'true' ]; then
+              echo "### 🧪 Flatpak remote DRY RUN"
+              echo ""
+              echo "Published to branch \`gh-pages-dryrun\` — the live \`gh-pages\` remote was **not** touched."
+              echo ""
+              echo "**Verified:** OSTree repo builds, merges the app ref, regenerates summary + deltas, fsck-clean, and pushes successfully."
+              echo ""
+              echo "**Not verified by a dry run:** HTTPS serving. GitHub Pages serves only the one branch you select in Settings → Pages (normally \`gh-pages\`), so \`gh-pages-dryrun\` isn't served unless you point Pages at it temporarily. To test end-to-end serving, either select \`gh-pages-dryrun\` in Pages settings, or just cut a real \`v*\` tag."
+              echo ""
+              echo "Inspect the branch: \`git fetch origin gh-pages-dryrun && git checkout gh-pages-dryrun\`"
+            else
+              echo "### ✅ Flatpak remote published"
+              echo ""
+              echo "OSTree branch: \`${{ steps.mode.outputs.ostree }}\` · Pages branch: \`gh-pages\`"
+              echo ""
+              echo "Remote file: ${PAGES_URL}/amethyst.flatpakrepo"
+              echo "Repo URL:    ${PAGES_URL}/repo/"
+              echo ""
+              echo "One-command install:"
+              echo '```'
+              echo "flatpak install --user ${PAGES_URL}/amethyst.flatpakref"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1310,10 +1310,26 @@ def _prebuild_mod_indexes(
         if len(chains) <= 1:
             # No wrapper folders on disk — nothing was stripped for this mod,
             # so the index rel paths are the on-disk paths.
+            #
+            # For [Overwrite] specifically, verify each synthesized path exists.
+            # The overwrite index entry is append-only on restore and can carry
+            # STALE rels for files no longer in overwrite/ (folder cleared,
+            # profile switch, manual delete). Without this check the synthesized
+            # path is trusted verbatim and deploy_filemap symlinks to a source
+            # that isn't there — producing a DANGLING symlink in the game folder
+            # (the "ghost [Overwrite] file deploys as a dead link" bug). A miss
+            # here correctly falls through to _resolve_source, which returns None
+            # and the entry is skipped. overwrite/ is small (runtime files only)
+            # so the per-file isfile() is cheap; real mods keep the fast path.
+            _verify = (mn == _OVERWRITE_NAME)
             for rel_lower, rel_str in normal.items():
-                built[rel_lower] = mr_str + "/" + rel_str
+                _p = mr_str + "/" + rel_str
+                if not _verify or _isfile(_p):
+                    built[rel_lower] = _p
             for rel_lower, rel_str in root.items():
-                built[rel_lower] = mr_str + "/" + rel_str
+                _p = mr_str + "/" + rel_str
+                if not _verify or _isfile(_p):
+                    built[rel_lower] = _p
             mod_index_cache[mr] = built
             continue
 

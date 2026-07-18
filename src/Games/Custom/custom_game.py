@@ -32,9 +32,11 @@ ue5      — uses the UE5 multi-target manifest deploy; with no routing
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import threading
+import zlib
 from pathlib import Path
 
 from Games.base_game import BaseGame
@@ -198,6 +200,56 @@ def delete_custom_game_definition(game_id: str) -> None:
     folder = get_custom_games_dir()
     target = folder / f"{game_id}.json"
     target.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Share codes — pack a custom game definition into a compact, copy-pasteable
+# string (same scheme as the profile share code: JSON → zlib → urlsafe base64
+# with a version prefix) so a definition can be shared and re-applied as a
+# preset in the define-custom-game editor.
+# ---------------------------------------------------------------------------
+
+CUSTOM_GAME_CODE_PREFIX = "AMMGAME1:"
+
+
+def encode_custom_game_definition(defn: dict) -> str:
+    """Serialise a custom game definition into a compact share code.
+
+    Internal (``_``-prefixed) keys are stripped, and ``game_id`` is dropped so
+    the importer generates a fresh id from the (possibly edited) name.
+    """
+    clean = {
+        k: v for k, v in defn.items()
+        if not k.startswith("_") and k != "game_id"
+    }
+    raw = json.dumps(clean, separators=(",", ":")).encode("utf-8")
+    packed = zlib.compress(raw, 9)
+    b64 = base64.urlsafe_b64encode(packed).decode("ascii")
+    return CUSTOM_GAME_CODE_PREFIX + b64
+
+
+def decode_custom_game_definition(code: str) -> dict:
+    """Reverse :func:`encode_custom_game_definition`. Accepts a code with or
+    without the ``AMMGAME1:`` prefix and tolerates surrounding whitespace.
+    Raises ``ValueError`` on a malformed code."""
+    if not code:
+        raise ValueError("Empty code.")
+    text = "".join(code.split())   # strip all whitespace / newlines
+    if text.startswith(CUSTOM_GAME_CODE_PREFIX):
+        text = text[len(CUSTOM_GAME_CODE_PREFIX):]
+    try:
+        packed = base64.urlsafe_b64decode(text.encode("ascii"))
+        raw = zlib.decompress(packed)
+        defn = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Not a valid Amethyst game code: {exc}") from exc
+    if not isinstance(defn, dict) or not defn.get("name") or not defn.get("exe_name"):
+        raise ValueError("Code does not contain a valid game definition.")
+    defn.pop("game_id", None)
+    for key in list(defn):
+        if isinstance(key, str) and key.startswith("_"):
+            defn.pop(key)
+    return defn
 
 
 def download_missing_custom_game_images(

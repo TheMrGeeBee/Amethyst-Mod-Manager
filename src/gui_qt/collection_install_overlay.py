@@ -28,7 +28,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QProgressBar, QSizePolicy,
+    QProgressBar, QSizePolicy, QSpinBox,
 )
 
 from gui_qt.theme_qt import active_palette, _c
@@ -108,11 +108,14 @@ class CollectionInstallOverlay(QWidget):
     CARD_W = 720
     CARD_H = 540
 
-    def __init__(self, host: QWidget, title: str, on_pause=None, on_cancel=None):
+    def __init__(self, host: QWidget, title: str, on_pause=None, on_cancel=None,
+                 limit_mbps: float = 0.0, on_limit_change=None):
         super().__init__(host)
         self._host = host
         self._on_pause = on_pause
         self._on_cancel = on_cancel
+        self._limit_mbps = limit_mbps
+        self._on_limit_change = on_limit_change
         self._p = active_palette()
         # file_id → pool-slot index (RED and GREEN; -1 = overflow, no bar row).
         self._dl_slot_of: dict[int, int] = {}
@@ -134,9 +137,11 @@ class CollectionInstallOverlay(QWidget):
         self.raise_()
 
     @classmethod
-    def show_over(cls, host, title, on_pause=None, on_cancel=None):
+    def show_over(cls, host, title, on_pause=None, on_cancel=None,
+                  limit_mbps: float = 0.0, on_limit_change=None):
         top = host.window() if host is not None else None
-        return cls(top or host, title, on_pause=on_pause, on_cancel=on_cancel)
+        return cls(top or host, title, on_pause=on_pause, on_cancel=on_cancel,
+                   limit_mbps=limit_mbps, on_limit_change=on_limit_change)
 
     # ---- build ------------------------------------------------------------
     def _c(self, k):
@@ -224,6 +229,19 @@ class CollectionInstallOverlay(QWidget):
         outer.addLayout(lists, 1)
 
         bar = QHBoxLayout()
+        limit_lbl = QLabel(self.tr("Speed limit:"), self._card)
+        limit_lbl.setStyleSheet(f"color:{self._c('TEXT_DIM')}; font-size:12px;")
+        bar.addWidget(limit_lbl)
+        self._limit_spin = QSpinBox(self._card)
+        self._limit_spin.setRange(0, 250)
+        self._limit_spin.setSuffix(self.tr(" MB/s"))
+        self._limit_spin.setSpecialValueText(self.tr("Unlimited"))
+        self._limit_spin.setValue(int(self._limit_mbps or 0))
+        self._limit_spin.setToolTip(self.tr(
+            "Cap the combined download speed of this install. "
+            "0 = use the full connection. Applies immediately."))
+        self._limit_spin.valueChanged.connect(self._limit_changed)
+        bar.addWidget(self._limit_spin)
         bar.addStretch(1)
         self._pause_btn = QPushButton(self.tr("Pause"), self._card)
         self._pause_btn.setObjectName("FormButton")
@@ -238,6 +256,10 @@ class CollectionInstallOverlay(QWidget):
         outer.addLayout(bar)
 
     # ---- button handlers --------------------------------------------------
+    def _limit_changed(self, value: int):
+        if self._on_limit_change is not None:
+            self._on_limit_change(float(value))
+
     def _pause_clicked(self):
         self._pause_btn.setEnabled(False)
         self._pause_btn.setText(self.tr("Pausing…"))
@@ -373,6 +395,7 @@ class CollectionInstallOverlay(QWidget):
             self._status_lbl.setText(message)
         self._pause_btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
+        self._limit_spin.setEnabled(False)
 
     def dismiss(self):
         try:

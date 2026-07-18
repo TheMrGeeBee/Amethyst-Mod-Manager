@@ -549,6 +549,21 @@ class SettingsView(QWidget):
             g, self.tr("Extractions are gated by available memory; the effective number "
                "may be lower than set."))
 
+        # Download speed limit — global cap shared by all download threads.
+        lim_sld, lim_lbl = self._slider(
+            g, self.tr("Download speed limit"), 0, 250,
+            int(uc.load_download_speed_limit()), self._save_speed_limit)
+        def _fmt_limit(v, _lbl=lim_lbl):
+            _lbl.setText(self.tr("Unlimited") if int(v) == 0 else
+                         self.tr("{0} MB/s").format(int(v)))
+        lim_sld.valueChanged.connect(_fmt_limit)
+        _fmt_limit(lim_sld.value())
+        self._add_help(
+            g, self.tr("Cap the combined download speed of all downloads "
+               "(collections, single mods, nxm links) so they don't use the "
+               "whole connection. Applies immediately, including to a running "
+               "collection install."))
+
         # Extraction resource limits — apply to every install (single mods,
         # Downloads tab and collections), not just collection installs.
         import os as _os
@@ -617,6 +632,58 @@ class SettingsView(QWidget):
                  "for updates."),
             on_changed=self._on_prerelease_toggle)
 
+        self._maybe_add_flatpak_enroll(g)
+
+    def _maybe_add_flatpak_enroll(self, g):
+        """Offer a one-time 'Enable automatic updates' button to flatpak users
+        who installed from a bundle and aren't yet tracking our remote.
+
+        Adding the remote hands updates to the OS (native `flatpak update`,
+        GNOME Software / Discover, delta downloads). Once enrolled, the button
+        is hidden. No-op outside the flatpak or when already remote-tracked.
+        """
+        from Utils.version_check import (
+            is_flatpak, flatpak_installed_from_remote,
+        )
+        if not is_flatpak() or flatpak_installed_from_remote():
+            return
+        row = self._next_row(g)
+        btn = QPushButton(self.tr("Enable automatic updates…"))
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(self._on_enroll_flatpak_remote)
+        g.addWidget(btn, row, 0, 1, 2, Qt.AlignLeft)
+        self._add_help(g, self.tr(
+            "Switch this Flatpak to the Amethyst update remote so future "
+            "updates arrive automatically through your package manager "
+            "(GNOME Software / Discover) with smaller downloads. This "
+            "reinstalls the app once from the remote and relaunches it."))
+
+    def _on_enroll_flatpak_remote(self):
+        """Confirm, then add the remote + reinstall-from-remote (relaunches)."""
+        from gui_qt.confirm_overlay import ConfirmOverlay
+        from Utils.version_check import enroll_flatpak_remote
+        from Utils.ui_config import load_allow_prerelease
+
+        def _go(ok: bool):
+            if not ok:
+                return
+            allow_pre = load_allow_prerelease()
+            if enroll_flatpak_remote(allow_prerelease=allow_pre):
+                win = self._window
+                if win is not None:
+                    win.close()  # the detached child relaunches from the remote
+        ConfirmOverlay.show_over(
+            self._window,
+            self.tr("Enable automatic updates?"),
+            self.tr("Amethyst will add its update remote and reinstall itself "
+                    "from it once, then relaunch. Future updates then arrive "
+                    "automatically through your package manager."),
+            _go,
+            confirm_label=self.tr("Enable"),
+            cancel_label=self.tr("Cancel"),
+            danger=False,
+        )
+
     def _build_paths(self):
         g = self._section(self.tr("Paths"))
         from Utils.config_paths import get_config_dir
@@ -670,6 +737,12 @@ class SettingsView(QWidget):
     def _save_max_extract(self, value: int):
         self._cs["max_extract_workers"] = int(value)
         self._persist_collection()
+
+    def _save_speed_limit(self, value: int):
+        # Apply to in-flight downloads immediately, then persist.
+        from Utils import bandwidth_limit
+        bandwidth_limit.set_limit_mbps(float(value))
+        self._safe_save(uc.save_download_speed_limit, float(value))
 
 
     # ---- path browse / clear ----------------------------------------------
