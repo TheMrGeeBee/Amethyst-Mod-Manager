@@ -304,7 +304,8 @@ def run_flatpak_installer(latest_tag: str) -> bool:
     bundle_path = os.path.join(dl_dir, "AmethystModManager.update.flatpak")
 
     # curl runs in-sandbox (network is granted); install/run go to the host.
-    host = "flatpak-spawn --host"
+    # --directory=/ avoids the portal failing on the app's sandbox-only cwd.
+    host = "flatpak-spawn --host --directory=/"
     cmd = (
         f"sleep 2 && "
         f"curl -fsSL {bundle_url} -o {bundle_path!r} && "
@@ -346,8 +347,12 @@ def _host_flatpak(*args: str, timeout: int = 60):
     if not shutil.which("flatpak-spawn"):
         return None
     try:
+        # --directory=/ is REQUIRED: the portal spawns the host command in the
+        # caller's cwd, and the app runs from /app/share/amethyst-mod-manager —
+        # a sandbox-only path. Without it every call fails with "Portal call
+        # failed: Failed to change to directory" (same fix as proton_tools).
         return subprocess.run(
-            ["flatpak-spawn", "--host", "flatpak", *args],
+            ["flatpak-spawn", "--host", "--directory=/", "flatpak", *args],
             capture_output=True, text=True, timeout=timeout,
         )
     except Exception:
@@ -518,7 +523,8 @@ def _launch_remote_reinstall(branch: str) -> str:
     os.makedirs(config_dir, exist_ok=True)
     log_path = os.path.join(config_dir, "amethyst-update.log")
 
-    host = "flatpak-spawn --host"
+    # --directory=/ avoids the portal failing on the app's sandbox-only cwd.
+    host = "flatpak-spawn --host --directory=/"
     ref = f"{_APP_ID}/x86_64/{branch}"
     # Target the actual configured remote for our URL — a --repo-url bundle
     # install named it "<app>-origin", not "amethyst". After enroll's own
