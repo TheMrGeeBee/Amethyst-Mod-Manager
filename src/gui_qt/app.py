@@ -1060,16 +1060,39 @@ class MainWindow(QMainWindow):
             else:
                 plugin_order = None
                 plugin_exts = None
+            is_ue = bool(exts & UE_ARCHIVE_EXTENSIONS)
             winner, losers = compute_bsa_winner_map(
                 index, prio, plugin_order or None, plugin_exts or None,
-                staging.parent / "modindex.bin",
-                bool(exts & UE_ARCHIVE_EXTENSIONS))
+                staging.parent / "modindex.bin", is_ue)
             codes = {}
             for fp, lose_list in losers.items():
                 if winner.get(fp) == mod_name:
                     codes[fp] = 1
                 elif mod_name in lose_list:
                     codes[fp] = -1
+            if not is_ue:
+                my_bsa_paths = {
+                    fp
+                    for _bsa, _mt, paths in index.get(mod_name, [])
+                    for fp in paths
+                }
+                if my_bsa_paths:
+                    from Utils.filemap import read_mod_index
+                    loose_index = read_mod_index(
+                        staging.parent / "modindex.bin") or {}
+                    for cand in prio:
+                        if cand == mod_name:
+                            continue
+                        entry = loose_index.get(cand)
+                        if not entry:
+                            continue
+                        normal, _root = entry
+                        for rel_key in normal:
+                            if rel_key in my_bsa_paths:
+                                # A higher-priority loose file wins outright; a
+                                # lower-priority one still beats the BSA (engine
+                                # loads BSAs first, then loose on top).
+                                codes[rel_key] = -1
             return codes
         except Exception:
             return {}
