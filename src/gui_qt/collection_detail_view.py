@@ -112,6 +112,12 @@ class CollectionDetailView(QWidget):
         # .amethyst zip after install. Forces a NEW profile (no revision on Nexus).
         self._local_manifest = local_manifest
         self._bundle_zip_path = str(bundle_zip) if bundle_zip else ""
+        # Manifest fetched by _start_manifest_fetch, kept for the install worker
+        # (Tk parity: CollectionsDialog._collection_schema_cache). Without it the
+        # orchestrator re-downloads the manifest at install time; if that second
+        # CDN fetch fails it silently loses every FOMOD/BAIN auto-selection.
+        self._fetched_manifest: "dict | None" = None
+        self._fetched_manifest_rev: "int | None" = None
         # Imports normally force a NEW profile (a .amethyst bundle carries profile
         # state — plugins/saves — that can't be safely merged). A code import has
         # no bundle, so the caller may pass allow_append=True to permit appending
@@ -707,6 +713,11 @@ class CollectionDetailView(QWidget):
                 manifest = load_collection_manifest(
                     self._api, game_name, slug, rev, dl_path, log_fn=self._log)
                 offsite = extract_offsite_mods(manifest)
+                if manifest:
+                    # Keep for the install worker (Tk _collection_schema_cache
+                    # parity) so install never needs a second manifest download.
+                    self._fetched_manifest = manifest
+                    self._fetched_manifest_rev = rev
                 # Manifest rule: some collections must be installed as a NEW
                 # profile (collectionConfig.recommendNewProfile). Capture it so
                 # the install mode overlay can disable "Append".

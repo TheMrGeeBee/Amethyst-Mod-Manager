@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from Games.ue5_game import UE5Game, UE5Rule
-from Utils.deploy import LinkMode
+from Utils.deploy import CustomRule, LinkMode
 from Utils.config_paths import get_profiles_dir
 
 # Plugins.txt lives here inside the game root (OblivionRemastered/)
@@ -91,20 +91,24 @@ class OblivionRemastered(UE5Game):
         return True
     
     @property
-    def conflict_ignore_filenames(self) -> set[str]:
-        return {"*.html","*.md","*.jpeg","*.png","*.jpg","*.rar"}
-    
-    @property
-    def mod_required_file_types(self) -> set[str]:
-        return {".esp",".esm"}
+    def mod_required_top_level_folders(self) -> set[str]:
+        return {"OblivionRemastered", "Content", "Paks", "~mods", "Binaries", "Win64","ue4ss","Mods"}
 
     @property
     def mod_auto_strip_until_required(self) -> bool:
         return True
-    
+
     @property
     def mod_install_as_is_if_no_match(self) -> bool:
         return True
+
+    @property
+    def mod_folder_strip_prefixes_post(self) -> set[str]:
+        return {"OblivionRemastered", "Content", "Paks", "~mods", "Binaries", "Win64","ue4ss","Mods"}
+    
+    @property
+    def conflict_ignore_filenames(self) -> set[str]:
+        return {"*.html","*.md","*.jpeg","*.png","*.jpg","*.rar","*read*.txt","*.docx","*install*.txt","*guide*.txt"}
     
     @property
     def loot_sort_enabled(self) -> bool:
@@ -116,7 +120,14 @@ class OblivionRemastered(UE5Game):
     
     @property
     def frameworks(self) -> dict[str, str]:
-        return {"Script Extender": "Binaries/Win64/obse64_loader.exe"}
+        return {
+            "Script Extender": "Binaries/Win64/obse64_loader.exe",
+            "UE4SS": "Binaries/Win64/dwmapi.dll"
+            }
+
+    @property
+    def wine_dll_overrides(self) -> dict[str, str]:
+        return {"dwmapi": "native,builtin", "winmm": "native,builtin"}
 
     @property
     def preferred_launch_exe(self) -> str:
@@ -130,63 +141,52 @@ class OblivionRemastered(UE5Game):
         return "oblivion-remastered"
 
     # -----------------------------------------------------------------------
-    # UE5 routing rules
+    # Routing rules
     # -----------------------------------------------------------------------
-    # Rules are evaluated in order; first match wins.
-    # ``folder`` matches on the first path segment of the staged relative path.
-    # ``extensions`` matches on file extension.
-    # ``strip`` lists prefixes to remove so files don't get double-nested.
+    # Game-root file routing is declared via ``custom_routing_rules``
+    # (CustomRule), the same mechanism Marvel Rivals uses.  Rules are evaluated
+    # in order; the first match wins.
 
     @property
-    def _ue5_pre_passthrough_rules(self) -> list[UE5Rule]:
+    def custom_routing_rules(self) -> list[CustomRule]:
         return [
-            # GameSettings/ folder → Binaries/Win64/ (UE4SS game setting overrides)
-            UE5Rule(
-                dest="Binaries/Win64",
-                folder="gamesettings",
-            ),
-            # Bink video replacers → Content/Movies/Modern/
-            # Must be before folder="content" so mods shipping the full
-            # Content/Movies/Modern/foo.bk2 path are routed here (and flattened)
-            # rather than passed through as-is.
-            UE5Rule(
-                dest="Content/Movies/Modern",
-                extensions=[".bk2"],
-                strip=["Content/Movies/Modern", "Content/Movies"],
-                flatten=True,
-            ),
+            CustomRule(dest="Unused",
+                       folders=["wingdk", "src", "True Oblivion.ini Merger"]),
+            CustomRule(dest="Unused", filenames=["Altar.ini"], flatten=True),
+            CustomRule(dest="Binaries/Win64", filenames=["*obse64_*.*"],
+                       flatten=True),
+            CustomRule(dest="Content/Paks", folders=["LogicMods"], flatten=True),
+            CustomRule(dest="Binaries/Win64",
+                       folders=["ue4ss", "obse", "GameSettings",
+                                "MadConfigs", "SkipMessages"],
+                       flatten=True),
+            CustomRule(dest="Content/Paks/~mods", extensions=[".pak"],
+                       companion_extensions=[".ucas", ".utoc"],
+                       include_siblings=True),
+            CustomRule(dest="Binaries/Win64/ue4ss/Mods",
+                       folders=["scripts", "dlls"], include_siblings=True),
+            CustomRule(dest="Binaries/Win64/ue4ss/Mods",
+                       filenames=["enabled.txt"], include_siblings=True),
+            CustomRule(dest="Binaries/Win64/ue4ss/Mods",
+                       filenames=["mods.txt"], flatten=True),
+            CustomRule(dest="Content/Dev/ObvData/Data",
+                       extensions=[".esm", ".esp"], flatten=True),
+            CustomRule(dest="Content/Dev/ObvData/Data",
+                       folders=["MagicLoader", "bashtags","SyncMap","sound"], flatten=True),
+            CustomRule(dest="Content/Movies/Modern", extensions=[".bk2"],
+                       flatten=True),
+            CustomRule(dest="Binaries/Win64/ue4ss/Mods",
+                       folders=["shared", "NPCAppearanceManager"], flatten=True),
+            CustomRule(dest="Unused",
+                       extensions=[".txt"], loose_only=True),
         ]
 
     @property
     def _ue5_post_passthrough_rules(self) -> list[UE5Rule]:
+        # Trailing UE5 fallbacks (same as Ue5CustomGame's defaults) — applied
+        # after the custom_routing_rules above and the shared binaries/content
+        # pass-through, so anything not claimed earlier still lands correctly.
         return [
-            # OBSE/ folder → Binaries/Win64/OBSE/
-            UE5Rule(
-                dest="Binaries/Win64/OBSE",
-                folder="obse",
-                strip=["obse", "OBSE"],
-                flatten=True,
-            ),
-            # Data/ folder → Content/Dev/ObvData/Data/ (path preserved under Data/).
-            # Covers mods shipped as Data/MyMod.esp, Data/SyncMap/MyMod.ini, etc.
-            UE5Rule(
-                dest="Content/Dev/ObvData/Data",
-                folder="data",
-                strip=["Content/Dev/ObvData/Data", "Data"],
-                flatten=True,
-            ),
-            # BashTags/ folder → Content/Dev/ObvData/Data/BashTags/ (alongside esp files)
-            UE5Rule(
-                dest="Content/Dev/ObvData/Data",
-                folder="bashtags",
-            ),
-            # Loose esp/esm plugins (no Data/ wrapper) → Content/Dev/ObvData/Data/
-            UE5Rule(
-                dest="Content/Dev/ObvData/Data",
-                extensions=[".esp", ".esm"],
-                strip=["Content/Dev/ObvData/Data", "Data"],
-                flatten=True,
-            ),
             # Lua UE4SS scripts and companion files (config.ini, data .json,
             # enabled.txt) → Binaries/Win64/ue4ss/Mods/
             UE5Rule(
@@ -195,6 +195,7 @@ class OblivionRemastered(UE5Game):
                 filenames=["enabled.txt"],
                 strip=[
                     "Binaries/Win64/ue4ss/Mods",
+                    "Binaries/Win64/Mods",
                     "Binaries/Win64/ue4ss",
                     "ue4ss/Mods",
                     "UE4SS/Mods",
@@ -204,24 +205,13 @@ class OblivionRemastered(UE5Game):
                 ],
                 flatten=True,
             ),
-            # Loose UE4SS proxy/runtime files (dwmapi.dll, UE4SS.dll, UE4SS.pdb) → Binaries/Win64/
+            # Loose UE4SS proxy/runtime files (dwmapi.dll, UE4SS.dll, .pdb) →
+            # Binaries/Win64/
             UE5Rule(
                 dest="Binaries/Win64",
                 extensions=[".dll", ".pdb"],
             ),
         ]
-
-    # -----------------------------------------------------------------------
-    # Mod install hints
-    # -----------------------------------------------------------------------
-
-    @property
-    def mod_folder_strip_prefixes(self) -> set[str]:
-        # Some mod authors wrap their entire mod in a top-level folder that
-        # mirrors the game's install root.  Strip it so the routing rules
-        # see the correct first segment.
-        return {"oblivionremastered", "oblivion remastered"}
-
 
     # -----------------------------------------------------------------------
     # Paths
