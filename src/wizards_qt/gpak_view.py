@@ -112,7 +112,7 @@ class GpakView(WizardViewBase):
 
         def worker():
             try:
-                from gpak import extract_gpak
+                from Games.Mewgenics.gpak import extract_gpak
                 if unpack_dir.exists():
                     safe_emit(self._log_sig,
                               self.tr("Removing previous Unpacked folder…"))
@@ -140,7 +140,7 @@ class GpakView(WizardViewBase):
 
         def worker():
             try:
-                from gpak import pack_gpak
+                from Games.Mewgenics.gpak import pack_gpak
                 pack_gpak(unpack_dir, resources, compress=False)
                 safe_emit(self._log_sig, self.tr("Repack complete."))
             except Exception as exc:

@@ -52,6 +52,12 @@ flatpak install --user https://chrisdkn.github.io/Amethyst-Mod-Manager/amethyst.
 
 Updates will be shown in your package manager
 
+Manually swap to the beta branch
+
+```bash
+flatpak install --user --reinstall modmanager-origin io.github.Amethyst.ModManager//beta
+```
+
 Installing from a bundle skips the 32-bit compat extensions that running Windows tools (Proton/wine) requires - The app installs them automatically on first launch, or you can add them yourself:
 
 ```bash

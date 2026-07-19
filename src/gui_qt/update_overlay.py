@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
 )
 
 from gui_qt.theme_qt import active_palette, _c
@@ -70,6 +70,22 @@ class UpdateOverlay(QFrame):
         body.setStyleSheet(f"color:{_c(p,'TEXT_MAIN')}; font-size:13px;")
         body.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         v.addWidget(body)
+
+        # Opt-out (all modes): ticking suppresses the startup update banner.
+        # Saved immediately — no confirm needed; re-enable via Settings, and a
+        # manual pre-release toggle still forces a check regardless.
+        mute = QCheckBox(self.tr("Don't notify me about new versions"))
+        mute.setStyleSheet(f"color:{_c(p,'TEXT_DIM')};")
+
+        def _mute_toggled(checked: bool):
+            from Utils.ui_config import save_update_notifications
+            try:
+                save_update_notifications(not checked)
+            except Exception:
+                pass
+
+        mute.toggled.connect(_mute_toggled)
+        v.addWidget(mute)
 
         bar = QHBoxLayout()
         bar.setSpacing(8)

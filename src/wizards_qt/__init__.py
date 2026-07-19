@@ -55,6 +55,9 @@ class QtWizardContext:
     Amethyst manifest — used by the curated-profile wizard. current_profile()
     returns the LIVE active profile name (profile_name is frozen at open, so a
     wizard spanning a profile switch — e.g. a profile import — reads this).
+    nexus_api() returns the app's shared NexusAPI (or None when not logged
+    in) — call it on the GUI thread; used by the MPI wizards' hands-free
+    archive fetch (premium direct download / download-folder watch).
     """
     profile_name: str = "default"
     run_deploy: Callable | None = None
@@ -62,6 +65,7 @@ class QtWizardContext:
     refresh_plugins: Callable | None = None
     import_manifest: Callable | None = None
     current_profile: Callable | None = None
+    nexus_api: Callable | None = None
 
 
 # Deliberately dropped from the Qt app (not even shown greyed out).

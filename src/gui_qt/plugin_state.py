@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from Utils.app_log import app_log
+# Crash-proof diagnostic prints (Flatpak stdout can raise BrokenPipeError and
+# kill worker threads). See Utils.app_log.safe_print.
+from Utils.app_log import safe_print as print  # noqa: A004
 from Utils.perftrace import span
 from Utils.plugins import (
     read_plugins, read_loadorder, write_plugins, write_loadorder, PluginEntry,

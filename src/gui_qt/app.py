@@ -29,6 +29,12 @@ from gui_qt.game_state import GameState
 from gui_qt.detachable_tabs import DetachableTabWidget
 from gui_qt import glue
 from Utils.proton_tools import DOTNET_VERSIONS
+# Diagnostic prints here run on worker threads and use flush=True. Under
+# Flatpak/AppImage stdout often has no reader, so a full pipe buffer makes
+# print() raise BrokenPipeError, which killed the worker (e.g. the play/deploy
+# build). safe_print swallows stream errors; the text is mirrored to the GUI
+# log anyway. Shadowing the builtin makes every print(...) below crash-proof.
+from Utils.app_log import safe_print as print  # noqa: A004
 
 
 def _load_bg3_modio(stem: str):
@@ -2288,13 +2294,29 @@ class MainWindow(QMainWindow):
         import threading
         from gui_qt.safe_emit import safe_emit
         from version import __version__
-        from Utils.ui_config import load_allow_prerelease
+        from Utils.ui_config import (
+            load_allow_prerelease, load_update_notifications,
+        )
         from Utils.version_check import (
             is_appimage, is_flatpak,
             _fetch_latest_version, _fetch_aur_version, _is_newer_version,
         )
 
         force_fresh = bool(force_fresh or force_downgrade_prompt)
+
+        # Opted out of update notifications (overlay checkbox / Settings):
+        # skip the AUTOMATIC startup check (no API call, no banner). User-
+        # initiated re-checks (pre-release toggle → force_fresh) still run, so
+        # channel switching keeps working while muted. The flatpak origin
+        # tidy-up must still happen though — a fresh bundle install recreates
+        # its no-enumerate origin remote and relies on startup to heal it.
+        if not force_fresh and not load_update_notifications():
+            if is_flatpak():
+                def _polish_only():
+                    from Utils.version_check import polish_flatpak_origin
+                    polish_flatpak_origin()
+                threading.Thread(target=_polish_only, daemon=True).start()
+            return
 
         def _do_check():
             allow_pre = load_allow_prerelease()
@@ -2325,6 +2347,11 @@ class MainWindow(QMainWindow):
                             flatpak_remote_update_ready,
                         )
                         if flatpak_installed_from_remote():
+                            # Checkbox = channel = OSTree branch. Stables are
+                            # published to BOTH branches (the beta branch's
+                            # contract is "newest release, beta or stable"), so
+                            # beta-channel users get new stables as ordinary
+                            # beta-branch updates — no branch hopping needed.
                             branch = "beta" if allow_pre else "stable"
                             if flatpak_remote_update_ready(branch) is False:
                                 return
@@ -2362,9 +2389,10 @@ class MainWindow(QMainWindow):
                     flatpak_installed_from_remote, update_flatpak_from_remote,
                     run_flatpak_installer,
                 )
+                # Checkbox = channel = branch (stables are published to both
+                # branches, so the beta branch always carries the newest
+                # release — the banner's offer is deliverable either way).
                 allow_pre = load_allow_prerelease()
-                # Preferred path: installed from our hosted remote → native
-                # delta update. Fallback: bundle-installed → download the .flatpak.
                 if flatpak_installed_from_remote():
                     status = update_flatpak_from_remote(
                         allow_prerelease=allow_pre)
@@ -5280,8 +5308,10 @@ class MainWindow(QMainWindow):
         """Persist a separator's colour + deploy override, repaint the modlist,
         and rebuild the filemap (a deploy-path change reroutes its mods)."""
         profile_dir = self._gs.profile_dir()
-        # Colour — model drives the repaint; profile_state persists it.
+        # Colour + deploy override — model drives the repaint (the deploy badge
+        # painted on the separator row); profile_state persists them.
         self._modlist_model.set_sep_color(sep_name, color)
+        self._modlist_model.set_sep_deploy_info(sep_name, deploy)
         if profile_dir is not None:
             try:
                 from Utils.profile_state import (
@@ -5315,11 +5345,15 @@ class MainWindow(QMainWindow):
         """Migrate a renamed separator's stored colour + deploy override from the
         old internal name to the new one, then persist + repaint."""
         profile_dir = self._gs.profile_dir()
-        # Model colour dict (keyed by internal name) follows the rename.
+        # Model colour/deploy dicts (keyed by internal name) follow the rename.
         c = self._modlist_model.sep_color(old_name)
         if c is not None:
             self._modlist_model.set_sep_color(old_name, None)
             self._modlist_model.set_sep_color(new_name, c)
+        d = self._modlist_model.sep_deploy_info(old_name)
+        if d:
+            self._modlist_model.set_sep_deploy_info(old_name, None)
+            self._modlist_model.set_sep_deploy_info(new_name, d)
         if profile_dir is not None:
             try:
                 from Utils.profile_state import (
@@ -5343,6 +5377,7 @@ class MainWindow(QMainWindow):
         profile_dir = self._gs.profile_dir()
         for nm in names:
             self._modlist_model.set_sep_color(nm, None)
+            self._modlist_model.set_sep_deploy_info(nm, None)
         if profile_dir is not None:
             try:
                 from Utils.profile_state import (
@@ -7956,6 +7991,7 @@ class MainWindow(QMainWindow):
             import_manifest=lambda manifest, stem, bundle_zip:
                 self._open_manifest_import(manifest, stem, bundle_zip=bundle_zip),
             current_profile=lambda: self._gs.profile or "default",
+            nexus_api=self._ensure_nexus_api,
         )
         try:
             view = spec.view_factory(

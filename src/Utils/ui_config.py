@@ -1276,6 +1276,35 @@ def save_allow_prerelease(value: bool) -> None:
         parser.write(f)
 
 
+def load_update_notifications() -> bool:
+    """Whether to show the app-update banner on startup (default True)."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return True
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        return parser.getboolean(_UPDATES_SECTION, "update_notifications",
+                                 fallback=True)
+    except Exception:
+        return True
+
+
+def save_update_notifications(value: bool) -> None:
+    """Persist the update_notifications setting under [updates]."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _UPDATES_SECTION not in parser:
+        parser[_UPDATES_SECTION] = {}
+    parser[_UPDATES_SECTION]["update_notifications"] = ("true" if value
+                                                        else "false")
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 # ---------------------------------------------------------------------------
 # Favourite wizard tools (global, shown at the top of the Wizard header menu)
 # ---------------------------------------------------------------------------

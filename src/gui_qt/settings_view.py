@@ -631,6 +631,13 @@ class SettingsView(QWidget):
             help=self.tr("Also offer beta and release-candidate app builds when checking "
                  "for updates."),
             on_changed=self._on_prerelease_toggle)
+        self._checkbox(
+            g, self.tr("Notify about new versions on startup"),
+            uc.load_update_notifications, uc.save_update_notifications,
+            help=self.tr("Show a notification when a new version of Amethyst "
+                 "is available. Turning this off only mutes the notification "
+                 "— you can still update via your package manager or by "
+                 "toggling the pre-release setting."))
 
         self._maybe_add_flatpak_enroll(g)
 

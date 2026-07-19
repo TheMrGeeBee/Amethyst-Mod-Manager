@@ -28,6 +28,9 @@ from gui_qt.theme_qt import active_palette, _c
 from gui_qt.add_game_view import _game_logo
 from gui_qt.safe_emit import safe_emit
 from gui_qt.worker import run_in_worker, NO_EMIT
+# Crash-proof diagnostic prints (Flatpak stdout can raise BrokenPipeError and
+# kill worker threads). See Utils.app_log.safe_print.
+from Utils.app_log import safe_print as print  # noqa: A004
 from Utils.deploy import LinkMode
 
 # Left column width — the image panel and the options panel share it.

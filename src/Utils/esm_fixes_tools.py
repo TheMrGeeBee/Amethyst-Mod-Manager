@@ -32,6 +32,12 @@ NEXUS_URL = "https://www.nexusmods.com/newvegas/mods/92289?tab=files"
 OUTPUT_NAME = "Ultimate Edition ESM Fixes Remastered"
 ARCHIVE_KEYWORDS = ["esm", "fixes"]
 
+# Pinned main file for the hands-free fetch (premium direct download /
+# download-folder watch) — see Utils.mpi_auto_fetch.
+NEXUS_GAME_DOMAIN = "newvegas"
+NEXUS_MOD_ID = 92289
+NEXUS_FILE_ID = 1000176515
+
 
 def _noop(_msg: str) -> None:
     pass

@@ -319,10 +319,15 @@ def build_manifest(rows, game_domain: str, app_version: str, *,
 
 def write_amethyst(out_path, manifest: dict, *, staging_root=None,
                    overwrite_root=None, profile_dir=None,
-                   bundle_names=None) -> Path:
+                   bundle_names=None, progress_cb=None) -> Path:
     """Write the ``.amethyst`` zip: ``manifest.json`` + bundled ``mods/`` +
     ``overwrite/`` + ``profile/`` state files. Returns the final path (suffix
-    forced to .amethyst when not already .zip/.amethyst)."""
+    forced to .amethyst when not already .zip/.amethyst).
+
+    *progress_cb* (optional) is called as ``progress_cb(done_bytes, total_bytes,
+    arcname)`` — once with ``done_bytes=0`` before writing starts (total known),
+    then after each member is written. Members are collected up-front so the
+    byte total is exact; the callback runs on the caller's thread."""
     out_path = Path(out_path)
     if out_path.suffix.lower() not in (".zip", ".amethyst"):
         out_path = out_path.with_suffix(".amethyst")
@@ -331,72 +336,97 @@ def write_amethyst(out_path, manifest: dict, *, staging_root=None,
     staging_root = Path(staging_root) if staging_root else None
     overwrite_root = Path(overwrite_root) if overwrite_root else None
 
+    # Collect (src_path, arcname, data) members first: src_path=None means an
+    # in-memory writestr member (pre-encoded bytes in *data*).
+    jobs: list[tuple] = [
+        (None, "manifest.json", json.dumps(manifest, indent=2).encode("utf-8")),
+    ]
+
+    if staging_root:
+        for name in bundle_names:
+            mod_dir = staging_root / name
+            if not mod_dir.is_dir():
+                continue
+            for fp in mod_dir.rglob("*"):
+                if fp.is_file():
+                    arcname = Path("mods") / name / fp.relative_to(mod_dir)
+                    jobs.append((fp, arcname.as_posix(), None))
+
+    if overwrite_root and overwrite_root.is_dir():
+        for fp in overwrite_root.rglob("*"):
+            if fp.is_file():
+                arcname = Path("overwrite") / fp.relative_to(overwrite_root)
+                jobs.append((fp, arcname.as_posix(), None))
+
+    # Bundle profile state files: fixed names + any *.ini files.
+    if profile_dir:
+        pdir = Path(profile_dir)
+        fixed = [
+            "modlist.txt",
+            "plugins.txt",
+            "loadorder.txt",
+            "profile_state.json",
+            "userlist.yaml",
+        ]
+        for fname in fixed:
+            fp = pdir / fname
+            if not fp.is_file():
+                continue
+            if fname == "profile_state.json":
+                # Inject profile_specific_mods=true if missing.
+                try:
+                    ps = json.loads(fp.read_text(encoding="utf-8"))
+                except Exception:
+                    ps = {}
+                if not isinstance(ps, dict):
+                    ps = {}
+                settings = ps.get("profile_settings")
+                if not isinstance(settings, dict):
+                    settings = {}
+                    ps["profile_settings"] = settings
+                if not settings.get("profile_specific_mods"):
+                    settings["profile_specific_mods"] = True
+                jobs.append((None, (Path("profile") / fname).as_posix(),
+                             json.dumps(ps, indent=2).encode("utf-8")))
+            else:
+                jobs.append((fp, (Path("profile") / fname).as_posix(), None))
+        # Legacy: root-level *.ini files
+        for fp in pdir.glob("*.ini"):
+            if fp.is_file():
+                jobs.append((fp, (Path("profile") / fp.name).as_posix(), None))
+        # Bundle whole profile subfolders
+        for sub in ("ini files", "Saves", "installed_collections"):
+            sub_dir = pdir / sub
+            if not sub_dir.is_dir():
+                continue
+            for fp in sub_dir.rglob("*"):
+                if fp.is_file():
+                    arcname = Path("profile") / sub / fp.relative_to(sub_dir)
+                    jobs.append((fp, arcname.as_posix(), None))
+
+    sizes = []
+    for src, _arc, data in jobs:
+        if data is not None:
+            sizes.append(len(data))
+        else:
+            try:
+                sizes.append(src.stat().st_size)
+            except OSError:
+                sizes.append(0)
+    total = sum(sizes)
+    done = 0
+    if progress_cb:
+        progress_cb(0, total, "")
+
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-
-        if staging_root:
-            for name in bundle_names:
-                mod_dir = staging_root / name
-                if not mod_dir.is_dir():
-                    continue
-                for fp in mod_dir.rglob("*"):
-                    if fp.is_file():
-                        arcname = Path("mods") / name / fp.relative_to(mod_dir)
-                        zf.write(fp, arcname.as_posix())
-
-        if overwrite_root and overwrite_root.is_dir():
-            for fp in overwrite_root.rglob("*"):
-                if fp.is_file():
-                    arcname = Path("overwrite") / fp.relative_to(overwrite_root)
-                    zf.write(fp, arcname.as_posix())
-
-        # Bundle profile state files: fixed names + any *.ini files.
-        if profile_dir:
-            pdir = Path(profile_dir)
-            fixed = [
-                "modlist.txt",
-                "plugins.txt",
-                "loadorder.txt",
-                "profile_state.json",
-                "userlist.yaml",
-            ]
-            for fname in fixed:
-                fp = pdir / fname
-                if not fp.is_file():
-                    continue
-                if fname == "profile_state.json":
-                    # Inject profile_specific_mods=true if missing.
-                    try:
-                        ps = json.loads(fp.read_text(encoding="utf-8"))
-                    except Exception:
-                        ps = {}
-                    if not isinstance(ps, dict):
-                        ps = {}
-                    settings = ps.get("profile_settings")
-                    if not isinstance(settings, dict):
-                        settings = {}
-                        ps["profile_settings"] = settings
-                    if not settings.get("profile_specific_mods"):
-                        settings["profile_specific_mods"] = True
-                    zf.writestr(
-                        (Path("profile") / fname).as_posix(),
-                        json.dumps(ps, indent=2),
-                    )
-                else:
-                    zf.write(fp, (Path("profile") / fname).as_posix())
-            # Legacy: root-level *.ini files
-            for fp in pdir.glob("*.ini"):
-                if fp.is_file():
-                    zf.write(fp, (Path("profile") / fp.name).as_posix())
-            # Bundle whole profile subfolders
-            for sub in ("ini files", "Saves", "installed_collections"):
-                sub_dir = pdir / sub
-                if not sub_dir.is_dir():
-                    continue
-                for fp in sub_dir.rglob("*"):
-                    if fp.is_file():
-                        arcname = Path("profile") / sub / fp.relative_to(sub_dir)
-                        zf.write(fp, arcname.as_posix())
+        for (src, arcname, data), size in zip(jobs, sizes):
+            if data is not None:
+                zf.writestr(arcname, data)
+            else:
+                zf.write(src, arcname)
+            done += size
+            if progress_cb:
+                progress_cb(done, total, arcname)
 
     return out_path
 

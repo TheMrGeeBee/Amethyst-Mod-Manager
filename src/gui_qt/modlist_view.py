@@ -6,6 +6,10 @@ TkStyleHeader owns column resizing; column state persists via column_state.
 
 from __future__ import annotations
 
+# Crash-proof diagnostic prints (Flatpak stdout can raise BrokenPipeError and
+# kill worker threads). See Utils.app_log.safe_print.
+from Utils.app_log import safe_print as print  # noqa: A004
+
 from PySide6.QtCore import Qt, QTimer, QRect, QPoint, QCoreApplication, QEvent
 from PySide6.QtGui import QPainter, QColor, QPen, QAction
 from PySide6.QtWidgets import (
@@ -392,18 +396,19 @@ class ModListView(QTreeView):
     def load_separator_state(self):
         """Read collapsed/lock state for the active profile into the model and
         apply row hiding. Called by the window after a modlist reload."""
-        collapsed, locks, colors = set(), {}, {}
+        collapsed, locks, colors, deploy_paths = set(), {}, {}, {}
         if self.profile_dir is not None:
             try:
                 from Utils.profile_state import (
                     read_collapsed_seps, read_separator_locks,
-                    read_separator_colors)
+                    read_separator_colors, read_separator_deploy_paths)
                 collapsed = read_collapsed_seps(self.profile_dir)
                 locks = read_separator_locks(self.profile_dir)
                 colors = read_separator_colors(self.profile_dir)
+                deploy_paths = read_separator_deploy_paths(self.profile_dir)
             except Exception:
                 pass
-        self.model().set_separator_state(collapsed, locks, colors)
+        self.model().set_separator_state(collapsed, locks, colors, deploy_paths)
         self._apply_separator_spanning()
         self.apply_collapse()
 

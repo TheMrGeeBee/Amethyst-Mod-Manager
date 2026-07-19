@@ -59,6 +59,26 @@ def safe_log(log_fn: callable | None) -> callable:
     return log_fn if log_fn is not None else _NOOP_LOG
 
 
+def safe_print(*args, **kwargs) -> None:
+    """``print`` that never crashes the caller.
+
+    Under Flatpak / AppImage the process is frequently launched with no reader
+    on stdout. Once the OS pipe buffer fills, the next ``print(..., flush=True)``
+    raises ``BrokenPipeError``. Since many of these prints run on worker threads,
+    that exception propagated out of the thread target and killed the worker
+    (e.g. the play/deploy conflict build), aborting the operation. These prints
+    are diagnostics only, so swallowing any stream error here is safe.
+
+    Import as ``from Utils.app_log import safe_print as print`` at module top to
+    make every ``print(...)`` in that module crash-proof.
+    """
+    import builtins
+    try:
+        builtins.print(*args, **kwargs)
+    except (BrokenPipeError, OSError, ValueError):
+        pass
+
+
 def app_log(message: str) -> None:
     """Write a message to the application log panel (thread-safe). No-op if not set."""
     if _log_fn is None:

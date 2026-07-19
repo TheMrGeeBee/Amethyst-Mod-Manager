@@ -15,7 +15,9 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QEvent, QT_TRANSLATE_NOOP, QCoreApplication
+from PySide6.QtCore import (
+    Qt, Signal, QEvent, QT_TRANSLATE_NOOP, QCoreApplication, QTimer,
+)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QCheckBox, QHeaderView, QFrame,
@@ -393,6 +395,10 @@ class ExportProfileView(QWidget):
     _versions_ready = Signal(int, object)
     # (ok, message) from the export worker → UI thread.
     _export_done = Signal(bool, str)
+    # (done_bytes, total_bytes, phase) from the export worker → UI thread;
+    # total<=0 shows an indeterminate (busy) bar. Byte counts ride as `object` —
+    # Signal(int) is C++ int32 and large bundles overflow 2 GiB.
+    _export_progress = Signal(object, object, str)
     # pick_save_file's callback fires on the portal WORKER thread; marshal the
     # chosen path to the GUI thread before touching any widget.
     _save_path_picked = Signal(object)
@@ -413,6 +419,7 @@ class ExportProfileView(QWidget):
         self.setObjectName("ExportProfileView")
         self._versions_ready.connect(self._on_versions_ready)
         self._export_done.connect(self._on_export_done)
+        self._export_progress.connect(self._on_export_progress)
         self._save_path_picked.connect(self._on_save_path_picked)
         self._build()
         self._load_rows()
@@ -778,6 +785,9 @@ class ExportProfileView(QWidget):
     def _on_save_path_picked(self, path):
         if not path:
             return
+        # Immediate feedback (indeterminate) — the worker switches the card to a
+        # determinate byte bar once the packaging file list is known.
+        self._on_export_progress(0, 0, self.tr("Preparing export…"))
         # Prefetch missing sizes + write on a worker thread.
         threading.Thread(
             target=self._export_worker, args=(str(path),),
@@ -825,12 +835,65 @@ class ExportProfileView(QWidget):
             final = profile_export.write_amethyst(
                 out_path, manifest,
                 staging_root=staging_root, overwrite_root=overwrite_root,
-                profile_dir=pd, bundle_names=bundle_names)
+                profile_dir=pd, bundle_names=bundle_names,
+                progress_cb=self._make_progress_cb())
             self._export_done.emit(True, str(final))
         except Exception as exc:
             self._export_done.emit(False, str(exc))
 
+    def _make_progress_cb(self):
+        """Throttled bridge from write_amethyst's per-file callback (worker
+        thread) to the progress signal — at most ~10 emits/s, but the final
+        done==total update always goes through so the bar lands on 100%."""
+        import time
+        last_emit = [0.0]
+
+        def _cb(done: int, total: int, arcname: str):
+            now = time.monotonic()
+            if done < total and now - last_emit[0] < 0.1:
+                return
+            last_emit[0] = now
+            parts = arcname.split("/") if arcname else []
+            if parts and parts[0] == "mods" and len(parts) > 1:
+                phase = self.tr("Packing mod: {0}").format(parts[1])
+            elif parts and parts[0] == "overwrite":
+                phase = self.tr("Packing overwrite files…")
+            elif parts and parts[0] == "profile":
+                phase = self.tr("Packing profile files…")
+            else:
+                phase = self.tr("Packing…")
+            self._export_progress.emit(done, total, phase)
+
+        return _cb
+
+    def _progress_popup(self):
+        """The window's shared ProgressStack (bottom-right cards), or None."""
+        win = self._window
+        ensure = getattr(win, "_ensure_feedback", None)
+        if callable(ensure):
+            try:
+                ensure()
+            except Exception:
+                pass
+        return getattr(win, "_progress_popup", None)
+
+    def _on_export_progress(self, done, total, phase: str):
+        done, total = int(done), int(total)
+        popup = self._progress_popup()
+        if popup is None:
+            return
+        popup.set_progress(done, total, phase,
+                           title=self.tr("Exporting profile"),
+                           bytes_mode=total > 0, key="profile-export")
+
     def _on_export_done(self, ok: bool, message: str):
+        popup = self._progress_popup()
+        if popup is not None:
+            if ok:
+                # Let the full bar be visible for a beat before dismissing.
+                QTimer.singleShot(900, lambda: popup.clear(key="profile-export"))
+            else:
+                popup.clear(key="profile-export")
         if ok:
             self._notify(self.tr("Exported to {0}").format(message), "info")
             self._log(f"[export] wrote {message}")

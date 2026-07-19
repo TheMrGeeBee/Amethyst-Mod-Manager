@@ -290,7 +290,7 @@ class Mewgenics(BaseGame):
         profile: str = "default",
         progress_fn=None,
     ) -> None:
-        from gpak import extract_gpak, pack_gpak
+        from Games.Mewgenics.gpak import extract_gpak, pack_gpak
 
         _log = log_fn or (lambda _: None)
         if self._game_path is None:
@@ -370,7 +370,7 @@ class Mewgenics(BaseGame):
 
     def restore(self, log_fn=None, progress_fn=None) -> None:
         """Unpack resources.gpak, remove modded files, restore vanilla from backup, repack, remove Unpacked."""
-        from gpak import extract_gpak, pack_gpak
+        from Games.Mewgenics.gpak import extract_gpak, pack_gpak
 
         _log = log_fn or (lambda _: None)
         if self._game_path is None:

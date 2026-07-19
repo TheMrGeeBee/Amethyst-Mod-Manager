@@ -123,7 +123,7 @@ modules:
       - install -d /app/share/amethyst-mod-manager
       - cp -a src/run_qt.py src/cli.py src/app_bootstrap.py src/version.py src/gui_qt
         src/wizards_qt src/Utils src/Games src/LOOT src/Nexus src/icons src/wrappers
-        src/gpak /app/share/amethyst-mod-manager/
+        /app/share/amethyst-mod-manager/
       - cp Changelog.txt /app/share/amethyst-mod-manager/
 
       # Fail the build if src/LOOT lacks a loot.cpython-3XX .so matching the

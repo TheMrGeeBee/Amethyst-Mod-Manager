@@ -180,6 +180,7 @@ class ModRowDelegate(QStyledItemDelegate):
         self.c_hl_required_by = qc(p, "REQ_HL_REQUIRED_BY")  # this mod requires selection (blue)
         self.c_root_text = qc(p, "ROOT_SEP_FG")
         self.c_overwrite_text = qc(p, "OVERWRITE_SEP_FG")
+        self.c_badge = qc(p, "LINK_BLUE")   # separator deploy-path badge
         # Shared row/label fonts — paint() runs per visible cell, so build
         # these once instead of allocating a QFont per call.
         self.f_row = QFont()
@@ -346,6 +347,8 @@ class ModRowDelegate(QStyledItemDelegate):
         collapsed = model.is_collapsed(name)
         locked = model.is_sep_locked(name)
         block = model.sep_block_rows(index.row())
+        deploy = model.sep_deploy_info(e.name) if hasattr(model, "sep_deploy_info") else {}
+        has_badge = bool(deploy.get("path") or deploy.get("raw"))
 
         name_rect = self._col_rect(COL_NAME, r)
         p.setFont(self.f_bold)
@@ -354,13 +357,6 @@ class ModRowDelegate(QStyledItemDelegate):
         cx = name_rect.center().x()
         cy = r.center().y()
 
-        # Strikethrough line across the row, broken around the centred name
-        # (Tk-style — makes separators easy to distinguish).
-        p.setPen(QPen(self.c_border, 1))
-        gap = tw // 2 + 12
-        p.drawLine(r.left() + 6, cy, cx - gap, cy)
-        p.drawLine(cx + gap, cy, r.right() - 6, cy)
-
         # Collapse arrow — right.png when collapsed, arrow.png when expanded.
         a = self._arrow_rect(r)
         ico = icon("right.png" if collapsed else "arrow.png", self.ARROW_SZ,
@@ -368,9 +364,25 @@ class ModRowDelegate(QStyledItemDelegate):
         if not ico.isNull():
             ico.paint(p, a)
 
-        # Centred name + "(N)" count over the Mod Name column.
-        p.setPen(text_color)
-        p.drawText(name_rect, Qt.AlignVCenter | Qt.AlignHCenter, label)
+        if has_badge:
+            # Custom deploy override: left-aligned name after the arrow, with
+            # the "⇒ path" badge flowing right of it (Tk parity — no lines).
+            tx = a.right() + 8
+            p.setPen(text_color)
+            p.drawText(QRect(tx, r.top(), tw, r.height()),
+                       Qt.AlignVCenter | Qt.AlignLeft, label)
+            self._paint_deploy_badge(p, r, deploy, tx + tw + 10, collapsed)
+        else:
+            # Strikethrough line across the row, broken around the centred name
+            # (Tk-style — makes separators easy to distinguish).
+            p.setPen(QPen(self.c_border, 1))
+            gap = tw // 2 + 12
+            p.drawLine(r.left() + 6, cy, cx - gap, cy)
+            p.drawLine(cx + gap, cy, r.right() - 6, cy)
+
+            # Centred name + "(N)" count over the Mod Name column.
+            p.setPen(text_color)
+            p.drawText(name_rect, Qt.AlignVCenter | Qt.AlignHCenter, label)
 
         # Grouped flags/conflicts when collapsed — each under its own column.
         if collapsed:
@@ -387,6 +399,35 @@ class ModRowDelegate(QStyledItemDelegate):
             lico = icon("lock.png", self.LOCK_SZ - 2)
             if not lico.isNull():
                 lico.paint(p, lk.adjusted(1, 1, -1, -1))
+
+    def _paint_deploy_badge(self, p, r, deploy, x, collapsed):
+        """Paint the custom-deploy badge ("⇒ ~/path  [raw]", or "[raw deploy]"
+        when only the raw flag is set) starting at *x*, in the link-blue tone.
+        Elided to stop before the lock box — and, when the separator is
+        collapsed, before the Flags column so the grouped icons stay clear."""
+        path = deploy.get("path", "")
+        if path:
+            try:
+                from pathlib import Path
+                dp = Path(path)
+                home = Path.home()
+                if dp.is_relative_to(home):
+                    path = "~/" + str(dp.relative_to(home))
+            except Exception:
+                pass
+            text = f"⇒ {path}  [raw]" if deploy.get("raw") else f"⇒ {path}"
+        else:
+            text = "[raw deploy]"
+        right = self._lock_rect(r).left() - 8
+        if collapsed:
+            right = min(right, self._col_rect(COL_NAME, r).right() - 6)
+        if right - x < 16:
+            return
+        p.setFont(self.f_row)
+        elided = p.fontMetrics().elidedText(text, Qt.ElideMiddle, right - x)
+        p.setPen(self.c_badge)
+        p.drawText(QRect(x, r.top(), right - x, r.height()),
+                   Qt.AlignVCenter | Qt.AlignLeft, elided)
 
     def _paint_grouped_icons(self, p, r, model, block):
         """Collapsed-separator summary: union of the block's flag icons painted

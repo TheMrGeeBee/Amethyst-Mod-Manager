@@ -157,6 +157,13 @@ def proton_run_command(
     base = [_host_python(), str(proton_script), *map(str, args)]
     if not (_proton_script_in_steam_flatpak(proton_script)
             and not _own_process_in_steam_flatpak()):
+        if _in_flatpak_sandbox() and shutil.which("flatpak-spawn"):
+            fwd = [
+                f"--env={k}={v}"
+                for k, v in (env or {}).items()
+                if os.environ.get(k) != v
+            ]
+            return ["flatpak-spawn", "--host", "--directory=/", *fwd, *base]
         return base
     # Steam-flatpak Proton runs INSIDE the sandbox, so --command=python3 uses
     # the sandbox's own interpreter (not our host resolver) — that's correct.

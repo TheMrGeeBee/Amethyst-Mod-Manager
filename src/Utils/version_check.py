@@ -22,7 +22,7 @@ _APP_ID = "io.github.Amethyst.ModManager"
 # Hosted Flatpak remote (GitHub Pages). Adding this remote lets the OS handle
 # updates natively (`flatpak update`, GNOME Software, Discover) with delta
 # downloads. `stable` and `beta` are the two OSTree branches published to it.
-_FLATPAK_REMOTE_NAME = "amethyst"
+_FLATPAK_REMOTE_NAME = "modmanager-origin"
 _FLATPAK_REMOTE_REPO_URL = "https://chrisdkn.github.io/Amethyst-Mod-Manager/repo/"
 _FLATPAK_REMOTE_FILE_URL = (
     "https://chrisdkn.github.io/Amethyst-Mod-Manager/amethyst.flatpakrepo"
@@ -364,7 +364,7 @@ def _remote_name_for_our_url() -> str | None:
 
     Matched by URL, NOT by name: a bundle installed with --repo-url gets an
     auto-created origin named "<app>-origin" (e.g. modmanager-origin), while a
-    manual/one-liner install uses "amethyst". Both point at the same Pages repo,
+    the one-liner/enroll path uses the same name. Both point at the same repo,
     so URL is the reliable identity. Trailing slashes are normalised.
 
     Queries BOTH scopes and includes --show-disabled: bundle-created origins
@@ -392,8 +392,8 @@ def flatpak_installed_from_remote() -> bool:
     """True if our install's origin is a remote pointing at our hosted repo.
 
     Matched by the origin remote's URL (not its name), so it recognises both
-    the "amethyst" remote (manual/one-liner install) AND the auto-created
-    "<app>-origin" a --repo-url bundle install creates. Bundle installs WITHOUT
+    the enroll/one-liner remote AND the auto-created "<app>-origin" a
+    --repo-url bundle install creates (now the SAME name). Bundle installs WITHOUT
     --repo-url (or any non-remote install) have no matching origin → False.
     Conservatively returns False when the host can't be queried.
     """
@@ -417,7 +417,7 @@ def _effective_remote_name() -> str:
 
     Prefers the actually-configured remote for our URL (which may be the
     auto-created "<app>-origin" on a --repo-url bundle install), falling back
-    to the canonical "amethyst" when none is configured yet.
+    to the canonical name (_FLATPAK_REMOTE_NAME) when none is configured yet.
     """
     return _remote_name_for_our_url() or _FLATPAK_REMOTE_NAME
 
@@ -527,8 +527,8 @@ def _launch_remote_reinstall(branch: str) -> str:
     host = "flatpak-spawn --host --directory=/"
     ref = f"{_APP_ID}/x86_64/{branch}"
     # Target the actual configured remote for our URL — a --repo-url bundle
-    # install named it "<app>-origin", not "amethyst". After enroll's own
-    # remote-add this resolves to "amethyst"; for an update it's whatever the
+    # install named it "<app>-origin". After enroll's own remote-add this
+    # resolves to that same name; for an update it's whatever the
     # user has. Reinstall pins the branch (handles same-branch update AND
     # channel switch — `flatpak update` won't cross branches).
     remote = _effective_remote_name()

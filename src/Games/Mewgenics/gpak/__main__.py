@@ -1,9 +1,9 @@
 """
-Run from project root:
-  python -m gpak path/to/file.gpak                    # list contents
-  python -m gpak path/to/file.gpak --extract D       # extract to directory D
-  python -m gpak --pack DIR -o path/to/output.gpak   # repack directory into .gpak
-  python -m gpak --pack DIR -o out.gpak --no-zlib    # repack uncompressed (use if game fails after repack)
+Run from src/:
+  python -m Games.Mewgenics.gpak path/to/file.gpak                    # list contents
+  python -m Games.Mewgenics.gpak path/to/file.gpak --extract D       # extract to directory D
+  python -m Games.Mewgenics.gpak --pack DIR -o path/to/output.gpak   # repack directory into .gpak
+  python -m Games.Mewgenics.gpak --pack DIR -o out.gpak --no-zlib    # repack uncompressed (use if game fails after repack)
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running as python -m gpak from repo root
+# Allow running this file directly (adds src/ to sys.path)
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from gpak.reader import list_gpak, extract_gpak
-from gpak.writer import pack_gpak
+from Games.Mewgenics.gpak.reader import list_gpak, extract_gpak
+from Games.Mewgenics.gpak.writer import pack_gpak
 
 
 def main() -> None:

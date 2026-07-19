@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
@@ -50,17 +50,25 @@ class ESMFixesView(WizardViewBase):
     _run_status_sig2 = Signal(str, str)
     _run_log_sig = Signal(str)
     _run_done_sig = Signal()
+    _auto_kick_sig = Signal()
 
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
-                 show_header: bool = True, **_extra):
+                 show_header: bool = True, auto_continue: bool = False,
+                 **_extra):
         super().__init__(game, log_fn, on_close, ctx,
                          title=self.tr("Ultimate Edition ESM Fixes — {0}").format(game.name),
                          show_header=show_header)
+        # auto_continue: hands-free mode (curated-profile wizard, premium) —
+        # every successful step advances itself; failures still stop.
+        self._auto_continue = bool(auto_continue)
         self._exe = find_ttw_installer(game)
         self._mpi_path: "Path | None" = None
         self._fnv_path: "Path | None" = game.get_game_path()
         self._force_rebuild = False
         self._detect_started = False
+        self._napi = None
+        self._auto_fetch_started = False
+        self._auto_fetch_cancel = threading.Event()
 
         profile = getattr(self._ctx, "profile_name", None) or "default"
         self._profile = profile
@@ -77,8 +85,8 @@ class ESMFixesView(WizardViewBase):
         self._run_status_sig2.connect(self._guard(
             lambda t, c: self._set_status(self._run_status, t, c)))
         self._run_log_sig.connect(self._guard(self._append_run_log))
-        self._run_done_sig.connect(self._guard(
-            lambda: self._done_btn.setEnabled(True)))
+        self._run_done_sig.connect(self._guard(self._on_run_done))
+        self._auto_kick_sig.connect(self._guard(self._start_auto_fetch))
 
         self._stack.addWidget(self._build_download_page())   # 0
         self._stack.addWidget(self._build_already_page())    # 1
@@ -92,10 +100,23 @@ class ESMFixesView(WizardViewBase):
         # else download.
         if not self._force_rebuild and esm_fixes_mod_dir(self._game) is not None:
             self._stack.setCurrentIndex(_PG_ALREADY)
+            if self._auto_continue:
+                QTimer.singleShot(600, self._guard(self._finish))
         elif find_ttw_installer(self._game) is not None:
             self._goto_source()
         else:
             self._stack.setCurrentIndex(_PG_DOWNLOAD)
+            if self._auto_continue:
+                QTimer.singleShot(300, self._guard(
+                    lambda: self._install_btn.isEnabled()
+                    and self._start_install()))
+
+    def _on_run_done(self):
+        self._done_btn.setEnabled(True)
+        # Hands-free mode: a successful run (_ran set) closes itself so the
+        # host wizard advances; failures wait for the user.
+        if self._auto_continue and self._ran:
+            QTimer.singleShot(1500, self._guard(self._finish))
 
     # ---- page 0: download installer ---------------------------------------------
     def _build_download_page(self) -> QWidget:
@@ -158,9 +179,17 @@ class ESMFixesView(WizardViewBase):
         note.setStyleSheet(self._dim)
         lay.addWidget(note)
         lay.addStretch(1)
+        row = QWidget()
+        rh = QHBoxLayout(row); rh.setContentsMargins(0, 0, 0, 0); rh.setSpacing(8)
+        rh.addStretch(1)
         rebuild = self._accent_btn(self.tr("Rebuild from scratch"))
         rebuild.clicked.connect(self._rebuild_from_scratch)
-        lay.addWidget(rebuild, 0, Qt.AlignHCenter)
+        rh.addWidget(rebuild)
+        done = self._green_btn(self.tr("Done"))
+        done.clicked.connect(self._finish)
+        rh.addWidget(done)
+        rh.addStretch(1)
+        lay.addWidget(row)
         return page
 
     def _rebuild_from_scratch(self):
@@ -233,8 +262,21 @@ class ESMFixesView(WizardViewBase):
         lay.addWidget(row)
         return val
 
+    def _finish(self):
+        self._auto_fetch_cancel.set()
+        super()._finish()
+
     def _goto_source(self):
         self._stack.setCurrentIndex(_PG_SOURCE)
+        # Resolve the shared Nexus API here (GUI thread) for the hands-free
+        # fetch that kicks in when the archive isn't found.
+        if self._napi is None:
+            api_fn = getattr(self._ctx, "nexus_api", None)
+            if api_fn is not None:
+                try:
+                    self._napi = api_fn()
+                except Exception:
+                    self._napi = None
         if not self._detect_started:
             self._detect_started = True
             self._start_detect()
@@ -265,6 +307,7 @@ class ESMFixesView(WizardViewBase):
                               "folders — download it from Nexus, then click "
                               "Detect again (or Choose file…)."), RED)
                     safe_emit(self._mpi_ready_sig, None)
+                    safe_emit(self._auto_kick_sig)
                     return
                 _wlog(f"auto-detected {archive}")
                 safe_emit(self._detect_status_sig,
@@ -288,9 +331,65 @@ class ESMFixesView(WizardViewBase):
     def _on_mpi_ready(self, mpi):
         if mpi is None:
             return
+        self._auto_fetch_cancel.set()    # package secured — stop the fetch
         self._mpi_path = Path(mpi)
         self._mpi_label.setText(str(self._mpi_path))
         self._mpi_label.setStyleSheet(self._dim)
+        if self._auto_continue:
+            QTimer.singleShot(600, self._guard(self._maybe_auto_run))
+
+    def _maybe_auto_run(self):
+        """Hands-free mode: run as soon as both inputs are ready (only while
+        still on the source page, so a repeat detect can't double-start)."""
+        if (self._stack.currentIndex() == _PG_SOURCE
+                and self._mpi_path is not None and self._mpi_path.is_file()
+                and self._fnv_path is not None and self._fnv_path.is_dir()):
+            self._validate_and_run()
+
+    # ---- hands-free archive fetch (premium download / folder watch) ---------------
+    def _start_auto_fetch(self):
+        if (self._auto_fetch_started or self._mpi_path is not None
+                or self._closing):
+            return
+        self._auto_fetch_started = True
+        from Utils.esm_fixes_tools import (
+            NEXUS_FILE_ID, NEXUS_GAME_DOMAIN, NEXUS_MOD_ID,
+        )
+        from Utils.mpi_auto_fetch import start_auto_fetch
+        _wlog = lambda m: self._log(f"ESM Fixes Wizard: {m}")
+        last_pct = [-1]
+
+        def _progress(done, total):
+            if total <= 0:
+                return
+            pct = min(100, int(done * 100 / total))
+            if pct == last_pct[0]:
+                return
+            last_pct[0] = pct
+            safe_emit(self._detect_status_sig,
+                      self.tr("Downloading the ESM Fixes package from "
+                              "Nexus… {0}%").format(pct), "")
+
+        start_auto_fetch(
+            api=self._napi,
+            game_domain=NEXUS_GAME_DOMAIN,
+            mod_id=NEXUS_MOD_ID,
+            file_id=NEXUS_FILE_ID,
+            find_archive_fn=find_esm_fixes_archive,
+            on_archive=lambda p: safe_emit(self._paths_picked_sig, "mpi", p),
+            cancel=self._auto_fetch_cancel,
+            label="Ultimate Edition ESM Fixes",
+            on_download_started=lambda: safe_emit(
+                self._detect_status_sig,
+                self.tr("Premium account — downloading the ESM Fixes "
+                        "package from Nexus…"), ""),
+            on_progress=_progress,
+            on_waiting=lambda: safe_emit(
+                self._detect_status_sig,
+                self.tr("Archive not found — download it from Nexus (button "
+                        "above). It will be picked up automatically as soon "
+                        "as the download finishes."), ""),
+            log_fn=_wlog)
 
     def _browse_folder(self, attr: str, title: str):
         from Utils.portal_filechooser import pick_folder
