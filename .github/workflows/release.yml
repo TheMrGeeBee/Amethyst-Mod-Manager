@@ -271,6 +271,7 @@ jobs:
           echo "sign=--gpg-sign=${GPG_KEY_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Merge build into live repo
+        id: merge
         run: |
           set -euo pipefail
           BRANCH='${{ steps.mode.outputs.ostree }}'
@@ -294,11 +295,22 @@ jobs:
           fi
           # Copy the app ref (and its runtime refs are pulled by clients from
           # flathub, so only the app ref needs to live here) into the live repo.
-          flatpak build-commit-from \
-            --src-repo=newrepo \
-            --subject="$SUBJECT" \
-            $SIGN \
-            site/repo "$REF"
+          #
+          # A STABLE publish lands on BOTH channels: the beta branch's contract
+          # is "the newest release, beta or stable", so beta-tracking installs
+          # see stables as normal Discover/`flatpak update` updates instead of
+          # needing a channel switch (they'd otherwise be stranded on the last
+          # beta until the next beta cycle). Beta publishes touch only beta.
+          TARGETS="$BRANCH"
+          [ "$BRANCH" = "stable" ] && TARGETS="stable beta"
+          for BR in $TARGETS; do
+            flatpak build-commit-from \
+              --src-repo=newrepo --src-ref="$REF" \
+              --subject="$SUBJECT" \
+              $SIGN \
+              site/repo "app/${APP_ID}/x86_64/${BR}"
+          done
+          echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
           # Regenerate summary + static deltas so clients fetch deltas, not
           # full trees, on update.
           flatpak build-update-repo \
@@ -364,12 +376,14 @@ jobs:
       - name: Verify repo integrity
         run: |
           set -euo pipefail
-          BRANCH='${{ steps.mode.outputs.ostree }}'
-          REF="app/${APP_ID}/x86_64/${BRANCH}"
           ostree --repo=site/repo summary --view | head -40
-          ostree --repo=site/repo refs | grep -F "$REF"
+          for BR in ${{ steps.merge.outputs.targets }}; do
+            REF="app/${APP_ID}/x86_64/${BR}"
+            ostree --repo=site/repo refs | grep -Fx "$REF"
+            echo "ref $REF present"
+          done
           ostree --repo=site/repo fsck --quiet
-          echo "OSTree repo OK — ref $REF present and fsck clean."
+          echo "OSTree repo OK — all published refs present, fsck clean."
 
       - name: Push Pages branch
         env:

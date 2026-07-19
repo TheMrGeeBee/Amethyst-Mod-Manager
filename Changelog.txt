@@ -6,6 +6,7 @@
 - Added a Ultimate ESM fixes wizard for Fallout new Vegas
 - Added a wizard to install Viva New Vegas
 - Added a refresh plugins button to gather loot meta data without sorting plugins. xedit wizards now refresh meta data automatically once they close
+- Added an option to supress the update notification
 ### Changes
 - File dependancies (plugins) in fomods are now saved to their meta.ini. If the plugin is later installed or removed a flag is shown as a reminder to reinstall the fomod
 - When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
