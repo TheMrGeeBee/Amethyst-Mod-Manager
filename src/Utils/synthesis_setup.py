@@ -21,9 +21,13 @@ Pipeline:
 
 from __future__ import annotations
 
+import base64
 import configparser
+import hashlib
 import os
+import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import urllib.request
@@ -90,9 +94,6 @@ _DOTNET6_DESKTOP_URL = (
     "windowsdesktop-runtime-6.0.36-win-x64.exe"
 )
 _DOTNET6_DESKTOP_FILENAME = "windowsdesktop-runtime-6.0.36-win-x64.exe"
-
-_DIGICERT_CERT_URL = "https://cacerts.digicert.com/DigiCertTrustedRootG4.crt.pem"
-_DIGICERT_CERT_FILENAME = "DigiCertTrustedRootG4.crt.pem"
 
 _VCREDIST_URL = "https://aka.ms/vc14/vc_redist.x64.exe"
 
@@ -384,37 +385,175 @@ def _step_dotnet6_desktop(pfx: Path, wine: Path, log: LogFn) -> bool:
         filename=_DOTNET6_DESKTOP_FILENAME, label=".NET 6 Desktop Runtime")
 
 
-def _step_digicert_root(pfx: Path, wine: Path, log: LogFn) -> bool:
-    if _is_done(pfx, "digicert_root"):
-        log("  DigiCert root cert already imported, skipping.")
+# ---------------------------------------------------------------------------
+# Root-certificate import — crypt32 registry blobs via regedit.
+#
+# certutil.exe and rundll32 cryptext.dll are unimplemented stubs in Wine, and
+# crypt32 store writes (X509Store.Add) under GE-Proton report success without
+# ever reaching wineserver's registry — writing serialized cert blobs straight
+# into the Root store key via regedit is the only import that persists.  NuGet
+# treats an untrusted root on the *timestamp* chain as a hard error (NU3028)
+# regardless of signatureValidationMode / allowUntrustedRoot / any env var, so
+# the roots must genuinely be trusted in the prefix store; NuGet.Config alone
+# cannot cover it. 
+# ---------------------------------------------------------------------------
+
+_ROOT_STORE_KEY = ("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\SystemCertificates"
+                   "\\Root\\Certificates")
+_CERT_CERT_PROP_ID = 32
+_PEM_CERT_RE = re.compile(
+    r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.DOTALL)
+
+
+def _read_pem_certs(bundle_path: Path) -> list[bytes]:
+    """Return DER-encoded certificates from a concatenated PEM bundle."""
+    try:
+        text = bundle_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return [base64.b64decode("".join(m.group(1).split()))
+            for m in _PEM_CERT_RE.finditer(text)]
+
+
+def _cert_registry_blob(der: bytes) -> bytes:
+    """Serialize a certificate the way crypt32 stores it in the registry: a
+    property record of DWORD propid, DWORD reserved (1), DWORD length, then
+    the raw DER.  A blob containing only the CERT_CERT_PROP_ID record is
+    valid."""
+    return struct.pack("<III", _CERT_CERT_PROP_ID, 1, len(der)) + der
+
+
+def _hex_reg_value(name: str, data: bytes) -> str:
+    """Format a REG_BINARY value as regedit .reg hex syntax, line-wrapped."""
+    lines: list[str] = []
+    line = f'"{name}"=hex:'
+    for b in data:
+        hb = f"{b:02x}"
+        if len(line) + len(hb) + 2 > 76:
+            lines.append(line + "\\")
+            line = "  "
+        line += hb + ","
+    lines.append(line.rstrip(","))
+    return "\n".join(lines)
+
+
+def _build_certs_reg_content(pem_bundles: list[Path]) -> tuple[str, frozenset]:
+    """Build .reg content adding every cert in *pem_bundles* to the prefix
+    Root store.  Returns ``(reg_content, sha1_thumbprints)``.  Re-importing is
+    idempotent — regedit overwrites identical keys in place."""
+    seen: set[str] = set()
+    parts = ["Windows Registry Editor Version 5.00"]
+    for bundle in pem_bundles:
+        for der in _read_pem_certs(bundle):
+            thumbprint = hashlib.sha1(der).hexdigest().upper()
+            if thumbprint in seen:
+                continue
+            seen.add(thumbprint)
+            parts.append("")
+            parts.append(f"[{_ROOT_STORE_KEY}\\{thumbprint}]")
+            parts.append(_hex_reg_value("Blob", _cert_registry_blob(der)))
+    parts.append("")
+    return "\n".join(parts), frozenset(seen)
+
+
+def _missing_thumbprints(pfx: Path, thumbprints: frozenset) -> frozenset:
+    """Check which thumbprints are actually present in the on-disk system.reg.
+
+    regedit's exit code alone is not reliable here — on large batches (~400
+    keys) it has been observed to exit 0 while silently dropping individual
+    entries.  system.reg stores hive-relative key paths (no HKLM prefix) with
+    each backslash doubled, unlike the .reg syntax used to write them."""
+    system_reg = pfx / "system.reg"
+    if not system_reg.is_file():
+        return thumbprints
+    try:
+        text = system_reg.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return thumbprints
+    key_path = _ROOT_STORE_KEY.split("\\", 1)[1]
+    file_literal = key_path.replace("\\", "\\\\")
+    pattern = re.compile(
+        r"\[" + re.escape(file_literal) + r"\\\\([0-9A-Fa-f]+)\]")
+    present = {t.upper() for t in pattern.findall(text)}
+    return thumbprints - present
+
+
+def _import_certs_via_regedit(pfx: Path, wine: Path, pem_bundles: list[Path],
+                              label: str, log: LogFn,
+                              max_attempts: int = 3) -> bool:
+    """Import all certs from *pem_bundles* into the prefix Root store and
+    verify against system.reg, retrying on partial imports."""
+    reg_content, thumbprints = _build_certs_reg_content(pem_bundles)
+    if not thumbprints:
+        log(f"  {label}: no certificates found in bundle(s) — nothing to import.")
         return True
-    cert = get_dotnet_cache_dir() / _DIGICERT_CERT_FILENAME
-    if not _download_if_missing(_DIGICERT_CERT_URL, cert, log):
+
+    env = _base_env(pfx, wine)
+    wineserver = wine.parent / "wineserver"
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".reg", delete=False, encoding="utf-8",
+    ) as tf:
+        tf.write(reg_content)
+        reg_file = tf.name
+
+    try:
+        missing = thumbprints
+        for attempt in range(1, max_attempts + 1):
+            log(f"  importing {len(thumbprints)} root cert(s) "
+                f"(attempt {attempt}/{max_attempts}) …")
+            try:
+                result = subprocess.run(
+                    [str(wine), "regedit", reg_file],
+                    env=env, capture_output=True, text=True, errors="replace",
+                    timeout=180,
+                )
+            except subprocess.TimeoutExpired:
+                log("  regedit timed out — retrying.")
+                continue
+            if result.returncode != 0:
+                log(f"  regedit exited with {result.returncode}: "
+                    f"{result.stderr[:200].strip()}")
+                continue
+
+            # wineserver batches registry writes in memory and flushes to the
+            # on-disk .reg files lazily; "wineserver -w" blocks until it
+            # exits, forcing the flush so the verification below sees it.
+            if wineserver.is_file():
+                try:
+                    subprocess.run(
+                        [str(wineserver), "-w"], env=env,
+                        capture_output=True, timeout=60,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+
+            missing = _missing_thumbprints(pfx, thumbprints)
+            if not missing:
+                log(f"  {label}: {len(thumbprints)} certs imported and verified.")
+                return True
+            log(f"  {label}: {len(missing)} of {len(thumbprints)} certs did "
+                "not persist — retrying.")
+
+        log(f"  {label}: import incomplete after {max_attempts} attempts "
+            f"({len(missing)} of {len(thumbprints)} missing).")
         return False
-    log("Importing DigiCert Trusted Root G4 into Wine cert store …")
-    result = subprocess.run(
-        [str(wine), "certutil", "-addstore", "Root", str(cert)],
-        env=_base_env(pfx, wine),
-        capture_output=True, text=True, errors="replace", timeout=60,
-    )
-    if result.returncode != 0:
-        log(f"  certutil exited with {result.returncode} (likely already present)")
-    _mark_done(pfx, "digicert_root")
-    log("  DigiCert root cert imported.")
-    return True
+    finally:
+        try:
+            os.unlink(reg_file)
+        except OSError:
+            pass
 
 
-def _step_ca_bundle_roots(pfx: Path, wine: Path, log: LogFn) -> bool:
+def _step_ca_roots(pfx: Path, wine: Path, log: LogFn) -> bool:
     """Import the full public CA bundle into the Wine Root store.
 
     dotnet runs under Wine as a *Windows* process, where NuGet signature
     verification uses the Windows root store — Wine's is near-empty, so
-    timestamping/author certs on Mutagen's older deps fail with NU3028.
-    Importing the whole Mozilla CA bundle gives the prefix the trust anchors
-    those signatures chain to.  Idempotent via the per-prefix done-marker.
-    """
-    if _is_done(pfx, "ca_bundle_roots_v1"):
-        log("  CA bundle roots already imported, skipping.")
+    author/timestamp certs on Mutagen's older deps fail with NU3028.
+    Importing the Mozilla CA bundle gives the prefix the trust anchors those
+    signatures chain to (DigiCert Trusted Root G4 included)."""
+    if _is_done(pfx, "ca_roots_regedit_v1"):
+        log("  CA roots already imported, skipping.")
         return True
 
     bundle: "str | None" = None
@@ -436,72 +575,53 @@ def _step_ca_bundle_roots(pfx: Path, wine: Path, log: LogFn) -> bool:
         log(f"  CA bundle not found at {bundle_path} — skipping root import.")
         return True
 
-    try:
-        text = bundle_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        log(f"  Could not read CA bundle ({exc}) — skipping root import.")
+    log("Importing public CA roots into the Wine Root store …")
+    if not _import_certs_via_regedit(pfx, wine, [bundle_path], "CA roots", log):
+        return False
+    _mark_done(pfx, "ca_roots_regedit_v1")
+    return True
+
+
+def _find_sdk_trusted_roots(pfx: Path) -> list[Path]:
+    """Locate the newest installed .NET SDK's bundled trustedroots PEMs —
+    the exact trust anchors NuGet itself uses for package and timestamp
+    signature validation."""
+    sdk_root = pfx / "drive_c" / "Program Files" / "dotnet" / "sdk"
+    if not sdk_root.is_dir():
+        return []
+    for version_dir in sorted(sdk_root.iterdir(), reverse=True):
+        bundles = [version_dir / "trustedroots" / name
+                   for name in ("codesignctl.pem", "timestampctl.pem")]
+        found = [b for b in bundles if b.is_file()]
+        if found:
+            return found
+    return []
+
+
+def _step_nuget_trusted_roots(pfx: Path, wine: Path, log: LogFn) -> bool:
+    """Import the .NET SDK's code-signing + timestamp trusted roots.
+
+    Must run after the SDK install step — the PEM bundles ship inside the
+    SDK.  This is what actually fixes NU3028 on the timestamp chain (a
+    dropped VeriSign Universal Root is the confirmed cause of long-standing
+    intermittent Synthesis patcher-restore failures), hence the verified,
+    retried import."""
+    if _is_done(pfx, "nuget_trusted_roots_v1"):
+        log("  NuGet trusted roots already imported, skipping.")
         return True
 
-    blocks: list[str] = []
-    marker = "-----BEGIN CERTIFICATE-----"
-    end = "-----END CERTIFICATE-----"
-    start = text.find(marker)
-    while start != -1:
-        stop = text.find(end, start)
-        if stop == -1:
-            break
-        blocks.append(text[start:stop + len(end)] + "\n")
-        start = text.find(marker, stop)
+    bundles = _find_sdk_trusted_roots(pfx)
+    if not bundles:
+        log("  .NET SDK trustedroots bundles not found — was the SDK "
+            "install step skipped or failed?")
+        return False
 
-    if not blocks:
-        log("  CA bundle contained no certificates — skipping root import.")
-        return True
-
-    env = _base_env(pfx, wine)
-
-    log(f"Importing {len(blocks)} CA root(s) into the Wine Root store …")
-    with tempfile.TemporaryDirectory() as tmpd:
-        bundle_copy = Path(tmpd) / "ca_bundle.pem"
-        try:
-            bundle_copy.write_text("".join(blocks), encoding="utf-8")
-            result = subprocess.run(
-                [str(wine), "certutil", "-addstore", "Root", str(bundle_copy)],
-                env=env, capture_output=True, text=True, errors="replace",
-                timeout=180,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            result = None
-        if result is not None and result.returncode == 0:
-            _mark_done(pfx, "ca_bundle_roots_v1")
-            log(f"  CA roots imported ({len(blocks)} certs, single pass).")
-            return True
-        log("  Bulk import unavailable — importing certs individually "
-            "(one-time, this can take a few minutes).")
-
-        imported = 0
-        failed = 0
-        total = len(blocks)
-        for i, block in enumerate(blocks, 1):
-            cert_file = Path(tmpd) / f"ca_{i}.pem"
-            try:
-                cert_file.write_text(block, encoding="utf-8")
-            except OSError:
-                failed += 1
-                continue
-            r = subprocess.run(
-                [str(wine), "certutil", "-addstore", "Root", str(cert_file)],
-                env=env, capture_output=True, text=True, errors="replace",
-                timeout=60,
-            )
-            if r.returncode == 0:
-                imported += 1
-            else:
-                failed += 1
-            if i % 25 == 0 or i == total:
-                log(f"    … {i}/{total} certs processed")
-
-    _mark_done(pfx, "ca_bundle_roots_v1")
-    log(f"  CA roots imported: {imported} ok, {failed} skipped/failed.")
+    log("Importing .NET SDK code-signing/timestamp roots into the Wine "
+        "Root store …")
+    if not _import_certs_via_regedit(
+            pfx, wine, bundles, "NuGet trusted roots", log):
+        return False
+    _mark_done(pfx, "nuget_trusted_roots_v1")
     return True
 
 
@@ -820,8 +940,8 @@ def setup_synthesis_prefix(
     ok &= _step_dotnet8_desktop(pfx, wine, log_fn)
     ok &= _step_dotnet7_desktop(pfx, wine, log_fn)
     ok &= _step_dotnet6_desktop(pfx, wine, log_fn)
-    ok &= _step_digicert_root(pfx, wine, log_fn)
-    ok &= _step_ca_bundle_roots(pfx, wine, log_fn)
+    ok &= _step_ca_roots(pfx, wine, log_fn)
+    ok &= _step_nuget_trusted_roots(pfx, wine, log_fn)
     ok &= _step_regedit(pfx, wine, log_fn)
     ok &= _step_fonts(pfx, wine, log_fn)
     ok &= _step_nuget_config(pfx, wine, log_fn)
@@ -1030,6 +1150,18 @@ def launch_synthesis(game: "BaseGame", proton_script: Path, profile: str,
     env["WINEDEBUG"] = "-all"
     env.setdefault("DISPLAY", os.environ.get("DISPLAY", ":0"))
     env["NUGET_CERT_REVOCATION_MODE"] = "offline"
+    # Retry NuGet trust-chain builds: the first chain build after a fresh cert
+    # import can race and fail spuriously (NuGet/Home#11099) — and our cert
+    # import may have happened moments earlier in the same setup run.
+    env["NUGET_EXPERIMENTAL_CHAIN_BUILD_RETRY_POLICY"] = "10,1000"
+    # VBCSCompiler's named-pipe IPC is unreliable under Wine, so every patcher
+    # build falls back to spawning its own dotnet.exe.  Without a concurrency
+    # cap, Synthesis's patcher scheduler (Parallel.* defaults to
+    # Environment.ProcessorCount) can pile up dozens of unreaped compiler
+    # processes and OOM the host on large patcher lists.
+    env["UseSharedCompilation"] = "false"
+    env["MSBUILDDISABLENODEREUSE"] = "1"
+    env["DOTNET_PROCESSOR_COUNT"] = "8"
 
     log(f"Launching {exe} via {proton_script.parent.name} …")
     try:
