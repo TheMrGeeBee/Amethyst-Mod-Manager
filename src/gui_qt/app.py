@@ -4010,6 +4010,7 @@ class MainWindow(QMainWindow):
             ov.set_status(self.tr("Restoring bundled mods + profile files…"))
 
         def _worker():
+            staged = []
             try:
                 # Resolve the imported profile's own mods/overwrite dirs (it's a
                 # profile_specific_mods profile → <profile_dir>/mods + /overwrite).
@@ -4024,13 +4025,16 @@ class MainWindow(QMainWindow):
                     game.set_active_profile_dir(prev)
                     game.load_paths()
                 from Utils import profile_export
-                profile_export.install_local_bundle(
+                staged = profile_export.install_local_bundle(
                     bundle_zip, profile_dir, mods_dir, overwrite_dir,
                     log_fn=lambda m: self._op_log.emit(str(m)))
             except Exception as exc:
                 self._op_log.emit(f"[import] bundle extraction failed: {exc}")
+            # Bundled mods carry no Nexus file ID, so the install pipeline never
+            # counts them — each extracted bundle folder is an installed mod.
             self._col_import_done.emit(
-                (profile_name, int(installed), int(total), int(skipped_n)))
+                (profile_name, int(installed) + len(staged or ()),
+                 int(total), int(skipped_n)))
 
         threading.Thread(target=_worker, daemon=True, name="import-bundle").start()
 

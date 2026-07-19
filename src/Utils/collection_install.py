@@ -570,9 +570,22 @@ def run_collection_install(
                               "mod_id": getattr(mod, "mod_id", 0) or 0,
                               "status": status, "detail": detail}
 
+    # Bundle-source entries ship inside the collection archive and have no Nexus
+    # file ID — Step 2c installs + counts them (or, for local .amethyst imports,
+    # the post-install bundle extraction does). Counting them "skipped" here
+    # reported perfectly-installed bundled mods as skipped in the final summary.
+    _schema_bundle_names = {
+        (m.get("name") or "").strip().lower() for m in schema_mods
+        if ((m.get("source") or {}).get("type") or "").lower() == "bundle"
+        or (m.get("source") or {}).get("bundle") is True}
+
     # Classify: already-installed (skip) vs needs downloading
     for mod in ordered_mods:
         if not mod.file_id:
+            if (getattr(mod, "source_type", "") == "bundle"
+                    or (mod.mod_name or "").strip().lower() in _schema_bundle_names):
+                _record_outcome(mod, "bundled")
+                continue
             log(f"Collection install: skipping '{mod.mod_name}' — no file ID")
             _record_outcome(mod, "no_file_id")
             skipped += 1
