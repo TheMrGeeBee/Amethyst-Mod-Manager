@@ -30,6 +30,14 @@ LogFn = Callable[[str], None]
 
 HEROIC_FLATPAK_ID = "com.heroicgameslauncher.hgl"
 STEAM_FLATPAK_ID = "com.valvesoftware.Steam"
+LUTRIS_FLATPAK_ID = "net.lutris.Lutris"
+
+# Friendly launcher names for user-facing messages.
+_APP_NAMES = {
+    HEROIC_FLATPAK_ID: "Heroic",
+    STEAM_FLATPAK_ID: "Steam",
+    LUTRIS_FLATPAK_ID: "Lutris",
+}
 
 _HOME = Path.home()
 
@@ -90,14 +98,14 @@ def _steam_flatpak_owns_path(path: Path) -> bool:
 def sandbox_app_for_game(game, game_root: Optional[Path]) -> Optional[str]:
     """Return the flatpak app id that will sandbox this game at runtime.
 
-    Three ways a game ends up sandboxed:
+    Ways a game ends up sandboxed:
       * its files live under ~/.var/app/<id>/ (launcher keeps games in its
         own data dir — flatpak Steam's default library included) — the id is
         read straight off the path;
       * it sits in one of the flatpak Steam's EXTERNAL libraries (SD card /
         second drive) — files outside ~/.var/app, process still sandboxed;
-      * it is a Heroic-managed install and the flatpak Heroic exists — same
-        shape as the Steam external-library case.
+      * it is a Heroic- or Lutris-managed install and that launcher's
+        flatpak exists — same shape as the Steam external-library case.
     If the user also has the native launcher installed and that one actually
     starts the game, the extra override is harmless.
     """
@@ -112,6 +120,17 @@ def sandbox_app_for_game(game, game_root: Optional[Path]) -> Optional[str]:
             from Utils.exe_launch import game_is_heroic_install
             if game_is_heroic_install(game):
                 return HEROIC_FLATPAK_ID
+        except Exception:
+            pass
+    # Lutris flatpak grants --filesystem=home by default, so its games are
+    # usually fine — but the baseline check in ensure_symlink_target_access
+    # handles that (silent no-op); this covers staging outside home (/mnt)
+    # and Flatseal-tightened setups.
+    if (_HOME / ".var" / "app" / LUTRIS_FLATPAK_ID).is_dir():
+        try:
+            from Utils.exe_launch import game_is_lutris_install
+            if game_is_lutris_install(game):
+                return LUTRIS_FLATPAK_ID
         except Exception:
             pass
     return None
@@ -148,15 +167,15 @@ def _read_override_text(app_id: str) -> str:
         return ""
 
 
-def _granted_filesystems(app_id: str) -> "list[Path]":
-    """Absolute paths already granted via the user override file.
+def _parse_filesystems(text: str) -> "tuple[set[str], list[Path]]":
+    """Parse `filesystems=` entries out of a flatpak keyfile.
 
-    Only plain absolute-path entries are considered; xdg-* specials and
-    negations are ignored (a missed match just re-runs the idempotent
-    `flatpak override`).
+    Returns (tokens, paths): tokens are the broad grants 'home' and 'host';
+    paths are plain absolute entries.  xdg-* specials and negations are
+    ignored (a missed match just re-runs the idempotent `flatpak override`).
     """
-    out: list[Path] = []
-    text = _read_override_text(app_id)
+    tokens: set[str] = set()
+    paths: list[Path] = []
     in_context = False
     for line in text.splitlines():
         line = line.strip()
@@ -174,14 +193,52 @@ def _granted_filesystems(app_id: str) -> "list[Path]":
                 if entry.endswith(suffix):
                     entry = entry[: -len(suffix)]
                     break
+            if entry in ("home", "host"):
+                tokens.add(entry)
+                continue
             if entry.startswith("~"):
                 entry = str(_HOME) + entry[1:]
             if entry.startswith("/"):
-                out.append(Path(entry))
-    return out
+                paths.append(Path(entry))
+    return tokens, paths
 
 
-def _covered(path: Path, granted: "Iterable[Path]") -> bool:
+def _granted_filesystems(app_id: str) -> "tuple[set[str], list[Path]]":
+    """Filesystem grants from the app's user override file."""
+    return _parse_filesystems(_read_override_text(app_id))
+
+
+_baseline_cache: "dict[str, tuple[set[str], list[Path]]]" = {}
+
+
+def _baseline_filesystems(app_id: str) -> "tuple[set[str], list[Path]]":
+    """Filesystem grants baked into the app's own manifest.
+
+    Needed so launchers that already ship broad access (Lutris grants
+    `home`) don't get a pointless override + restart prompt.  Cached per
+    process — manifest permissions only change on app updates.
+    """
+    if app_id in _baseline_cache:
+        return _baseline_cache[app_id]
+    try:
+        res = subprocess.run(
+            _host_cmd(["flatpak", "info", "--show-permissions", app_id]),
+            capture_output=True, text=True, timeout=15,
+        )
+        text = res.stdout if res.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        text = ""
+    parsed = _parse_filesystems(text)
+    _baseline_cache[app_id] = parsed
+    return parsed
+
+
+def _covered(path: Path, granted: "Iterable[Path]",
+             tokens: "set[str]" = frozenset()) -> bool:
+    if "host" in tokens:
+        return True
+    if "home" in tokens and (path == _HOME or _HOME in path.parents):
+        return True
     for g in granted:
         if path == g or g in path.parents:
             return True
@@ -260,8 +317,14 @@ def ensure_symlink_target_access(
         if not app_id:
             return
         wanted = _wanted_roots(staging, profile_dir)
-        granted = _granted_filesystems(app_id)
-        missing = [p for p in wanted if not _covered(p, granted)]
+        tokens, granted = _granted_filesystems(app_id)
+        missing = [p for p in wanted if not _covered(p, granted, tokens)]
+        if missing:
+            # The manifest itself may already grant enough (Lutris ships
+            # --filesystem=home) — only override what neither layer covers.
+            btokens, bgranted = _baseline_filesystems(app_id)
+            missing = [p for p in missing
+                       if not _covered(p, bgranted, btokens)]
         if not missing:
             return
         if _grant_paths(app_id, missing, log_fn):
@@ -278,7 +341,7 @@ def ensure_symlink_target_access(
 def _notify_restart_needed(app_id: str, granted: "list[Path]") -> None:
     """Popup (when a GUI is attached) telling the user to restart the
     launcher — the sandbox only picks the new grants up on a fresh start."""
-    launcher = "Heroic" if app_id == HEROIC_FLATPAK_ID else app_id
+    launcher = _APP_NAMES.get(app_id, app_id)
     try:
         from Utils import ui_hooks
         paths = "\n".join(f"  {p}" for p in granted)
