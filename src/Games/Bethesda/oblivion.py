@@ -54,6 +54,7 @@ class Oblivion(Fallout_3):
             *self._xedit_wizard_tools(
                 build="TES4Edit", id_suffix="oblivion",
                 nexus_url="https://www.nexusmods.com/oblivion/mods/11536?tab=files",
+                nexus_file_id=1000038294,
             ),
         ]
 

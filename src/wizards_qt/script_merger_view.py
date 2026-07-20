@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from Games.base_game import BaseGame
 
 _NEXUS_URL = "https://www.nexusmods.com/witcher3/mods/8405?tab=files&file_id=59566"
+_NEXUS_FILE_ID = 59566
 _MERGER_EXE = "WitcherScriptMerger.exe"
 _MERGER_DIR = "ScriptMerger"
 # .NET 8 install runs through Utils.proton_tools.install_dotnet_runtime.
@@ -123,6 +124,11 @@ class ScriptMergerView(WizardViewBase):
             self._goto_step(_PG_PROTON)
         else:
             self._goto_step(_PG_DOWNLOAD)
+            self._nexus_auto_fetch(
+                url=_NEXUS_URL, file_id=_NEXUS_FILE_ID,
+                keywords=["sm-fae"], label="Script Merger",
+                pages=(_PG_DOWNLOAD, _PG_LOCATE),
+                on_archive=lambda _p: self._goto_step(_PG_EXTRACT))
 
     def _on_extract_done(self, ok: bool):
         if ok:

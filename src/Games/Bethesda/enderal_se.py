@@ -95,6 +95,7 @@ class EnderalSE(Fallout_3):
             *self._xedit_wizard_tools(
                 build="EnderalSEEdit", id_suffix="enderalse",
                 nexus_url="https://www.nexusmods.com/enderalspecialedition/mods/78?tab=files",
+                nexus_file_id=2793,
                 discord_mode="EnderalSE",
             ),
         ]

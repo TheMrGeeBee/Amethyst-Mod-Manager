@@ -94,7 +94,9 @@ def install_dotnet_runtime(
     _status(f"Installing .NET {version} (silent)…\n(this may take a few minutes)")
     log_fn(f"installing .NET {version} in prefix (silent) …")
     proc = subprocess.run(
-        proton_run_command(proton_script, "run",
+        # runinprefix: no steam.exe shim, so the silent install doesn't show
+        # the game as "Running" in Steam (the prefix already exists here).
+        proton_run_command(proton_script, "runinprefix",
                            str(cache_path), "/quiet", "/norestart",
                            env=env),
         env=env, cwd=str(cache_path.parent),

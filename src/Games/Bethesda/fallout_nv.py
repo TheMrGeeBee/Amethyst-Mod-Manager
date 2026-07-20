@@ -110,6 +110,7 @@ class Fallout_NV(Fallout_3):
             *self._xedit_wizard_tools(
                 build="FNVEdit", id_suffix="fonv",
                 nexus_url="https://www.nexusmods.com/newvegas/mods/34703?tab=files",
+                nexus_file_id=1000128948,
             ),
         ]
 

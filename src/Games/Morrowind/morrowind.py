@@ -17,11 +17,15 @@ from Utils.deploy import (
     LinkMode,
     cleanup_custom_deploy_dirs,
     deploy_core,
+    deploy_custom_rules,
     deploy_filemap,
     expand_separator_deploy_paths,
+    expand_separator_link_modes,
+    expand_separator_raw_deploy,
     load_per_mod_strip_prefixes,
     load_separator_deploy_paths,
     move_to_core,
+    restore_custom_rules,
     restore_data_core,
 )
 from Utils.modlist import read_modlist
@@ -117,7 +121,7 @@ class Morrowind(BaseGame):
 
     @property
     def conflict_ignore_filenames(self) -> set[str]:
-        return {"info.xml", "readme.txt"}
+        return {"info.xml", "*read*.txt"}
 
     @property
     def loot_sort_enabled(self) -> bool:
@@ -138,6 +142,19 @@ class Morrowind(BaseGame):
     @property
     def frameworks(self) -> dict[str, str]:
         return {"MGE XE": "MGEXEgui.exe"}
+    
+    @property
+    def custom_routing_rules(self) -> list:
+        from Utils.deploy import CustomRule
+        return [
+            CustomRule(dest="", filenames=["SlimDX.dll"], flatten=True, loose_only=True),
+            CustomRule(dest="", filenames=["Newtonsoft.Json.dll"], flatten=True, loose_only=True),
+            CustomRule(dest="", filenames=["MWSE-Update.exe"], flatten=True, loose_only=True),
+            CustomRule(dest="", filenames=["MGEXEgui.exe"], flatten=True, loose_only=True),
+            CustomRule(dest="", filenames=["dinput8.dll"], flatten=True, loose_only=True),
+            CustomRule(dest="", filenames=["d3d8.dll"], flatten=True, loose_only=True),
+            CustomRule(dest="", folders=["mge3"], flatten=True, loose_only=True),
+        ]
 
     @property
     def wizard_tools(self) -> list[WizardTool]:
@@ -241,20 +258,45 @@ class Morrowind(BaseGame):
         move_to_core(data_dir, log_fn=_log)
         _log("  Backed up existing files → 'Data Files_Core/'.")
 
-        _log(f"Step 2: Transferring mod files into 'Data Files/' ({mode.name}) ...")
         profile_dir    = self.get_profile_root() / "profiles" / profile
         per_mod_strip  = load_per_mod_strip_prefixes(profile_dir)
         _sep_deploy    = load_separator_deploy_paths(profile_dir)
         _sep_entries   = read_modlist(profile_dir / "modlist.txt") if _sep_deploy else []
         per_mod_deploy = expand_separator_deploy_paths(_sep_deploy, _sep_entries) or None
+        per_mod_modes  = expand_separator_link_modes(_sep_deploy, _sep_entries) or None
+        per_mod_raw    = expand_separator_raw_deploy(_sep_deploy, _sep_entries) or None
+
+        # Custom-routed files (MGE XE loose files: d3d8.dll, MGEXEgui.exe,
+        # mge3/, …) are placed under the game root — NOT 'Data Files/' — so run
+        # this before the normal deploy and exclude the handled paths from it.
+        custom_rules = self.custom_routing_rules
+        custom_exclude: set[str] = set()
+        if custom_rules:
+            _log("Step 1b: Routing files via custom rules ...")
+            custom_exclude = deploy_custom_rules(
+                filemap, self._game_path, staging,
+                rules=custom_rules,
+                mode=mode,
+                strip_prefixes=self.mod_folder_strip_prefixes,
+                per_mod_strip_prefixes=per_mod_strip,
+                per_mod_link_modes=per_mod_modes,
+                log_fn=_log,
+                progress_fn=progress_fn,
+                prefix_root=self.get_prefix_path(),
+                raw_mods=per_mod_raw,
+            )
+
+        _log(f"Step 2: Transferring mod files into 'Data Files/' ({mode.name}) ...")
         linked_mod, placed = deploy_filemap(
             filemap, data_dir, staging,
             mode=mode,
             strip_prefixes=self.mod_folder_strip_prefixes,
             per_mod_strip_prefixes=per_mod_strip,
             per_mod_deploy_dirs=per_mod_deploy,
+            per_mod_link_modes=per_mod_modes,
             log_fn=_log,
             progress_fn=progress_fn,
+            exclude=custom_exclude or None,
             core_dir=data_dir.parent / (data_dir.name + "_Core"),
         )
         _log(f"  Transferred {linked_mod} mod file(s).")
@@ -306,6 +348,17 @@ class Morrowind(BaseGame):
         _profile_dir = self._active_profile_dir
         _entries = read_modlist(_profile_dir / "modlist.txt") if _profile_dir else []
         cleanup_custom_deploy_dirs(_profile_dir, _entries, log_fn=_log)
+
+        custom_rules = self.custom_routing_rules
+        if custom_rules and self._game_path:
+            _log("Restore: removing custom-routed files ...")
+            restore_custom_rules(
+                self.get_effective_filemap_path(),
+                self._game_path,
+                rules=custom_rules,
+                log_fn=_log,
+                prefix_root=self.get_prefix_path(),
+            )
 
         _log("Restore: removing mod plugins from Morrowind.ini ...")
         from Games.Morrowind.morrowind_ini import restore_morrowind_ini

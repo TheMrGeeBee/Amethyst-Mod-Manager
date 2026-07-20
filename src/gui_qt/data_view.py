@@ -182,7 +182,14 @@ class DataView(QWidget):
             mtime = self.filemap_path.stat().st_mtime
         except OSError:
             return []
-        key = (str(self.filemap_path), mtime, id(self.game))
+        # filemap_root.txt feeds the tree too (root-deployed games) and can
+        # change alone (root-flag toggle) — key on its mtime as well.
+        try:
+            root_mtime = (self.filemap_path.parent
+                          / "filemap_root.txt").stat().st_mtime
+        except OSError:
+            root_mtime = 0.0
+        key = (str(self.filemap_path), mtime, root_mtime, id(self.game))
         if self._resolved_cache is not None and self._resolved_cache[0] == key:
             return self._resolved_cache[1]
         entries = dtlogic.load_data_entries(

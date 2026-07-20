@@ -880,6 +880,39 @@ def load_nexus_show_adult() -> bool:
         return False
 
 
+def load_nexus_last_premium() -> "bool | None":
+    """Last successfully-validated Nexus premium status, or None if never
+    recorded. Fallback for the collection-install premium gate when a live
+    validate() errors (network hiccup / rate limit) — a transient failure must
+    not silently demote a premium user to manual mode (GH#278)."""
+    path = get_ui_config_path()
+    if not path.is_file():
+        return None
+    try:
+        parser = _new_parser()
+        parser.read(path)
+        raw = parser.get(_NEXUS_SECTION, "last_known_premium", fallback="")
+        if raw.strip().lower() in ("true", "false"):
+            return raw.strip().lower() == "true"
+        return None
+    except Exception:
+        return None
+
+
+def save_nexus_last_premium(value: bool) -> None:
+    """Persist the last successfully-validated Nexus premium status."""
+    path = get_ui_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parser = _new_parser()
+    if path.is_file():
+        parser.read(path)
+    if _NEXUS_SECTION not in parser:
+        parser[_NEXUS_SECTION] = {}
+    parser[_NEXUS_SECTION]["last_known_premium"] = "true" if value else "false"
+    with path.open("w", encoding="utf-8") as f:
+        parser.write(f)
+
+
 _COLUMNS_SECTION = "columns"
 _WINDOW_SECTION = "window"
 

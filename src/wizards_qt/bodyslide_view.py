@@ -238,7 +238,9 @@ class BodySlideView(WizardViewBase):
                     # GL trace mode: keep the raw file redirect (verbose OpenGL
                     # channels the log-panel stream would flood).
                     proc = subprocess.Popen(
-                        proton_run_command(proton_script, "run",
+                        # runinprefix — same verb as the normal
+                        # run_tool_logged path (no steam.exe shim).
+                        proton_run_command(proton_script, "runinprefix",
                                            str(deployed), env=env),
                         env=env,
                         cwd=str(deployed.parent),

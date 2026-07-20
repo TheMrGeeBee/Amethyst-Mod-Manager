@@ -384,7 +384,10 @@ class ExeSettingsView(QWidget):
                 from Utils.steam_finder import proton_run_command
                 try:
                     subprocess.Popen(
-                        proton_run_command(proton_script, "run", str(exe), env=env),
+                        # runinprefix: isolated tool prefix — no steam.exe
+                        # shim, so Steam doesn't show the game as "Running".
+                        proton_run_command(proton_script, "runinprefix",
+                                           str(exe), env=env),
                         env=env, cwd=exe.parent,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     )

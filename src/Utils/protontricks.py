@@ -607,9 +607,11 @@ def install_vcredist(
     """Install the VC++ Redistributable silently into the prefix via Proton.
 
     Downloads (and caches) Microsoft's official ``vc_redist.x64.exe`` and runs
-    it with ``/install /quiet /norestart`` through ``proton run`` — the exact
-    mechanism the Proton Tools menu uses. Records success in the prefix's
-    amethyst_deps.json so other callers can skip a re-install.
+    it with ``/install /quiet /norestart`` through ``proton runinprefix`` — the
+    exact mechanism the Proton Tools menu uses (runinprefix skips the steam.exe
+    shim, so the silent install doesn't show the game as "Running" in Steam).
+    Records success in the prefix's amethyst_deps.json so other callers can
+    skip a re-install.
     """
     _log = _safe_log(log_fn)
     from Utils.config_paths import get_vcredist_cache_path
@@ -634,7 +636,7 @@ def install_vcredist(
         _log("Installing VC++ Redistributable in game prefix (silent) — please wait …")
         from Utils.steam_finder import proton_run_command
         proc = subprocess.run(
-            proton_run_command(proton_script, "run",
+            proton_run_command(proton_script, "runinprefix",
              str(cache_path), "/install", "/quiet", "/norestart",
              env=env),
             env=env, cwd=cache_path.parent,

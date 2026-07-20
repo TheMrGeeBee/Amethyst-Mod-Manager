@@ -566,6 +566,8 @@ class MainWindow(QMainWindow):
         self._col_install_slug = ""
         self._col_bundle_zip = ""      # local .amethyst pending bundle extraction
         self._col_offsite = []         # (name, url) manual mods — reminder on done
+        self._col_created_profile = False  # this run created the target profile (GH#278)
+        self._col_profile_name = ""
         self._col_status.connect(self._on_col_status)
         self._col_progress.connect(self._on_col_progress)
         self._col_agg.connect(self._on_col_agg)
@@ -2630,7 +2632,15 @@ class MainWindow(QMainWindow):
         def _worker():
             name = None
             try:
-                name = self._nexus_api.validate().name
+                user = self._nexus_api.validate()
+                name = user.name
+                # Record premium status so the collection-install premium gate
+                # has a last-known fallback if its own validate() errors (GH#278).
+                try:
+                    from Utils.ui_config import save_nexus_last_premium
+                    save_nexus_last_premium(bool(getattr(user, "is_premium", False)))
+                except Exception:
+                    pass
             except Exception as exc:
                 self._append_log(f"[nexus] validate failed: {exc}")
             self._nexus_validated.emit(name)
@@ -3193,12 +3203,24 @@ class MainWindow(QMainWindow):
         self._notify(self.tr("Checking Nexus account…"), "info")
 
         def _premium_worker():
+            from Utils.ui_config import (load_nexus_last_premium,
+                                         save_nexus_last_premium)
             try:
                 user = api.validate()
                 is_premium = bool(getattr(user, "is_premium", False))
+                try:
+                    save_nexus_last_premium(is_premium)
+                except Exception:
+                    pass
             except Exception as exc:
-                self._op_log.emit(f"[collection] premium check failed: {exc}")
-                is_premium = False
+                # GH#278: a transient validate() failure (network hiccup, rate
+                # limit) must not silently demote a premium user to manual
+                # mode — fall back to the last successfully-validated status.
+                last = load_nexus_last_premium()
+                is_premium = bool(last)
+                self._op_log.emit(
+                    f"[collection] premium check failed: {exc} — using "
+                    f"last-known status ({'premium' if is_premium else 'not premium'})")
             try:
                 from Utils.ui_config import load_force_manual_install
                 force_manual = bool(load_force_manual_install())
@@ -3550,6 +3572,12 @@ class MainWindow(QMainWindow):
                 self._stamp_collection_profile(
                     profile_dir, domain, slug, revision_number, skipped)
 
+        # GH#278: a cancelled install may delete the profile ONLY when this
+        # run created it (new mode). Continue/append/resume/update target a
+        # pre-existing profile that must survive a cancel.
+        self._col_created_profile = (mode == "new")
+        self._col_profile_name = profile_dir.name
+
         # Card display fields for the appended-collections record
         # (installed_collections/<slug>.json — see Utils.installed_collections).
         append_card_info = None
@@ -3879,9 +3907,15 @@ class MainWindow(QMainWindow):
             if self._col_install_overlay is not None:
                 self._col_install_overlay.set_status(self.tr("Cancelling…"))
 
+        pname = getattr(self, "_col_profile_name", "") or ""
+        if getattr(self, "_col_created_profile", False):
+            msg = self.tr("This will stop the install and delete the new "
+                          "profile '{0}'.").format(pname)
+        else:
+            msg = self.tr("This will stop the install. Profile '{0}' and its "
+                          "already-installed mods will be kept.").format(pname)
         ConfirmOverlay.show_over(
-            self, self.tr("Cancel install?"),
-            self.tr("This will stop the install and delete the collection profile."),
+            self, self.tr("Cancel install?"), msg,
             _done, confirm_label=self.tr("Cancel Install"),
             cancel_label=self.tr("Keep Going"))
 
@@ -3922,6 +3956,8 @@ class MainWindow(QMainWindow):
             if ov is not None:
                 ov.set_status(self.tr("Cancelling…"))
             game = self._gs.game
+            # GH#278: only a profile this run created may be deleted.
+            delete_profile = bool(getattr(self, "_col_created_profile", False))
 
             def _cleanup_worker():
                 from Utils.collection_install import cleanup_cancelled_install
@@ -3929,11 +3965,14 @@ class MainWindow(QMainWindow):
                 try:
                     cleanup_cancelled_install(
                         game, Path(pd) if pd else None,
+                        delete_profile=delete_profile,
                         clear_cache=bool(load_clear_archive_after_install()),
                         log_fn=lambda m: self._op_log.emit(str(m)))
                 except Exception as exc:
                     self._op_log.emit(f"[collection] cancel cleanup failed: {exc}")
-                self._col_finished.emit("_cancel_cleaned", None)
+                self._col_finished.emit("_cancel_cleaned", {
+                    "deleted": delete_profile,
+                    "profile": Path(pd).name if pd else ""})
 
             threading.Thread(target=_cleanup_worker, daemon=True,
                              name="col-cancel-cleanup").start()
@@ -3947,10 +3986,16 @@ class MainWindow(QMainWindow):
             # re-assert now because the switch below early-returns when the
             # target profile is already the active one.
             self._gs.reassert_active_profile()
-            # Switch back to the default profile + reload.
+            # Switch back to a sane profile + reload: the surviving target
+            # profile when it was kept (continue/append/resume/update cancel),
+            # else the default profile.
+            kept = (isinstance(payload, dict) and not payload.get("deleted")
+                    and payload.get("profile"))
             try:
                 profs = self._gs.profiles()
-                if profs:
+                if kept and kept in profs:
+                    self._on_profile_changed(kept)
+                elif profs:
                     self._on_profile_changed(profs[0])
             except Exception:
                 pass
@@ -4010,6 +4055,7 @@ class MainWindow(QMainWindow):
             ov.set_status(self.tr("Restoring bundled mods + profile files…"))
 
         def _worker():
+            staged = []
             try:
                 # Resolve the imported profile's own mods/overwrite dirs (it's a
                 # profile_specific_mods profile → <profile_dir>/mods + /overwrite).
@@ -4024,13 +4070,16 @@ class MainWindow(QMainWindow):
                     game.set_active_profile_dir(prev)
                     game.load_paths()
                 from Utils import profile_export
-                profile_export.install_local_bundle(
+                staged = profile_export.install_local_bundle(
                     bundle_zip, profile_dir, mods_dir, overwrite_dir,
                     log_fn=lambda m: self._op_log.emit(str(m)))
             except Exception as exc:
                 self._op_log.emit(f"[import] bundle extraction failed: {exc}")
+            # Bundled mods carry no Nexus file ID, so the install pipeline never
+            # counts them — each extracted bundle folder is an installed mod.
             self._col_import_done.emit(
-                (profile_name, int(installed), int(total), int(skipped_n)))
+                (profile_name, int(installed) + len(staged or ()),
+                 int(total), int(skipped_n)))
 
         threading.Thread(target=_worker, daemon=True, name="import-bundle").start()
 
@@ -6831,6 +6880,39 @@ class MainWindow(QMainWindow):
         StagingExePickerOverlay.show_over(
             self.centralWidget() or self, items,
             on_done=self._on_staging_exes_picked)
+
+    def _on_add_exe_from_game_folder(self):
+        game = self._gs.game
+        game_path = (game.get_game_path()
+                     if game is not None and hasattr(game, "get_game_path")
+                     else None)
+        if game_path is None:
+            self._notify(self.tr("No game folder configured."), "warning")
+            return
+        from Utils.exe_launch import scan_game_folder_exes
+        exes = scan_game_folder_exes(game)
+        if not exes:
+            self._notify(self.tr("No executables found in the game folder."),
+                         "info")
+            return
+        # Same dim relative-path hint as the staging picker; root-level exes
+        # get no hint (relative parent is ".").
+        items = []
+        for p in exes:
+            try:
+                hint = str(p.parent.relative_to(game_path))
+            except ValueError:
+                hint = str(p.parent)
+            items.append((p.name if hint == "." else f"{p.name}  —  {hint}", p))
+        from gui_qt.staging_exe_picker_overlay import StagingExePickerOverlay
+        StagingExePickerOverlay.show_over(
+            self.centralWidget() or self, items,
+            on_done=self._on_staging_exes_picked,
+            title=self.tr("Add executable from game folder"),
+            subtitle=self.tr(
+                "Check the executables to add to the Run menu. These run "
+                "from their location in the game folder — including files "
+                "deployed there by mods."))
 
     def _on_staging_exes_picked(self, paths):
         game = self._gs.game
@@ -11881,8 +11963,9 @@ class MainWindow(QMainWindow):
         # splitter separator, so dragging the split resizes the dropdown while
         # Play + gear stay fixed at the right edge. Items = the game +
         # auto-detected framework launchers (installed script extenders) +
-        # manually added custom exes, plus a staging scan for exes already
-        # installed under the profile (mod tools + wizard tools).
+        # manually added custom exes, plus pickers fed by a staging scan (mod
+        # tools + wizard tools installed under the profile) and a game-folder
+        # scan (tools that must run from the game root, incl. deployed exes).
         self._play_exe_selector = SelectorButton(
             items=["—"],
             current="—",
@@ -11892,6 +11975,8 @@ class MainWindow(QMainWindow):
             actions=[
                 (self.tr("+ Add custom EXE…"), self._on_add_custom_exe),
                 (self.tr("+ Add exe from staging…"), self._on_add_exe_from_staging),
+                (self.tr("+ Add exe from game folder…"),
+                 self._on_add_exe_from_game_folder),
             ],
         )
         self._play_exe_selector.setFixedHeight(self._BTN_H)

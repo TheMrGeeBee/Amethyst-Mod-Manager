@@ -44,6 +44,7 @@ class Skyrim(Fallout_3):
             *self._xedit_wizard_tools(
                 build="TES5Edit", id_suffix="skyrim",
                 nexus_url="https://www.nexusmods.com/skyrim/mods/25859?tab=files",
+                nexus_file_id=1000372359,
             ),
             WizardTool(
                 id="run_skygen_skyrim",

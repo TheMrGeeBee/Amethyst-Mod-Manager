@@ -55,6 +55,7 @@ class SkyrimVR(Fallout_3):
             *self._xedit_wizard_tools(
                 build="TES5VREdit", id_suffix="skyrimvr", qac=False,
                 nexus_url="https://www.nexusmods.com/skyrimspecialedition/mods/164?tab=files",
+                nexus_file_id=495506,
             ),
             WizardTool(
                 id="run_skygen_skyrimvr",

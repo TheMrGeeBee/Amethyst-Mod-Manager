@@ -34,6 +34,9 @@ class ModLoaderInstallerView(WizardViewBase):
     # -- subclass configuration ---------------------------------------------------
     TOOL_LABEL: str = "Mod Loader"
     NEXUS_URL: str = ""
+    # Pinned main-file id for the hands-free premium fetch; 0 keeps the
+    # download step fully manual (tools whose uploads change too often).
+    NEXUS_FILE_ID: int = 0
     ARCHIVE_KEYWORDS: list[str] = []
     INSTALLER_EXE: str = ""
     PICK_TITLE: str = QT_TRANSLATE_NOOP(
@@ -92,6 +95,12 @@ class ModLoaderInstallerView(WizardViewBase):
                 len(self._steps), self.INSTALLER_EXE)))
 
         self._stack.setCurrentIndex(self._idx("download"))
+        if self.NEXUS_FILE_ID:
+            self._nexus_auto_fetch(
+                url=self.NEXUS_URL, file_id=self.NEXUS_FILE_ID,
+                keywords=self.ARCHIVE_KEYWORDS, label=self.TOOL_LABEL,
+                pages=(self._idx("download"), self._idx("locate")),
+                on_archive=lambda _p: self._goto_named("extract"))
 
     # -- subclass hooks -----------------------------------------------------------
     def _has_extra_step(self) -> bool:
@@ -190,7 +199,10 @@ class ModLoaderInstallerView(WizardViewBase):
 
             self._log(f"{self.TOOL_LABEL} Wizard: launching {exe} via Proton")
             proc = subprocess.Popen(
-                proton_run_command(proton_script, "run", str(exe), env=env),
+                # runinprefix: skips the steam.exe shim so Steam doesn't show
+                # the game as "Running" while the installer is open.
+                proton_run_command(proton_script, "runinprefix", str(exe),
+                                   env=env),
                 env=env, cwd=str(exe.parent),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             safe_emit(self._run_status_sig,

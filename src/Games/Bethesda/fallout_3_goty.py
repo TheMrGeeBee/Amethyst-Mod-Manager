@@ -58,5 +58,6 @@ class Fallout3_GOTY(Fallout_3):
             *self._xedit_wizard_tools(
                 build="FO3Edit", id_suffix="fo3goty",
                 nexus_url="https://www.nexusmods.com/fallout3/mods/637?tab=files",
+                nexus_file_id=1000026408,
             ),
         ]

@@ -87,19 +87,21 @@ class StagingExePickerOverlay(OverlayBase):
     MIN_H = 260
     CLICK_OUTSIDE_CANCELS = True
 
-    def __init__(self, host: QWidget, items, on_done):
+    def __init__(self, host: QWidget, items, on_done, *,
+                 title: str | None = None, subtitle: str | None = None):
         super().__init__(host, on_done=on_done)
         p = active_palette()
 
         _card, v = self._make_card("_StagingExeCard", margins=(16, 14, 16, 14))
 
-        hdr = QLabel(self.tr("Add executable from staging"))
+        hdr = QLabel(title or self.tr("Add executable from staging"))
         hdr.setStyleSheet(
             f"color:{_c(p,'TEXT_MAIN')}; font-weight:600; font-size:15px;")
         hdr.setWordWrap(True)
         v.addWidget(hdr)
 
-        sub = QLabel(self.tr("Check the executables to add to the Run menu. "
+        sub = QLabel(subtitle or
+                     self.tr("Check the executables to add to the Run menu. "
                              "Tools with a wizard open their wizard when run."))
         sub.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; font-size:12px;")
         sub.setWordWrap(True)
@@ -145,9 +147,9 @@ class StagingExePickerOverlay(OverlayBase):
         self._search.setFocus()
 
     @classmethod
-    def show_over(cls, host, items, on_done):
+    def show_over(cls, host, items, on_done, **kwargs):
         top = host.window() if host is not None else None
-        return cls(top or host, items, on_done)
+        return cls(top or host, items, on_done, **kwargs)
 
     # -- internals ----------------------------------------------------------
     def _apply_filter(self, text: str):

@@ -19,6 +19,23 @@ import os
 from pathlib import Path
 
 
+def deploys_to_subfolder(game) -> bool:
+    """True when mods deploy into a SUBFOLDER of the game root (Skyrim's Data/,
+    Morrowind's Data Files/) — the Data tab shows that subfolder, so files that
+    deploy to the game root fall outside its scope and must be hidden. False
+    for root-deployed games (deploy dir == game root, e.g. Witcher 3), where
+    root-bound files land inside the shown tree. Falls back to the mods_dir
+    property when the paths aren't configured."""
+    try:
+        gp = game.get_game_path()
+        dp = game.get_mod_data_path()
+    except Exception:
+        gp = dp = None
+    if gp is not None and dp is not None:
+        return Path(dp) != Path(gp)
+    return bool((getattr(game, "mods_dir", None) or "").strip("/ "))
+
+
 # ---------------------------------------------------------------------------
 # Front half: parse filemap.txt + drop hidden mods, then resolve destinations
 # ---------------------------------------------------------------------------
@@ -83,7 +100,38 @@ def load_data_entries(game, filemap_path: Path,
             raw_entries = [(p, m) for p, m in raw_entries
                            if p.lower() not in hidden]
 
-    return resolve_data_entries(game, raw_entries, profile_dir)
+    resolved = resolve_data_entries(game, raw_entries, profile_dir)
+
+    # Root-flagged mods (meta rootFolder=true) live in filemap_root.txt and
+    # deploy VERBATIM to the game root. For a root-deployed game that root IS
+    # the tree the Data tab shows, so merge them all in. For subfolder-deploy
+    # games (Skyrim's Data/, Morrowind's Data Files/) only the entries UNDER
+    # the deploy subfolder land inside the shown tree — keep those with the
+    # prefix stripped ('Data Files/foo.esp' → 'foo.esp'); the rest deploy to
+    # the game root and stay hidden, same as root-routed rule files. Merged
+    # entries win over same-path normal entries (root deploy runs after the
+    # main deploy and backs the existing file up).
+    root_entries = parse_filemap(filemap_path.parent / "filemap_root.txt")
+    if root_entries and deploys_to_subfolder(game):
+        try:
+            from Utils.game_helpers import game_data_subpath
+            prefix = game_data_subpath(game).lower()
+        except Exception:
+            prefix = ""
+        kept: list[tuple[str, str]] = []
+        if prefix:
+            plen = len(prefix) + 1
+            for p, m in root_entries:
+                norm = p.replace("\\", "/")
+                if norm.lower().startswith(prefix + "/") and len(norm) > plen:
+                    kept.append((norm[plen:], m))
+        root_entries = kept
+    if root_entries:
+        shadowed = {p.replace("\\", "/").lower() for p, _m in root_entries}
+        resolved = [(p, m) for p, m in resolved
+                    if p.replace("\\", "/").lower() not in shadowed]
+        resolved.extend(root_entries)
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +253,11 @@ def resolve_data_entries(game, entries: list[tuple[str, str]],
 
     sibling_overrides: dict[int, str] = {}
     prefix_hidden: set[int] = set()
-    _mods_dir_set = bool((getattr(game, "mods_dir", None) or "").strip("/ "))
+    _subfolder_deploy = deploys_to_subfolder(game)
     root_hidden: set[int] = set()
 
     def _routes_to_root(rule) -> bool:
-        return _mods_dir_set and not getattr(rule, "to_prefix", False) and not rule.dest
+        return _subfolder_deploy and not getattr(rule, "to_prefix", False) and not rule.dest
 
     from Utils.deploy_custom_rules import _sibling_container
     claimed: set[int] = set()

@@ -15,6 +15,7 @@ class SRMLView(ModLoaderInstallerView):
     TOOL_LABEL = "SRML"
     NEXUS_URL = ("https://www.nexusmods.com/slimerancher/mods/2"
                  "?tab=files&file_id=724")
+    NEXUS_FILE_ID = 724
     ARCHIVE_KEYWORDS = ["srmlinstaller"]
     INSTALLER_EXE = "SRMLInstaller.exe"
     PICK_TITLE = QT_TRANSLATE_NOOP("SRMLView", "Select the SRML archive")

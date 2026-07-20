@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from Games.base_game import BaseGame
 
 _NEXUS_URL = "https://www.nexusmods.com/morrowind/mods/19510?tab=files&file_id=1000007846"
+_NEXUS_FILE_ID = 1000007846
 _ARCHIVE_KEYWORDS = ["morrowind code patch"]
 _PATCH_EXE = "Morrowind Code Patch.exe"
 
@@ -70,6 +71,11 @@ class MCPView(WizardViewBase):
             self._goto_step(_PG_RUN)
         else:
             self._stack.setCurrentIndex(_PG_DOWNLOAD)
+            self._nexus_auto_fetch(
+                url=_NEXUS_URL, file_id=_NEXUS_FILE_ID,
+                keywords=_ARCHIVE_KEYWORDS, label="Morrowind Code Patch",
+                pages=(_PG_DOWNLOAD, _PG_LOCATE),
+                on_archive=lambda _p: self._goto_step(_PG_EXTRACT))
 
     def _goto_step(self, idx: int):
         self._stack.setCurrentIndex(idx)
@@ -143,7 +149,10 @@ class MCPView(WizardViewBase):
 
             self._log(f"MCP Wizard: launching {patch_exe} via Proton")
             proc = subprocess.Popen(
-                proton_run_command(proton_script, "run", str(patch_exe), env=env),
+                # runinprefix: skips the steam.exe shim so Steam doesn't show
+                # the game as "Running" while the patcher is open.
+                proton_run_command(proton_script, "runinprefix",
+                                   str(patch_exe), env=env),
                 env=env,
                 cwd=str(self._game_root),
                 stdout=subprocess.PIPE,

@@ -197,6 +197,54 @@ def scan_staging_exes(game) -> list[Path]:
     return found
 
 
+def scan_game_folder_exes(game) -> list[Path]:
+    """Return launchable files found under the game's install folder.
+
+    Recursively scans the game root for ``.exe`` / ``.bat`` / ``.jar`` files —
+    including files deployed there by mods — so tools that must run from the
+    game folder (patchers, injectors, bundled utilities) can be added to the
+    play-bar dropdown. Prunes wine/Proton prefix trees (isolated tool prefixes
+    live in ``prefix_<Proton>/`` next to their exe) and skips the game's own
+    resolved launch exe, which already is the Play entry. Same dedup/sort as
+    scan_staging_exes. Returns ``[]`` when the game has no configured path.
+    """
+    if game is None or not hasattr(game, "get_game_path"):
+        return []
+    root = game.get_game_path()
+    if root is None:
+        return []
+    root = Path(root)
+    game_exe = resolve_game_exe(game)
+    game_exe_key = str(game_exe).lower() if game_exe is not None else None
+    seen: set[Path] = set()
+    found: list[Path] = []
+    try:
+        if not root.is_dir():
+            return []
+        for p in root.rglob("*"):
+            if p.suffix.lower() not in STAGING_EXE_SUFFIXES:
+                continue
+            rel_parts = {part.lower() for part in p.relative_to(root).parts}
+            if rel_parts & _PREFIX_DIR_NAMES:
+                continue
+            if not p.is_file():
+                continue
+            if game_exe_key is not None and str(p).lower() == game_exe_key:
+                continue
+            try:
+                key = p.resolve()
+            except OSError:
+                key = p
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(p)
+    except OSError:
+        pass
+    found.sort(key=lambda p: (p.name.lower(), str(p).lower()))
+    return found
+
+
 def detect_framework_exes(game, framework_states: "dict | None" = None) -> list[Path]:
     """Framework launcher exes (script extenders) for the play-bar dropdown.
 
@@ -899,7 +947,9 @@ def enable_show_dotfiles(proton_script: Path, env: dict,
     from Utils.steam_finder import proton_run_command
     try:
         subprocess.run(
-            proton_run_command(proton_script, "run", "reg", "add",
+            # runinprefix: no steam.exe shim, so the write doesn't flash the
+            # game as "Running" in Steam (prefix already exists by this point).
+            proton_run_command(proton_script, "runinprefix", "reg", "add",
                                r"HKCU\Software\Wine", "/v", "ShowDotFiles",
                                "/t", "REG_SZ", "/d", "Y", "/f", env=env),
             env=env,
@@ -951,6 +1001,9 @@ def get_tool_prefix_env(
     if is_new:
         try:
             subprocess.run(
+                # Must stay on the "run" verb: it's what triggers Proton's
+                # full prefix setup (dist files, DLL overrides, tracked_files)
+                # on a brand-new prefix — "runinprefix" deliberately skips it.
                 proton_run_command(proton_script, "run", "wineboot", "--init",
                                    env=env),
                 env=env,
@@ -1291,7 +1344,13 @@ def run_tool_logged(
     # (BodySlide sets +wgl,+opengl for its GL trace and must win).
     env.setdefault("WINEDEBUG", winedebug)
 
-    cmd = proton_run_command(proton_script, "run", str(exe), env=env)
+    # "runinprefix" (not "run"): the run verb boots Proton's steam.exe shim,
+    # which attaches to the Steam client and shows the game as "Running" in
+    # Steam for the whole tool session (and aborts when no client is
+    # reachable). The shim's other services don't apply here: the prefix was
+    # already created/updated by get_tool_prefix_env's wineboot step, and every
+    # caller converts its path arguments to wine paths itself.
+    cmd = proton_run_command(proton_script, "runinprefix", str(exe), env=env)
     if extra_args:
         cmd = cmd + list(extra_args)
 
@@ -1599,8 +1658,8 @@ def launch_exe_via_proton(exe_path: Path, game, log_fn=_noop_log) -> None:
             from Utils.lutris_finder import find_umu_run
             umu_bin = find_umu_run()
             if umu_bin is None:
-                log_fn("Run EXE: umu-run not found — falling back to `proton "
-                       "run` (the game may register with Steam).")
+                log_fn("Run EXE: umu-run not found — falling back to Proton "
+                       "without the Steam Linux Runtime container.")
 
     env = strip_appimage_env(os.environ.copy())
     if lutris_env_extra is not None:
@@ -1679,7 +1738,20 @@ def launch_exe_via_proton(exe_path: Path, game, log_fn=_noop_log) -> None:
         from Utils.lutris_finder import umu_run_command
         base_cmd = umu_run_command(umu_bin, str(exe_path), env=env) + extra_args
     else:
-        base_cmd = proton_run_command(proton_script, "run", str(exe_path),
+        # "runinprefix" skips Proton's steam.exe shim, so launching a tool
+        # doesn't register the game as "Running" with Steam — that
+        # registration also makes Steam Input swap the desktop profile
+        # (trackpad mouse) for the game's mouse-less profile on Steam Deck,
+        # locking the user out of the tool's UI. Script extenders still work:
+        # the game's own SteamAPI_Init attaches via the SteamAppId env vars
+        # when the game actually starts, which is the right moment for the
+        # input-profile switch. A never-booted prefix (fresh per-exe override
+        # prefix) still needs "run" — it performs Proton's initial prefix
+        # setup, and its env carries no SteamAppId so nothing registers with
+        # Steam anyway.
+        verb = ("runinprefix"
+                if (compat_data / "pfx" / "user.reg").is_file() else "run")
+        base_cmd = proton_run_command(proton_script, verb, str(exe_path),
                                       env=env) + extra_args
     if not launch_opts:
         final_cmd = base_cmd

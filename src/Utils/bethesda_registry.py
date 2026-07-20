@@ -79,10 +79,17 @@ def register_bethesda_game_path(
         r"HKLM\Software\Wow6432Node\Bethesda Softworks" + "\\" + registry_game_name,
     ]
     _log(f"Bethesda registry: registering {registry_game_name} → {wine_value}")
+    # runinprefix: no steam.exe shim, so the write doesn't flash the game as
+    # "Running" in Steam. Only safe once the prefix has been initialised —
+    # runinprefix skips Proton's prefix setup, and the Run-EXE override path
+    # calls us right after mkdir on a brand-new prefix. There, fall back to
+    # "run" (its env carries no SteamAppId, so nothing shows in Steam anyway).
+    verb = ("runinprefix"
+            if (Path(prefix_dir) / "pfx" / "user.reg").is_file() else "run")
     all_ok = True
     for key in keys:
         cmd = proton_run_command(
-            proton_script, "run",
+            proton_script, verb,
             "reg", "add", key,
             "/v", "Installed Path",
             "/t", "REG_SZ",

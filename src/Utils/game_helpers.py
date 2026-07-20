@@ -61,6 +61,32 @@ def foreign_deployed_plugin_basenames(game) -> set[str]:
         return set()
 
 
+def game_data_subpath(game) -> str:
+    """Relative path of the mod-deploy dir under the game root (posix
+    separators), or "" when they are the same directory, unconfigured, or the
+    deploy dir is not under the root.
+
+    Root-flagged mods deploy VERBATIM to the game root, so on a subfolder-deploy
+    game a root entry '<subpath>/foo.esp' (Morrowind: 'Data Files/foo.esp')
+    lands at exactly the same place as a normal top-level filemap entry
+    'foo.esp'. Consumers of filemap_root.txt (Data tab merge, plugins panel
+    recovery/resolver, plugins.txt sync) use this prefix to recognise those
+    entries instead of hiding them as game-root files.
+    """
+    try:
+        gp = game.get_game_path()
+        dp = game.get_mod_data_path()
+    except Exception:
+        return ""
+    if not gp or not dp:
+        return ""
+    try:
+        rel = Path(dp).relative_to(Path(gp))
+    except ValueError:
+        return ""
+    return "" if rel == Path(".") else rel.as_posix()
+
+
 def _vanilla_plugins_for_game(game) -> dict[str, str]:
     """Return {lowercase_name: original_name} for vanilla plugins."""
     result: dict[str, str] = {}

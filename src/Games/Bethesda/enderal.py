@@ -93,6 +93,7 @@ class Enderal(Fallout_3):
             *self._xedit_wizard_tools(
                 build="EnderalEdit", id_suffix="enderal",
                 nexus_url="https://www.nexusmods.com/enderal/mods/23?tab=files",
+                nexus_file_id=1331,
                 discord_mode="Enderal",
             ),
         ]
