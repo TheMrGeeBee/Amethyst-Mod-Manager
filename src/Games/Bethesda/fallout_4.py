@@ -77,6 +77,7 @@ class Fallout_4(Fallout_3):
             *self._xedit_wizard_tools(
                 build="FO4Edit", id_suffix="fo4",
                 nexus_url="https://www.nexusmods.com/fallout4/mods/2737?tab=files",
+                nexus_file_id=312782,
             ),
         ]
 

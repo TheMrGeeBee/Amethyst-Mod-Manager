@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 
 _NEXUS_URL = "https://www.nexusmods.com/skyrimspecialedition/mods/164?tab=files&file_id=495506"
+_NEXUS_FILE_ID = 495506       # SSEEdit main file, pairs with _NEXUS_URL
 _EXE_NAME = "SSEEdit.exe"
 
 _PG_DOWNLOAD, _PG_LOCATE, _PG_EXTRACT, _PG_DEPLOY, _PG_PROTON, _PG_RUN = range(6)
@@ -62,9 +63,13 @@ class XEditView(QWidget):
     _extract_done_sig = Signal(bool)
     _run_started_sig = Signal()           # xEdit launched → enable Done
     _run_finished_sig = Signal()          # xEdit exited + restore done → close
+    _auto_dl_status_sig = Signal(str, str)   # auto-fetch → download-page status
+    _auto_dl_gate_sig = Signal(bool)         # auto-fetch → manual Next enable
+    _auto_dl_archive_sig = Signal(object)    # auto-fetch → finished archive
 
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  *, xedit_exe: str | None = None, nexus_url: str | None = None,
+                 nexus_file_id: int | None = None,
                  app_dir: str | None = None, display_name: str | None = None,
                  qac: bool = False, discord: bool = False,
                  discord_mode: str | None = None, **_extra):
@@ -90,6 +95,13 @@ class XEditView(QWidget):
         else:
             self._exe_name = base_exe
         self._nexus_url = nexus_url or _NEXUS_URL
+        # The pinned file id must pair with the URL it belongs to — only fall
+        # back to the SSEEdit default when the URL is also the default. The
+        # QAC build ships inside the same archive, so it shares the id;
+        # Discord builds have no Nexus file at all.
+        if nexus_file_id is None and nexus_url is None:
+            nexus_file_id = _NEXUS_FILE_ID
+        self._nexus_file_id = 0 if discord else int(nexus_file_id or 0)
         self._app_dir = app_dir or base_exe.removesuffix(".exe")
         short = display_name or base_exe.removesuffix(".exe")
         self._xedit_name = short  # build name w/o QAC, e.g. "FO4Edit"
@@ -104,6 +116,10 @@ class XEditView(QWidget):
         self._prefix_mode = ""
         self._ran = False
         self._closing = False
+        self._auto_fetch_cancel = threading.Event()
+        self._auto_fetch_started = False
+        self._dl_status = None
+        self._dl_next_btn = None
 
         def _guard(fn):
             return lambda *a: None if self._closing else fn(*a)
@@ -118,6 +134,9 @@ class XEditView(QWidget):
         self._extract_done_sig.connect(_guard(self._on_extract_done))
         self._run_started_sig.connect(_guard(self._on_run_started))
         self._run_finished_sig.connect(_guard(self._finish))
+        self._auto_dl_status_sig.connect(_guard(self._on_auto_dl_status))
+        self._auto_dl_gate_sig.connect(_guard(self._on_auto_dl_gate))
+        self._auto_dl_archive_sig.connect(_guard(self._on_auto_dl_archive))
 
         self.setObjectName("XEditView")
         self._build()
@@ -159,6 +178,7 @@ class XEditView(QWidget):
             self._goto_step(_PG_DEPLOY)
         else:
             self._stack.setCurrentIndex(_PG_DOWNLOAD)
+            self._start_auto_fetch()
 
     def _step_page(self, title: str) -> tuple[QWidget, QVBoxLayout]:
         p = active_palette()
@@ -210,11 +230,14 @@ class XEditView(QWidget):
             button_qss("BTN_WARN"))
         open_btn.clicked.connect(self._open_download_page)
         lay.addWidget(open_btn, 0, Qt.AlignHCenter)
+        lay.addSpacing(8)
+        self._dl_status = self._make_status(lay)
 
         lay.addStretch(1)
         nxt = self._accent_btn(self.tr("Next →"))
         nxt.clicked.connect(lambda: self._goto_step(_PG_LOCATE))
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
+        self._dl_next_btn = nxt
         return page
 
     def _build_step_download_discord(self) -> QWidget:
@@ -246,6 +269,52 @@ class XEditView(QWidget):
         from Utils.xdg import open_url
         open_url(self._nexus_url)
 
+    # ---- hands-free archive fetch (premium download / folder watch) --------------
+    def _start_auto_fetch(self):
+        if (self._auto_fetch_started or self._closing
+                or not self._nexus_file_id):
+            return
+        api = None
+        api_fn = getattr(self._ctx, "nexus_api", None)
+        if api_fn is not None:
+            try:
+                api = api_fn()      # GUI thread — the app's shared resolver
+            except Exception:
+                api = None
+        from wizards_qt._view_base import arm_nexus_auto_fetch
+        self._auto_fetch_started = arm_nexus_auto_fetch(
+            api=api, url=self._nexus_url, file_id=self._nexus_file_id,
+            keywords=[self._archive_keyword], label=self._xedit_name,
+            cancel=self._auto_fetch_cancel,
+            status_cb=lambda t, c: safe_emit(self._auto_dl_status_sig, t, c),
+            gate_cb=lambda on: safe_emit(self._auto_dl_gate_sig, on),
+            archive_cb=lambda p: safe_emit(self._auto_dl_archive_sig, p),
+            log_fn=lambda m: self._log(f"{self._name} Wizard: {m}"))
+
+    def _on_auto_dl_status(self, text: str, color: str):
+        if self._dl_status is not None:
+            self._set_status(self._dl_status, text, color)
+
+    def _on_auto_dl_gate(self, enabled: bool):
+        if self._dl_next_btn is not None:
+            self._dl_next_btn.setEnabled(enabled)
+
+    def _on_auto_dl_archive(self, path):
+        self._on_auto_dl_gate(True)
+        path = Path(path)
+        # Only auto-advance while still on the download/locate steps — a user
+        # who already located an archive manually keeps their choice.
+        if self._stack.currentIndex() not in (_PG_DOWNLOAD, _PG_LOCATE):
+            return
+        if not path.is_file():
+            return
+        self._archive_path = path
+        if self._dl_status is not None:
+            self._set_status(self._dl_status,
+                             self.tr("Downloaded: {0}").format(path.name),
+                             ok_text())
+        self._goto_step(_PG_EXTRACT)
+
     # ---- step 2: locate ---------------------------------------------------------
     def _build_step_locate(self) -> QWidget:
         page, lay = self._step_page(self.tr("Step 2: Locate the Archive"))
@@ -273,8 +342,11 @@ class XEditView(QWidget):
         if found:
             self._archive_path = found
             self._set_status(self._locate_status, self.tr("Found: {0}").format(found.name), ok_text())
+            # Fire only while still on the locate page — the hands-free fetch
+            # may have advanced the wizard while this timer was pending.
             QTimer.singleShot(
-                300, lambda: None if self._closing
+                300, lambda: None
+                if self._closing or self._stack.currentIndex() != _PG_LOCATE
                 else self._goto_step(_PG_EXTRACT))
         else:
             self._archive_path = None
@@ -295,7 +367,8 @@ class XEditView(QWidget):
             self._set_status(self._locate_status,
                              self.tr("Selected: {0}").format(self._archive_path.name), ok_text())
             QTimer.singleShot(
-                300, lambda: None if self._closing
+                300, lambda: None
+                if self._closing or self._stack.currentIndex() != _PG_LOCATE
                 else self._goto_step(_PG_EXTRACT))
 
     # ---- step 3: extract --------------------------------------------------------
@@ -618,6 +691,7 @@ class XEditView(QWidget):
         if self._closing:
             return
         self._closing = True
+        self._auto_fetch_cancel.set()
         do_refresh = self._ran and getattr(self._ctx, "refresh_modlist", None)
         do_refresh_plugins = self._ran and getattr(
             self._ctx, "refresh_plugins", None)

@@ -287,6 +287,7 @@ class Fallout_3(BaseGame):
             *self._xedit_wizard_tools(
                 build="FO3Edit", id_suffix="fo3",
                 nexus_url="https://www.nexusmods.com/fallout3/mods/637?tab=files",
+                nexus_file_id=1000026408,
             ),
         ]
 
@@ -333,7 +334,8 @@ class Fallout_3(BaseGame):
 
     @staticmethod
     def _xedit_wizard_tools(
-        build: str, id_suffix: str, nexus_url: str, qac: bool = True,
+        build: str, id_suffix: str, nexus_url: str, nexus_file_id: int = 0,
+        qac: bool = True,
         discord_only: bool = False, discord_mode: str | None = None,
     ) -> list[WizardTool]:
         """Build the 'Run <xEdit>' (+ optional QAC) wizard entries for a game.
@@ -355,14 +357,18 @@ class Fallout_3(BaseGame):
         exe = f"{build}.exe"
         tools: list[WizardTool] = []
         if not discord_only:
+            # nexus_file_id pins the build's main file for the hands-free
+            # premium fetch; 0 keeps the download step fully manual.
+            nexus_extra = {"xedit_exe": exe, "nexus_url": nexus_url,
+                           "nexus_file_id": nexus_file_id,
+                           "display_name": build}
             tools.append(
                 WizardTool(
                     id=f"run_{build.lower()}_{id_suffix}",
                     label=f"Run {build}",
                     description=f"Install {build}, deploy mods, and run {exe}.",
                     dialog_class_path="wizards.sseedit.SSEEditWizard",
-                    extra={"xedit_exe": exe, "nexus_url": nexus_url,
-                           "display_name": build},
+                    extra=dict(nexus_extra),
                 )
             )
             if qac:
@@ -372,8 +378,7 @@ class Fallout_3(BaseGame):
                         label=f"Run {build} QAC",
                         description=f"Deploy mods and run {build}QuickAutoClean.exe.",
                         dialog_class_path="wizards.sseedit.SSEEditQACWizard",
-                        extra={"xedit_exe": exe, "nexus_url": nexus_url,
-                               "display_name": build},
+                        extra=dict(nexus_extra),
                     )
                 )
 

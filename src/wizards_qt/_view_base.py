@@ -20,7 +20,9 @@ Standards baked in (see memory feedback notes):
 
 from __future__ import annotations
 
+import re
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +45,94 @@ GREEN = ok_text()
 RED = err_text()
 
 
+def parse_nexus_mod_url(url: str) -> "tuple[str, int] | None":
+    """Extract (game_domain, mod_id) from a nexusmods.com mod page URL."""
+    m = re.search(r"nexusmods\.com/([^/?#]+)/mods/(\d+)", url or "")
+    if m is None:
+        return None
+    return m.group(1), int(m.group(2))
+
+
+def arm_nexus_auto_fetch(*, api, url: str, file_id: int, keywords: list[str],
+                         label: str, cancel: threading.Event,
+                         status_cb, gate_cb, archive_cb, log_fn) -> bool:
+    """Hands-free archive acquire for a wizard's manual-download step.
+
+    Premium accounts download the pinned (mod_id-from-*url*, *file_id*)
+    straight through the Nexus API; everyone else keeps the manual page while
+    the download folders are watched, so the wizard advances the moment the
+    browser download completes (mirrors the ESM Fixes / BSA Decompressor
+    hands-free flow in Utils.mpi_auto_fetch).
+
+    All callbacks fire on the WORKER thread — pass safe_emit lambdas:
+    ``status_cb(text, color)`` updates the download-page status,
+    ``gate_cb(enabled)`` gates the page's manual Next button (disabled while
+    a premium download streams, so a partial file can't be picked up by the
+    locate scan), ``archive_cb(path)`` delivers the finished archive.
+    Returns False when *url* has no parseable mod page / *file_id* is unset.
+    """
+    parsed = parse_nexus_mod_url(url)
+    if parsed is None or not file_id:
+        return False
+    game_domain, mod_id = parsed
+    from Utils.mpi_auto_fetch import start_auto_fetch
+    from Utils.wizard_archives import find_archive, get_downloads_dir
+    tr = QCoreApplication.translate
+    last_pct = [-1]
+    armed_at = time.time()
+
+    def _find():
+        # Watch-mode fallback (no API): only accept archives that appeared
+        # after the wizard opened — a stale keyword match in Downloads must
+        # not hijack the flow (the locate page still offers it manually).
+        p = find_archive(get_downloads_dir(), list(keywords))
+        if p is None:
+            return None
+        try:
+            if p.stat().st_mtime < armed_at - 5:
+                return None
+        except OSError:
+            return None
+        return p
+
+    def _progress(done, total):
+        if total <= 0:
+            return
+        pct = min(100, int(done * 100 / total))
+        if pct == last_pct[0]:
+            return
+        last_pct[0] = pct
+        status_cb(tr("WizardViewBase",
+                     "Downloading {0} from Nexus… {1}%").format(label, pct), "")
+
+    def _started():
+        gate_cb(False)
+        status_cb(tr("WizardViewBase",
+                     "Premium account — downloading {0} from Nexus…")
+                  .format(label), "")
+
+    def _waiting():
+        gate_cb(True)
+        status_cb(tr("WizardViewBase",
+                     "The archive is picked up automatically once the "
+                     "download finishes."), "")
+
+    start_auto_fetch(
+        api=api,
+        game_domain=game_domain,
+        mod_id=mod_id,
+        file_id=file_id,
+        find_archive_fn=_find,
+        on_archive=archive_cb,
+        cancel=cancel,
+        label=label,
+        on_download_started=_started,
+        on_progress=_progress,
+        on_waiting=_waiting,
+        log_fn=log_fn)
+    return True
+
+
 class WizardViewBase(QWidget):
     """Skeleton for a wizard view: header bar + step stack + teardown."""
 
@@ -55,6 +145,9 @@ class WizardViewBase(QWidget):
     _extract_done_sig = Signal(bool)
     _run_started_sig = Signal()           # tool launched → enable Done
     _run_finished_sig = Signal()          # worker chain complete → close
+    _auto_dl_status_sig = Signal(str, str)   # auto-fetch → download-page status
+    _auto_dl_gate_sig = Signal(bool)         # auto-fetch → manual Next enable
+    _auto_dl_archive_sig = Signal(object)    # auto-fetch → finished archive
 
     def __init__(self, game: "BaseGame", log_fn=None, on_close=None, ctx=None,
                  *, title: str, show_header: bool = True):
@@ -66,6 +159,12 @@ class WizardViewBase(QWidget):
         self._archive_path: Path | None = None
         self._ran = False          # set True when refresh-worthy work happened
         self._closing = False
+        self._auto_fetch_cancel = threading.Event()
+        self._auto_fetch_started = False
+        self._auto_fetch_pages: tuple[int, ...] = ()
+        self._auto_fetch_on_archive = None
+        self._dl_status: QLabel | None = None
+        self._dl_next_btn: QPushButton | None = None
 
         self._locate_status_sig.connect(self._guard(
             lambda t, c: self._set_status(self._locate_status, t, c)))
@@ -77,6 +176,9 @@ class WizardViewBase(QWidget):
         self._extract_done_sig.connect(self._guard(self._on_extract_done))
         self._run_started_sig.connect(self._guard(self._on_run_started))
         self._run_finished_sig.connect(self._guard(self._finish))
+        self._auto_dl_status_sig.connect(self._guard(self._on_auto_dl_status))
+        self._auto_dl_gate_sig.connect(self._guard(self._on_auto_dl_gate))
+        self._auto_dl_archive_sig.connect(self._guard(self._on_auto_dl_archive))
 
         p = active_palette()
         self._dim = f"color:{_c(p,'TEXT_DIM')};"
@@ -114,6 +216,7 @@ class WizardViewBase(QWidget):
         if self._closing:
             return
         self._closing = True
+        self._auto_fetch_cancel.set()
         do_refresh = self._ran and getattr(self._ctx, "refresh_modlist", None)
         self._on_close_cb()
         if do_refresh:
@@ -187,15 +290,71 @@ class WizardViewBase(QWidget):
         open_btn = self._orange_btn(button_text)
         open_btn.clicked.connect(lambda: self._open_url(url))
         lay.addWidget(open_btn, 0, Qt.AlignHCenter)
+        lay.addSpacing(8)
+        self._dl_status = self._make_status(lay)
         lay.addStretch(1)
         nxt = self._accent_btn(next_text)
         nxt.clicked.connect(on_next)
         lay.addWidget(nxt, 0, Qt.AlignHCenter)
+        self._dl_next_btn = nxt
         return page
 
     def _open_url(self, url: str):
         from Utils.xdg import open_url
         open_url(url)
+
+    # ---- hands-free archive fetch for the manual-download page -------------------
+    def _nexus_auto_fetch(self, *, url: str, file_id: int,
+                          keywords: list[str], label: str,
+                          pages: tuple[int, ...], on_archive):
+        """Arm the premium-download / folder-watch acquire for the wizard's
+        pinned Nexus file. Call when the manual-download page is shown.
+        *pages* are the stack indices (download / locate) where the fetched
+        archive may still auto-advance the wizard; *on_archive(path)* runs on
+        the GUI thread with self._archive_path already set."""
+        if self._auto_fetch_started or self._closing:
+            return
+        api = None
+        api_fn = getattr(self._ctx, "nexus_api", None)
+        if api_fn is not None:
+            try:
+                api = api_fn()      # GUI thread — the app's shared resolver
+            except Exception:
+                api = None
+        self._auto_fetch_pages = tuple(pages)
+        self._auto_fetch_on_archive = on_archive
+        self._auto_fetch_started = arm_nexus_auto_fetch(
+            api=api, url=url, file_id=file_id, keywords=keywords,
+            label=label, cancel=self._auto_fetch_cancel,
+            status_cb=lambda t, c: safe_emit(self._auto_dl_status_sig, t, c),
+            gate_cb=lambda on: safe_emit(self._auto_dl_gate_sig, on),
+            archive_cb=lambda p: safe_emit(self._auto_dl_archive_sig, p),
+            log_fn=lambda m: self._log(f"{label} Wizard: {m}"))
+
+    def _on_auto_dl_status(self, text: str, color: str):
+        if self._dl_status is not None:
+            self._set_status(self._dl_status, text, color)
+
+    def _on_auto_dl_gate(self, enabled: bool):
+        if self._dl_next_btn is not None:
+            self._dl_next_btn.setEnabled(enabled)
+
+    def _on_auto_dl_archive(self, path):
+        self._on_auto_dl_gate(True)
+        path = Path(path)
+        # Only auto-advance while still on the download/locate steps — a user
+        # who already located an archive manually keeps their choice.
+        if self._stack.currentIndex() not in self._auto_fetch_pages:
+            return
+        if not path.is_file():
+            return
+        self._archive_path = path
+        if self._dl_status is not None:
+            self._set_status(self._dl_status,
+                             self.tr("Downloaded: {0}").format(path.name),
+                             ok_text())
+        if self._auto_fetch_on_archive is not None:
+            self._auto_fetch_on_archive(path)
 
     # ---- common page: locate archive in ~/Downloads ------------------------------
     def _build_locate_page(self, heading: str | None = None,
@@ -205,6 +364,7 @@ class WizardViewBase(QWidget):
         if heading is None:
             heading = self.tr("Locate the Archive")
         page, lay = self._step_page(heading)
+        self._locate_page = page
         self._locate_status = self._make_status(lay)
         lay.addStretch(1)
         row = QWidget()
@@ -270,8 +430,11 @@ class WizardViewBase(QWidget):
         if self._locate_next_btn is not None:
             self._locate_next_btn.setEnabled(True)
         else:
+            # Fire only while still on the locate page — the hands-free fetch
+            # may have advanced the wizard while this timer was pending.
             QTimer.singleShot(300, self._guard(
-                lambda: self._locate_on_ready(path)))
+                lambda: self._locate_on_ready(path)
+                if self._stack.currentWidget() is self._locate_page else None))
 
     # ---- common page: extract status ---------------------------------------------
     def _build_extract_page(self, heading: str) -> QWidget:

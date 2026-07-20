@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from Games.base_game import BaseGame
 
 _NEXUS_URL = "https://www.nexusmods.com/fallout3/mods/24913"
+_NEXUS_FILE_ID = 1000021415     # "Fallout Anniversary Patcher" main file
 _ARCHIVE_KEYWORDS = ["fallout", "anniversary", "patcher"]
 
 _PG_DOWNLOAD, _PG_LOCATE, _PG_RUN = range(3)
@@ -56,6 +57,11 @@ class FalloutDowngradeView(WizardViewBase):
         self._stack.addWidget(self._build_run_page(
             self.tr("Step 3: Extract & Run Patcher")))
         self._stack.setCurrentIndex(_PG_DOWNLOAD)
+        self._nexus_auto_fetch(
+            url=_NEXUS_URL, file_id=_NEXUS_FILE_ID,
+            keywords=_ARCHIVE_KEYWORDS, label="Fallout Anniversary Patcher",
+            pages=(_PG_DOWNLOAD, _PG_LOCATE),
+            on_archive=lambda _p: self._goto_step(_PG_RUN))
 
     def _goto_step(self, idx: int):
         self._stack.setCurrentIndex(idx)

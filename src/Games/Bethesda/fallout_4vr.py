@@ -49,6 +49,7 @@ class Fallout_4VR(Fallout_3):
             *self._xedit_wizard_tools(
                 build="FO4VREdit", id_suffix="fo4vr", qac=False,
                 nexus_url="https://www.nexusmods.com/fallout4/mods/2737?tab=files",
+                nexus_file_id=312782,
             ),
         ]
 

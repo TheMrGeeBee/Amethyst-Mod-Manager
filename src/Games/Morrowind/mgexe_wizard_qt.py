@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from Games.base_game import BaseGame
 
 _NEXUS_URL = "https://www.nexusmods.com/morrowind/mods/41102?tab=files&file_id=1000048202"
+_NEXUS_FILE_ID = 1000048202     # "MGE XE Manual Install" main file
 _KEYWORDS_COMMON = ["mge"]
 _INSTALLER_EXE_PREFIX = "MGEXE"
 _MOD_FALLBACK_NAME = "MGE XE"
@@ -74,6 +75,11 @@ class MGEXEView(WizardViewBase):
         lay.addWidget(self._done_btn, 0, Qt.AlignHCenter)
         self._stack.addWidget(page)
         self._stack.setCurrentIndex(_PG_DOWNLOAD)
+        self._nexus_auto_fetch(
+            url=_NEXUS_URL, file_id=_NEXUS_FILE_ID,
+            keywords=_KEYWORDS_COMMON, label="MGE XE",
+            pages=(_PG_DOWNLOAD, _PG_LOCATE),
+            on_archive=self._on_archive_ready)
 
     # ---- destination page (manual variant only) -----------------------------
     def _build_dest_page(self) -> QWidget:
