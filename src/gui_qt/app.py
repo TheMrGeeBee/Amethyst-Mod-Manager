@@ -6929,6 +6929,19 @@ class MainWindow(QMainWindow):
             self._on_play_exe_selected(paths[0].name)
 
     def _on_play(self):
+        # An exception escaping a Qt slot only prints to stderr — invisible in
+        # a flatpak/AppImage GUI launch, so the button would "do nothing".
+        # Surface it in the log + a toast instead.
+        try:
+            self._do_play()
+        except Exception as exc:
+            import traceback
+            self._append_log(f"Play error: {exc!r}")
+            for ln in traceback.format_exc().strip().splitlines():
+                self._append_log(f"Play error:   {ln}")
+            self._notify(self.tr("Play failed — see log."), "error")
+
+    def _do_play(self):
         game = self._gs.game
         if game is None or not game.is_configured():
             self._notify(self.tr("No configured game selected."), "warning")
@@ -6937,6 +6950,11 @@ class MainWindow(QMainWindow):
         from Utils import exe_launch
         label = self._play_exe_selector.current()
         exe_path = self._play_exe_paths.get(label)
+        # First breadcrumb of every launch: proves the click reached the
+        # handler and records which dropdown entry it resolved to.
+        self._append_log(
+            f"Play: pressed — game '{game.name}', entry '{label}'"
+            + ("" if exe_path is None else f" ({exe_path})"))
         if exe_path is not None:
             # If this exe belongs to a wizard tool (xEdit, BodySlide, Script
             # Merger, …), open the wizard instead of a bare Proton launch — the
@@ -6977,11 +6995,14 @@ class MainWindow(QMainWindow):
                                      "warning")
                         return
                     run_path = resolved
-                threading.Thread(
-                    target=target,
-                    args=(run_path, game), kwargs={"log_fn": self._append_log},
-                    daemon=True,
-                ).start()
+
+                def _run(run_path=run_path):
+                    # Worker-thread exceptions otherwise vanish to stderr.
+                    try:
+                        target(run_path, game, log_fn=self._append_log)
+                    except Exception as exc:
+                        self._append_log(f"Run EXE error: {exc!r}")
+                threading.Thread(target=_run, daemon=True).start()
 
             # Auto-detected script extenders must run against the CURRENT
             # profile's files: deploy first when the exe is only staged (not
@@ -7012,11 +7033,13 @@ class MainWindow(QMainWindow):
 
         # Game entry → optional deploy first, then Steam/Heroic/Proton routing.
         def _launch():
-            threading.Thread(
-                target=exe_launch.launch_game,
-                args=(game,), kwargs={"log_fn": self._append_log},
-                daemon=True,
-            ).start()
+            def _run():
+                # Worker-thread exceptions otherwise vanish to stderr.
+                try:
+                    exe_launch.launch_game(game, log_fn=self._append_log)
+                except Exception as exc:
+                    self._append_log(f"Play error: {exc!r}")
+            threading.Thread(target=_run, daemon=True).start()
 
         if exe_launch.load_deploy_before_launch(game) and hasattr(game, "deploy"):
             self._post_deploy_action = _launch
@@ -7500,6 +7523,9 @@ class MainWindow(QMainWindow):
             action, self._post_deploy_action = self._post_deploy_action, None
             if action is not None and success:
                 action()
+            elif action is not None:
+                self._append_log(
+                    "Play: deploy failed — the pending launch was cancelled.")
             # Wizard deploy steps: one-shot completion hooks (get the outcome
             # either way so the wizard can show failure and re-enable Deploy).
             hooks, self._deploy_done_hooks = self._deploy_done_hooks, []
