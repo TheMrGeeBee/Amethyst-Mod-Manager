@@ -111,6 +111,8 @@ class SkyrimVR(Fallout_3):
             CustomRule(dest="", filenames=["sksevr_loader.exe"], flatten=True, loose_only=True),
             CustomRule(dest="", filenames=["sksevr*.dll"], flatten=True, loose_only=True),
             CustomRule(dest="", folders=["Data"], flatten=True, loose_only=True),
+            CustomRule(dest="", folders=["bindings"], flatten=True, loose_only=True),
+            CustomRule(dest="", folders=["src"], flatten=True, loose_only=True),
             self._saves_routing_rule([".ess"]),
         ]
 
