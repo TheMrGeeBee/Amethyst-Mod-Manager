@@ -2606,8 +2606,27 @@ def _add_plugins(game, profile_dir: Path, dest_root: Path, log_fn: LogFn) -> Non
         from Utils.plugins import append_plugin
         star = getattr(game, "plugins_use_star_prefix", True)
         plugins_path = profile_dir / "plugins.txt"
-        for entry in sorted(dest_root.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in exts:
-                append_plugin(plugins_path, entry.name, enabled=True, star_prefix=star)
+        # Besides the mod root, scan the top level of the game's data subfolder
+        # ('Data Files/' for Morrowind): plugins there still deploy to the top
+        # of the data dir — the filemap strips the prefix for normal mods, and
+        # root-flagged mods deploy '<subfolder>/x.esp' verbatim into it. Gated
+        # on the subfolder being a declared strip prefix so a folder that would
+        # deploy NESTED (never loadable) isn't scanned.
+        scan_dirs = [dest_root]
+        try:
+            from Utils.game_helpers import game_data_subpath
+            sub = game_data_subpath(game)
+            strips = {s.lower() for s in
+                      (getattr(game, "mod_folder_strip_prefixes", None) or ())}
+            if sub and "/" not in sub and sub.lower() in strips:
+                scan_dirs.extend(d for d in dest_root.iterdir()
+                                 if d.is_dir() and d.name.lower() == sub.lower())
+        except Exception:
+            pass
+        for scan_dir in scan_dirs:
+            for entry in sorted(scan_dir.iterdir()):
+                if entry.is_file() and entry.suffix.lower() in exts:
+                    append_plugin(plugins_path, entry.name, enabled=True,
+                                  star_prefix=star)
     except Exception as exc:
         log_fn(f"plugins update skipped ({exc}).")

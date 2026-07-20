@@ -197,6 +197,54 @@ def scan_staging_exes(game) -> list[Path]:
     return found
 
 
+def scan_game_folder_exes(game) -> list[Path]:
+    """Return launchable files found under the game's install folder.
+
+    Recursively scans the game root for ``.exe`` / ``.bat`` / ``.jar`` files —
+    including files deployed there by mods — so tools that must run from the
+    game folder (patchers, injectors, bundled utilities) can be added to the
+    play-bar dropdown. Prunes wine/Proton prefix trees (isolated tool prefixes
+    live in ``prefix_<Proton>/`` next to their exe) and skips the game's own
+    resolved launch exe, which already is the Play entry. Same dedup/sort as
+    scan_staging_exes. Returns ``[]`` when the game has no configured path.
+    """
+    if game is None or not hasattr(game, "get_game_path"):
+        return []
+    root = game.get_game_path()
+    if root is None:
+        return []
+    root = Path(root)
+    game_exe = resolve_game_exe(game)
+    game_exe_key = str(game_exe).lower() if game_exe is not None else None
+    seen: set[Path] = set()
+    found: list[Path] = []
+    try:
+        if not root.is_dir():
+            return []
+        for p in root.rglob("*"):
+            if p.suffix.lower() not in STAGING_EXE_SUFFIXES:
+                continue
+            rel_parts = {part.lower() for part in p.relative_to(root).parts}
+            if rel_parts & _PREFIX_DIR_NAMES:
+                continue
+            if not p.is_file():
+                continue
+            if game_exe_key is not None and str(p).lower() == game_exe_key:
+                continue
+            try:
+                key = p.resolve()
+            except OSError:
+                key = p
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(p)
+    except OSError:
+        pass
+    found.sort(key=lambda p: (p.name.lower(), str(p).lower()))
+    return found
+
+
 def detect_framework_exes(game, framework_states: "dict | None" = None) -> list[Path]:
     """Framework launcher exes (script extenders) for the play-bar dropdown.
 

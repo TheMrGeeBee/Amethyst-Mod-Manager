@@ -6881,6 +6881,39 @@ class MainWindow(QMainWindow):
             self.centralWidget() or self, items,
             on_done=self._on_staging_exes_picked)
 
+    def _on_add_exe_from_game_folder(self):
+        game = self._gs.game
+        game_path = (game.get_game_path()
+                     if game is not None and hasattr(game, "get_game_path")
+                     else None)
+        if game_path is None:
+            self._notify(self.tr("No game folder configured."), "warning")
+            return
+        from Utils.exe_launch import scan_game_folder_exes
+        exes = scan_game_folder_exes(game)
+        if not exes:
+            self._notify(self.tr("No executables found in the game folder."),
+                         "info")
+            return
+        # Same dim relative-path hint as the staging picker; root-level exes
+        # get no hint (relative parent is ".").
+        items = []
+        for p in exes:
+            try:
+                hint = str(p.parent.relative_to(game_path))
+            except ValueError:
+                hint = str(p.parent)
+            items.append((p.name if hint == "." else f"{p.name}  —  {hint}", p))
+        from gui_qt.staging_exe_picker_overlay import StagingExePickerOverlay
+        StagingExePickerOverlay.show_over(
+            self.centralWidget() or self, items,
+            on_done=self._on_staging_exes_picked,
+            title=self.tr("Add executable from game folder"),
+            subtitle=self.tr(
+                "Check the executables to add to the Run menu. These run "
+                "from their location in the game folder — including files "
+                "deployed there by mods."))
+
     def _on_staging_exes_picked(self, paths):
         game = self._gs.game
         if not paths or game is None:
@@ -11930,8 +11963,9 @@ class MainWindow(QMainWindow):
         # splitter separator, so dragging the split resizes the dropdown while
         # Play + gear stay fixed at the right edge. Items = the game +
         # auto-detected framework launchers (installed script extenders) +
-        # manually added custom exes, plus a staging scan for exes already
-        # installed under the profile (mod tools + wizard tools).
+        # manually added custom exes, plus pickers fed by a staging scan (mod
+        # tools + wizard tools installed under the profile) and a game-folder
+        # scan (tools that must run from the game root, incl. deployed exes).
         self._play_exe_selector = SelectorButton(
             items=["—"],
             current="—",
@@ -11941,6 +11975,8 @@ class MainWindow(QMainWindow):
             actions=[
                 (self.tr("+ Add custom EXE…"), self._on_add_custom_exe),
                 (self.tr("+ Add exe from staging…"), self._on_add_exe_from_staging),
+                (self.tr("+ Add exe from game folder…"),
+                 self._on_add_exe_from_game_folder),
             ],
         )
         self._play_exe_selector.setFixedHeight(self._BTN_H)

@@ -104,17 +104,33 @@ def load_data_entries(game, filemap_path: Path,
 
     # Root-flagged mods (meta rootFolder=true) live in filemap_root.txt and
     # deploy VERBATIM to the game root. For a root-deployed game that root IS
-    # the tree the Data tab shows, so merge them in (they win over same-path
-    # normal entries — root deploy runs after the main deploy). For
-    # subfolder-deploy games (Skyrim's Data/) they land outside the shown tree
-    # and stay hidden, same as root-routed rule files.
-    if not deploys_to_subfolder(game):
-        root_entries = parse_filemap(filemap_path.parent / "filemap_root.txt")
-        if root_entries:
-            shadowed = {p.replace("\\", "/").lower() for p, _m in root_entries}
-            resolved = [(p, m) for p, m in resolved
-                        if p.replace("\\", "/").lower() not in shadowed]
-            resolved.extend(root_entries)
+    # the tree the Data tab shows, so merge them all in. For subfolder-deploy
+    # games (Skyrim's Data/, Morrowind's Data Files/) only the entries UNDER
+    # the deploy subfolder land inside the shown tree — keep those with the
+    # prefix stripped ('Data Files/foo.esp' → 'foo.esp'); the rest deploy to
+    # the game root and stay hidden, same as root-routed rule files. Merged
+    # entries win over same-path normal entries (root deploy runs after the
+    # main deploy and backs the existing file up).
+    root_entries = parse_filemap(filemap_path.parent / "filemap_root.txt")
+    if root_entries and deploys_to_subfolder(game):
+        try:
+            from Utils.game_helpers import game_data_subpath
+            prefix = game_data_subpath(game).lower()
+        except Exception:
+            prefix = ""
+        kept: list[tuple[str, str]] = []
+        if prefix:
+            plen = len(prefix) + 1
+            for p, m in root_entries:
+                norm = p.replace("\\", "/")
+                if norm.lower().startswith(prefix + "/") and len(norm) > plen:
+                    kept.append((norm[plen:], m))
+        root_entries = kept
+    if root_entries:
+        shadowed = {p.replace("\\", "/").lower() for p, _m in root_entries}
+        resolved = [(p, m) for p, m in resolved
+                    if p.replace("\\", "/").lower() not in shadowed]
+        resolved.extend(root_entries)
     return resolved
 
 

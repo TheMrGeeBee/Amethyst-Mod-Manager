@@ -17,16 +17,32 @@ from Utils.plugins import (
 
 
 def _mod_plugins(staging_root: Path, mod_name: str,
-                 plugin_exts: set[str]) -> list[str]:
-    """Top-level plugin filenames inside staging_root/<mod_name>/ (what Tk scans)."""
+                 plugin_exts: set[str],
+                 data_subfolders: "set[str] | None" = None) -> list[str]:
+    """Top-level plugin filenames inside staging_root/<mod_name>/ (what Tk
+    scans), plus the top level of any *data_subfolders* (lowercase names, e.g.
+    {'data files'}). The latter covers mods whose plugins sit one level down in
+    staging yet deploy to the top of the data dir: root-flagged mods (verbatim
+    to game root → '<subfolder>/x.esp' lands in the data dir) and mods that
+    retain a strip prefix on disk (the filemap strips it)."""
     mod_dir = staging_root / mod_name
     if not mod_dir.is_dir():
         return []
+    names: list[str] = []
+    subdirs: list[Path] = []
     try:
-        return [f.name for f in mod_dir.iterdir()
-                if f.is_file() and f.suffix.lower() in plugin_exts]
+        for f in mod_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in plugin_exts:
+                names.append(f.name)
+            elif data_subfolders and f.is_dir() and f.name.lower() in data_subfolders:
+                subdirs.append(f)
+        for d in subdirs:
+            for f in d.iterdir():
+                if f.is_file() and f.suffix.lower() in plugin_exts:
+                    names.append(f.name)
     except OSError:
-        return []
+        pass
+    return names
 
 
 def sync_plugins_for_mods(game, profile_dir: Path | None,
@@ -46,6 +62,20 @@ def sync_plugins_for_mods(game, profile_dir: Path | None,
                    (getattr(game, "plugin_extensions", []) or [])}
     if not plugin_exts:
         return False
+    # Also scan the top level of the game's data subfolder inside each mod
+    # ('Data Files/' for Morrowind) — see _mod_plugins. Gated on the subfolder
+    # being a declared strip prefix so a folder that would deploy NESTED into
+    # the data dir (never loadable) isn't scanned by mistake.
+    data_subs: "set[str] | None" = None
+    try:
+        from Utils.game_helpers import game_data_subpath
+        sub = game_data_subpath(game)
+        strips = {s.lower() for s in
+                  (getattr(game, "mod_folder_strip_prefixes", None) or ())}
+        if sub and "/" not in sub and sub.lower() in strips:
+            data_subs = {sub.lower()}
+    except Exception:
+        data_subs = None
     plugins_path = profile_dir / "plugins.txt"
     # NB: do NOT bail when plugins.txt is missing. A game that has no plugins.txt
     # concept was already filtered out above (empty plugin_exts), so a missing
@@ -59,7 +89,7 @@ def sync_plugins_for_mods(game, profile_dir: Path | None,
     add: list[str] = []
     remove_lower: set[str] = set()
     for mod_name, now_enabled in changes:
-        found = _mod_plugins(staging_root, mod_name, plugin_exts)
+        found = _mod_plugins(staging_root, mod_name, plugin_exts, data_subs)
         if now_enabled and not found:
             # Enabling a mod whose staging folder has NO top-level plugin files
             # for this game's extensions. This is completely normal for

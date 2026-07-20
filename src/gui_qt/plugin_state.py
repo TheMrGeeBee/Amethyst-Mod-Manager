@@ -156,7 +156,9 @@ def _find_plugin_in_mod_dir(mod_dir: Path, filename: str) -> Path | None:
 
 def _resolve_plugin_paths(staging_dir: Path | None, data_dir: Path | None,
                           filemap_path: Path | None,
-                          plugin_exts: tuple[str, ...]) -> dict[str, Path]:
+                          plugin_exts: tuple[str, ...],
+                          root_filemap_path: Path | None = None,
+                          root_prefix: str = "") -> dict[str, Path]:
     """Map plugin filename (lowercase) → its on-disk path, from THREE sources in
     priority order (Tk parity: gui/plugin_panel.py:_check_all_masters).
 
@@ -191,6 +193,35 @@ def _resolve_plugin_paths(staging_dir: Path | None, data_dir: Path | None,
                         found = _find_plugin_in_mod_dir(
                             staging_dir / mod_name, rel_path)
                         paths[low] = found or direct
+        except OSError:
+            pass
+
+    # 1b. filemap_root.txt → root-flagged mods. Their entries deploy VERBATIM
+    # to the game root, so '<root_prefix>/<plugin>' (Morrowind:
+    # 'Data Files/XE Sky Variations.esp') lands at the top level of the deploy
+    # dir. Rel paths are UNSTRIPPED, so staging/<mod>/<rel> resolves directly.
+    # Root deploy runs after the main deploy and overwrites, so these win over
+    # same-named filemap.txt entries.
+    if (root_filemap_path is not None and staging_dir is not None
+            and root_prefix and root_filemap_path.is_file()):
+        prefix_low = root_prefix.lower() + "/"
+        plen = len(root_prefix) + 1
+        try:
+            for line in root_filemap_path.read_text(encoding="utf-8").splitlines():
+                if "\t" not in line:
+                    continue
+                rel_path, mod_name = line.split("\t", 1)
+                rel_path = rel_path.replace("\\", "/")
+                if not rel_path.lower().startswith(prefix_low):
+                    continue
+                name = rel_path[plen:]
+                if "/" in name or not name.lower().endswith(exts):
+                    continue   # nested below the data dir — not loadable
+                src = staging_dir / mod_name / rel_path
+                if not src.is_file():
+                    found = _find_plugin_in_mod_dir(staging_dir / mod_name, name)
+                    src = found or src
+                paths[name.lower()] = src
         except OSError:
             pass
 
@@ -233,9 +264,17 @@ def resolve_plugin_paths_for_game(game, data_dir: Path | None = None
         staging = (game.get_effective_mod_staging_path()
                    if hasattr(game, "get_effective_mod_staging_path") else None)
         filemap_path = (staging.parent / "filemap.txt") if staging else None
+        root_fm = (staging.parent / "filemap_root.txt") if staging else None
+        try:
+            from Utils.game_helpers import game_data_subpath
+            root_prefix = game_data_subpath(game)
+        except Exception:
+            root_prefix = ""
         exts = tuple(x.lower() for x in (getattr(game, "plugin_extensions", []) or ())) \
             or (".esp", ".esm", ".esl")
-        return _resolve_plugin_paths(staging, data_dir, filemap_path, exts)
+        return _resolve_plugin_paths(staging, data_dir, filemap_path, exts,
+                                     root_filemap_path=root_fm,
+                                     root_prefix=root_prefix)
     except Exception:
         return {}
 
@@ -278,6 +317,35 @@ def _filemap_deployed_plugins(game, plugin_exts: tuple[str, ...]) -> dict[str, s
     except OSError as exc:
         _diag(f"_filemap_deployed_plugins: read error on {fm}: {exc}")
         return {}
+    # Root-flagged mods (filemap_root.txt) deploy VERBATIM to the game root:
+    # '<data subpath>/<plugin>' lands at the top level of the deploy dir, the
+    # same place a top-level filemap.txt entry does — recover those too (e.g.
+    # a root MGE XE install shipping 'Data Files/XE Sky Variations.esp').
+    fm_root = staging.parent / "filemap_root.txt"
+    if fm_root.is_file():
+        try:
+            from Utils.game_helpers import game_data_subpath
+            prefix = game_data_subpath(game)
+        except Exception:
+            prefix = ""
+        if prefix:
+            prefix_low = prefix.lower() + "/"
+            plen = len(prefix) + 1
+            try:
+                for line in fm_root.read_text(encoding="utf-8").splitlines():
+                    if "\t" not in line:
+                        continue
+                    rel_path = line.split("\t", 1)[0].replace("\\", "/")
+                    if not rel_path.lower().startswith(prefix_low):
+                        continue
+                    name = rel_path[plen:]
+                    if "/" in name:
+                        continue   # nested below the data dir — not loadable
+                    low = name.lower()
+                    if low.endswith(exts):
+                        found.setdefault(low, name)
+            except OSError as exc:
+                _diag(f"_filemap_deployed_plugins: read error on {fm_root}: {exc}")
     _diag(f"_filemap_deployed_plugins: {fm} has {total_lines} line(s), "
           f"{len(found)} top-level plugin(s) with exts {exts}")
     return found

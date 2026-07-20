@@ -308,23 +308,26 @@ class GameState:
         staging = self.staging_dir()
         if staging is None:
             return {}
-        fm = staging.parent / "filemap.txt"
-        if not fm.is_file():
-            return {}
         exts = tuple(e.lower() for e in (getattr(g, "plugin_extensions", []) or []))
         if not exts:
             exts = (".esp", ".esm", ".esl")
         owner: dict[str, str] = {}
-        try:
-            for line in fm.read_text(encoding="utf-8").splitlines():
-                if "\t" not in line:
-                    continue
-                rel_key, mod = line.split("\t", 1)
-                base = rel_key.rsplit("/", 1)[-1].lower()
-                if base.endswith(exts):
-                    owner[base] = mod
-        except Exception:
-            return {}
+        # filemap_root.txt second: root-flagged mods deploy after (and over)
+        # the main deploy, so they win same-named plugins.
+        for fm in (staging.parent / "filemap.txt",
+                   staging.parent / "filemap_root.txt"):
+            if not fm.is_file():
+                continue
+            try:
+                for line in fm.read_text(encoding="utf-8").splitlines():
+                    if "\t" not in line:
+                        continue
+                    rel_key, mod = line.split("\t", 1)
+                    base = rel_key.replace("\\", "/").rsplit("/", 1)[-1].lower()
+                    if base.endswith(exts):
+                        owner[base] = mod
+            except Exception:
+                continue
         return owner
 
     def _build_bsa_conflicts(self, g, log):
