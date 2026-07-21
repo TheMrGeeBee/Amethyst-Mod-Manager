@@ -412,6 +412,18 @@ class ModListView(QTreeView):
         self._apply_separator_spanning()
         self.apply_collapse()
 
+    def load_mod_lock_state(self):
+        """Read per-mod reorder-lock state for the active profile into the
+        model. Called by the window after a modlist reload."""
+        locks = {}
+        if self.profile_dir is not None:
+            try:
+                from Utils.profile_state import read_mod_locks
+                locks = read_mod_locks(self.profile_dir)
+            except Exception:
+                pass
+        self.model().set_mod_locks(locks)
+
     def _apply_separator_spanning(self):
         """Separator rows span all columns so the band + centred name + the
         right-side lock box use the full row width."""
@@ -532,6 +544,11 @@ class ModListView(QTreeView):
         self._save_separator_state()
         self.viewport().update()
 
+    def _toggle_mod_lock_row(self, row):
+        self.model().toggle_mod_lock(row)
+        self._save_mod_lock_state()
+        self.viewport().update()
+
     def _lock_box_click(self, row: int, shift: bool):
         """Handle a click on a separator's lock box. Plain click toggles the one
         separator and records it as the range anchor; shift-click applies the
@@ -571,6 +588,15 @@ class ModListView(QTreeView):
             write_separator_locks(self.profile_dir, m._sep_locks)
         except Exception as exc:
             print(f"[gui_qt] separator state save failed: {exc}", flush=True)
+
+    def _save_mod_lock_state(self):
+        if self.profile_dir is None:
+            return
+        try:
+            from Utils.profile_state import write_mod_locks
+            write_mod_locks(self.profile_dir, self.model()._mod_locks)
+        except Exception as exc:
+            print(f"[gui_qt] mod lock state save failed: {exc}", flush=True)
 
     # ---- sticky separator header -------------------------------------------
     def _sticky_sep_info(self) -> tuple[int, QRect] | None:
@@ -829,7 +855,7 @@ class ModListView(QTreeView):
         from gui_qt.modlist_model import _PINNED_NAMES
         if e.name in _PINNED_NAMES:
             return None
-        if not e.is_separator and e.locked:
+        if not e.is_separator and (e.locked or m.is_mod_locked(e.name)):
             return None
         # Only a LOCKED separator carries its whole block (Tk parity: collapse
         # affects visibility, never the drag payload). An unlocked separator —
@@ -843,7 +869,9 @@ class ModListView(QTreeView):
         if row in sel and len(sel) > 1:
             carry = [r for r in sel
                      if m.entry(r).name not in _PINNED_NAMES
-                     and not (not m.entry(r).is_separator and m.entry(r).locked)]
+                     and not (not m.entry(r).is_separator
+                              and (m.entry(r).locked
+                                   or m.is_mod_locked(m.entry(r).name)))]
             return carry or [row]
         return [row]
 

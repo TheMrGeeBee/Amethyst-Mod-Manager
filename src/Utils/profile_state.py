@@ -15,6 +15,7 @@ consolidates all small per-profile JSON/text state files:
   profile_settings            dict  (profile_specific_mods, collection_url, original_default, …)
   ignored_missing_requirements list[str]
   custom_exes                 list[str]  (per-profile Run-menu exe paths)
+  mod_locks                   dict[str, bool]  (mod_name -> reorder-locked)
 
 Migration: when profile_state.json is missing but legacy per-key files exist,
 read_profile_state() merges them into a new profile_state.json and deletes those
@@ -194,6 +195,13 @@ def read_collapsed_seps(profile_dir: Path, state: dict | None = None) -> set[str
 
 def read_separator_locks(profile_dir: Path, state: dict | None = None) -> dict:
     raw = _read_key(profile_dir, state, "separator_locks")
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def read_mod_locks(profile_dir: Path, state: dict | None = None) -> dict:
+    raw = _read_key(profile_dir, state, "mod_locks")
     if isinstance(raw, dict):
         return raw
     return {}
@@ -380,6 +388,10 @@ def write_collapsed_seps(profile_dir: Path, value: set[str]) -> None:
 
 def write_separator_locks(profile_dir: Path, value: dict) -> None:
     _update_key(profile_dir, "separator_locks", value)
+
+
+def write_mod_locks(profile_dir: Path, value: dict) -> None:
+    _update_key(profile_dir, "mod_locks", value)
 
 
 def write_separator_colors(profile_dir: Path, value: dict) -> None:

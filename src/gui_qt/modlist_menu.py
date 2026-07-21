@@ -144,14 +144,15 @@ def build_context_menu(view, index):
 
     if entry.is_separator:
         _build_separator_menu(view, model, row, entry, sel_seps, multi_seps,
-                              act, stub, divider)
+                              act, stub, divider, submenu)
     else:
         _build_mod_menu(view, model, row, entry, sel_mods, multi_mods,
                         act, stub, divider, submenu)
     return menu
 
 
-def _build_separator_menu(view, model, row, entry, sel_seps, multi, act, stub, divider):
+def _build_separator_menu(view, model, row, entry, sel_seps, multi, act, stub,
+                          divider, submenu):
     if multi:
         # ≥2 separators selected.
         all_locked = all(model.is_sep_locked(model.entry(r).display_name)
@@ -160,6 +161,15 @@ def _build_separator_menu(view, model, row, entry, sel_seps, multi, act, stub, d
         act(_mtf("{0} ({1})", _mt("Unlock Separators") if all_locked else _mt("Lock Separators"), n),
             lambda: _set_sep_locks_multi(view, model, sel_seps, not all_locked))
         divider()
+        _others = _other_profiles(view)
+        if _others:
+            _sep_names = _natural_order_names(
+                model, [model.entry(r).name for r in sel_seps])
+            submenu(_mtf("Copy to profile ({0})", n),
+                    _sep_profile_submenu_items(view, _sep_names, sel_seps, _others, False))
+            submenu(_mtf("Move to profile ({0})", n),
+                    _sep_profile_submenu_items(view, _sep_names, sel_seps, _others, True))
+            divider()
         act(_mtf("Remove separators ({0})", n),
             lambda: _remove_separators_multi(view, model, sel_seps))
         return
@@ -171,6 +181,12 @@ def _build_separator_menu(view, model, row, entry, sel_seps, multi, act, stub, d
     act(_mt("Separator settings…"), lambda: _open_sep_settings(view, model, row))
     act(_mt("Add separator above"), lambda: _add_separator(view, model, row, True))
     act(_mt("Add separator below"), lambda: _add_separator(view, model, row, False))
+    _others = _other_profiles(view)
+    if _others:
+        submenu(_mt("Copy to profile"),
+                _sep_profile_submenu_items(view, [entry.name], [row], _others, False))
+        submenu(_mt("Move to profile"),
+                _sep_profile_submenu_items(view, [entry.name], [row], _others, True))
     divider()
     act(_mt("Remove separator"), lambda: _remove_separator(view, model, row))
 
@@ -233,10 +249,12 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         _others = _other_profiles(view)
         if _others:
             _copy_names = _natural_order_names(model, _names)
+            _move_names = [nm for nm in _copy_names if not model.is_mod_locked(nm)]
             submenu(_mtf("Copy to profile ({0})", n),
                     _profile_submenu_items(view, _copy_names, sel_mods, _others, False))
             submenu(_mtf("Move to profile ({0})", n),
-                    _profile_submenu_items(view, _copy_names, sel_mods, _others, True))
+                    _profile_submenu_items(view, _move_names, sel_mods, _others, True),
+                    enabled=bool(_move_names))
         act(_mtf("Disable selected ({0})", n),
             lambda: _set_enabled(view, model, sel_mods, False))
         act(_mtf("Enable selected ({0})", n),
@@ -247,6 +265,10 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         if len(sel_mods) >= 2:
             act(_mtf("Sort Alphabetically ({0})", n),
                 lambda: _sort_selected_alphabetically(view, model, sel_mods))
+        _all_reorder_locked = all(model.is_mod_locked(nm) for nm in _names)
+        act(_mtf("{0} ({1})",
+                 _mt("Unlock mods") if _all_reorder_locked else _mt("Lock mods"), n),
+            lambda: _set_mod_locks_multi(view, model, sel_mods, not _all_reorder_locked))
         divider()
         # Group: notes
         act(_mtf("Add note ({0})", n), lambda: _open_note_editor(view, _names))
@@ -261,6 +283,7 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         return
 
     locked = entry.locked
+    reorder_locked = model.is_mod_locked(entry.name)
     name = entry.name
     _staging_ok = getattr(view, "staging_dir", None) is not None
     # Group 1: manage
@@ -313,12 +336,16 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         submenu(_mt("Copy to profile"),
                 _profile_submenu_items(view, [name], [row], _others, False))
         submenu(_mt("Move to profile"),
-                _profile_submenu_items(view, [name], [row], _others, True))
-    if not locked and _separator_choices(model):
+                _profile_submenu_items(view, [name], [row], _others, True),
+                enabled=not reorder_locked)
+    if not locked and not reorder_locked and _separator_choices(model):
         submenu(_mt("Move to separator"),
                 _separator_submenu_items(view, model, [row]))
+    act(_mt("Unlock mod") if reorder_locked else _mt("Lock mod"),
+        lambda: _toggle_mod_lock(view, model, row))
     if not locked:
-        act(_mt("Set priority…"), lambda: _set_priority(view, model, row))
+        act(_mt("Set priority…"), lambda: _set_priority(view, model, row),
+            enabled=not reorder_locked)
     divider()
     # Group 5: info / conflicts / notes
     _has_note = bool(_mod_note(view, name))
@@ -330,7 +357,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         act(_mt("View Requirements"), lambda: _view_requirements(view, name))
     divider()
     # Group 6: remove
-    act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked)
+    act(_mt("Remove mod"), lambda: _remove(view, model, row),
+        enabled=not locked and not reorder_locked)
 
 
 def _boundary_names():
@@ -567,7 +595,9 @@ def _move_to_separator(view, model, mod_rows, sep_name):
     from gui_qt.modlist_model import _PINNED_NAMES
     rows = sorted(r for r in mod_rows
                   if not model.entry(r).is_separator
-                  and model.entry(r).name not in _PINNED_NAMES)
+                  and model.entry(r).name not in _PINNED_NAMES
+                  and not model.entry(r).locked
+                  and not model.is_mod_locked(model.entry(r).name))
     if not rows:
         return
     moved_names = {model.entry(r).name for r in rows}
@@ -599,10 +629,11 @@ def _natural_order_names(model, names):
     highest-priority-first) order. Selection-derived name lists follow the
     current DISPLAY row order, which can be a sorted or reverse-priority
     permutation (see ``ModlistModel.natural_entries``) — copy/move-to-profile
-    must register mods in real priority order regardless of how they're
-    currently sorted on screen."""
-    order = {e.name: i for i, e in enumerate(model.natural_entries())
-             if not e.is_separator}
+    must register mods (or separators) in real priority order regardless of
+    how they're currently sorted on screen. Not filtered by is_separator so it
+    orders separator names correctly too — mod and separator names never
+    collide, so a single lookup table serves both callers."""
+    order = {e.name: i for i, e in enumerate(model.natural_entries())}
     return sorted(names, key=lambda nm: order.get(nm, 0))
 
 
@@ -643,6 +674,24 @@ def _copy_to_profile(view, names, enabled_map, target_profile, move):
     cb = getattr(view, "on_copy_to_profile", None)
     if cb is not None and names and target_profile:
         cb(list(names), dict(enabled_map), target_profile, move)
+
+
+def _sep_profile_submenu_items(view, names, sep_rows, others, move: bool):
+    """Build the (profile_name, slot) list for a separator's Copy/Move-to-profile
+    submenu. Marker-only: carries name + color + lock, not the mods grouped
+    under it (those go through the mod Copy/Move-to-profile flow separately)."""
+    return [
+        (prof, (lambda p=prof: _copy_separators_to_profile(
+            view, names, sep_rows, p, move)))
+        for prof in others
+    ]
+
+
+def _copy_separators_to_profile(view, names, sep_rows, target_profile, move):
+    """Delegate the separator copy/move to the window."""
+    cb = getattr(view, "on_copy_separators_to_profile", None)
+    if cb is not None and names and target_profile:
+        cb(list(names), list(sep_rows), target_profile, move)
 
 
 def _read_mod_meta(view, name):
@@ -896,7 +945,8 @@ def _sort_selected_alphabetically(view, model, mod_rows):
     from gui_qt.modlist_model import _PINNED_NAMES
     sel = [model.entry(r) for r in mod_rows]
     sel = [e for e in sel
-           if not e.is_separator and e.name not in _PINNED_NAMES]
+           if not e.is_separator and e.name not in _PINNED_NAMES
+           and not e.locked and not model.is_mod_locked(e.name)]
     if len(sel) < 2:
         return
     # Mods with loose-file conflicts are left in their existing relative order
@@ -1023,6 +1073,10 @@ def _toggle_sep_lock(view, model, row):
     view._toggle_lock_row(row)
 
 
+def _toggle_mod_lock(view, model, row):
+    view._toggle_mod_lock_row(row)
+
+
 def _rename(view, model, row):
     e = model.entry(row)
 
@@ -1145,6 +1199,24 @@ def _open_sep_settings(view, model, row):
 
 # ---- new wired handlers (separator remove / multi, mod multi-remove) -------
 
+def _remove_separator_rows(view, model, sep_rows: "list[int]") -> "list[str]":
+    """Drop every separator row in *sep_rows* (high→low so earlier removals
+    don't shift later indices), one save for the whole batch. No confirmation
+    — callers that need one (the plain Remove menu actions) gate the call
+    behind ConfirmOverlay themselves; the Move-to-profile flow calls this
+    directly, matching the existing mod-Move precedent of not re-confirming
+    the source-side removal."""
+    removed = []
+    for r in sorted(sep_rows, reverse=True):
+        e = model.entry(r)
+        if e is not None and e.is_separator:
+            removed.append(e.name)
+            model.remove_row(r, save=False)
+    if removed:
+        model.save()
+    return removed
+
+
 def _remove_separator(view, model, row):
     e = model.entry(row)
     if e is None or not e.is_separator:
@@ -1153,11 +1225,10 @@ def _remove_separator(view, model, row):
     def _confirmed(ok):
         if not ok:
             return
-        removed = e.name
-        model.remove_row(row)
+        removed = _remove_separator_rows(view, model, [row])
         cb = getattr(view, "on_separators_removed", None)
-        if callable(cb):
-            cb([removed])
+        if callable(cb) and removed:
+            cb(removed)
 
     ConfirmOverlay.show_over(view, "Remove separator",
                              f"Remove separator '{e.display_name}'?",
@@ -1171,15 +1242,7 @@ def _remove_separators_multi(view, model, sep_rows):
     def _confirmed(ok):
         if not ok:
             return
-        # Remove high→low so earlier removals don't shift later row indices.
-        removed = []
-        for r in sorted(sep_rows, reverse=True):
-            e = model.entry(r)
-            if e is not None and e.is_separator:
-                removed.append(e.name)
-                model.remove_row(r, save=False)
-        if removed:
-            model.save()  # single save for the whole batch
+        removed = _remove_separator_rows(view, model, sep_rows)
         cb = getattr(view, "on_separators_removed", None)
         if callable(cb) and removed:
             cb(removed)
@@ -1204,11 +1267,27 @@ def _set_sep_locks_multi(view, model, sep_rows, lock):
         view.viewport().update()
 
 
+def _set_mod_locks_multi(view, model, mod_rows, lock):
+    """Lock/unlock every selected mod's reorder-lock to *lock*, then save once."""
+    changed = False
+    for r in mod_rows:
+        e = model.entry(r)
+        if e is None or e.is_separator:
+            continue
+        if model.is_mod_locked(e.name) != lock:
+            model.toggle_mod_lock(r)
+            changed = True
+    if changed:
+        view._save_mod_lock_state()
+        view.viewport().update()
+
+
 def _remove_mods_multi(view, model, mod_rows):
     """Fully remove every selected mod (one confirm), then drop the rows."""
     rows = [r for r in mod_rows
             if (e := model.entry(r)) is not None
-            and not e.is_separator and not e.locked]
+            and not e.is_separator and not e.locked
+            and not model.is_mod_locked(e.name)]
     if not rows:
         return
     names = [model.entry(r).name for r in rows]
@@ -1270,6 +1349,10 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Endorse selected ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Lock Separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Lock Separators"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Lock mod"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Unlock mod"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Lock mods"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Unlock mods"),
     QT_TRANSLATE_NOOP("ModListMenu", "Log"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements"),
     QT_TRANSLATE_NOOP("ModListMenu", "Missing Requirements ({0})"),
