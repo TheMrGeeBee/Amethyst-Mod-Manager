@@ -1,3 +1,9 @@
+- v2.0.6
+### Bug Fixes
+- Fixed mods not retaining their priority order when copied or moved to another profile while the modlist was sorted by a column or in reverse-priority view
+
+---
+
 - v2.0.4
 ### Additions
 - Added the option to change download speed limits
