@@ -712,13 +712,14 @@ class SettingsView(QWidget):
 
     def _build_paths(self):
         g = self._section(self.tr("Paths"))
-        from Utils.config_paths import get_config_dir
+        from Utils.config_paths import get_config_dir, get_default_staging_root
         base = get_config_dir()
         self._path_row(
             g, self.tr("Default Mod Staging Folder"),
             uc.load_default_staging_path, uc.save_default_staging_path,
             help=self.tr("When set, games added after this point stage mods here. "
-                 "Blank = default ({0}).").format(base / 'Profiles'))
+                 "Blank = default ({0}).").format(
+                     get_default_staging_root() / self.tr("<game name>")))
         self._path_row(
             g, self.tr("Download Cache Folder"),
             uc.load_download_cache_path, uc.save_download_cache_path,

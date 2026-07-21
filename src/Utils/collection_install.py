@@ -364,6 +364,7 @@ def run_collection_install(
     schema_file_id_to_logical: dict[int, str] = {}
     schema_file_id_to_mod_id: dict[int, int] = {}
     schema_file_id_to_install_type: dict[int, str] = {}
+    schema_file_id_to_category: dict[int, str] = {}
     schema_file_id_to_phase: dict[int, int] = {}
     # source.fileSize / source.md5 / mods[].domainName — the GraphQL mod list
     # omits these for cross-domain entries (e.g. a Skyrim SE mod referenced by
@@ -422,9 +423,13 @@ def run_collection_install(
             if _dom:
                 schema_file_id_to_domain[fid] = _dom
             schema_file_id_to_arrayidx[fid] = pos
-            _det_type = ((schema_mod.get("details") or {}).get("type") or "").strip()
+            _details = schema_mod.get("details") or {}
+            _det_type = (_details.get("type") or "").strip()
             if _det_type:
                 schema_file_id_to_install_type[fid] = _det_type
+            _det_cat = (_details.get("category") or "").strip()
+            if _det_cat:
+                schema_file_id_to_category[fid] = _det_cat
             try:
                 schema_file_id_to_phase[fid] = int(schema_mod.get("phase") or 0)
             except (TypeError, ValueError):
@@ -798,18 +803,12 @@ def run_collection_install(
                 pmeta.category_id = mod.category_id
             if getattr(mod, "category_name", ""):
                 pmeta.category_name = mod.category_name
-            # Best-effort: if the background metadata fetch (started at Step 1)
-            # has already resolved by the time this mod installs, use it now so
-            # meta.ini is correct on first write. If not ready yet, Step 5's
-            # reconciliation pass catches it regardless.
-            if _extra_meta_ready.is_set():
-                _extra = _extra_meta.get(_effective_mod_id)
-                if _extra is not None:
-                    if _extra.category_id:
-                        pmeta.category_id = _extra.category_id
-                        pmeta.category_name = _extra.category_name
-                    if _extra.viewer_endorsed is not None:
-                        pmeta.endorsed = _extra.viewer_endorsed
+            # Manifest category name (details.category) — the only source, as
+            # the GraphQL mod list omits categories. Applied when the mod
+            # object itself carries none.
+            _schema_cat = schema_file_id_to_category.get(mod.file_id, "")
+            if _schema_cat and not pmeta.category_name:
+                pmeta.category_name = _schema_cat
             if schema_file_id_to_install_type.get(mod.file_id, "").lower() == "dinput":
                 pmeta.root_folder = True
             return pmeta
@@ -1286,6 +1285,7 @@ def run_collection_install(
             _bain_deferred, _fomod_deferred, game, profile_dir, api,
             schema_mods, schema_file_id_to_phase, schema_file_id_to_pos,
             schema_file_id_to_mod_id, schema_file_id_to_install_type,
+            schema_file_id_to_category,
             schema_file_id_to_logical, schema_pos_to_name, schema_file_id_to_suffix,
             fomod_by_file_id, bain_by_file_id, _install_results,
             _install_counters, _install_lock, _archive_use_count,
@@ -1555,6 +1555,7 @@ def _process_deferred(
         _bain_deferred, _fomod_deferred, game, profile_dir, api,
         schema_mods, schema_file_id_to_phase, schema_file_id_to_pos,
         schema_file_id_to_mod_id, schema_file_id_to_install_type,
+        schema_file_id_to_category,
         schema_file_id_to_logical, schema_pos_to_name, schema_file_id_to_suffix,
         fomod_by_file_id, bain_by_file_id, _install_results,
         _install_counters, _install_lock, _archive_use_count,
@@ -1576,6 +1577,9 @@ def _process_deferred(
                 pmeta.category_id = mod.category_id
             if getattr(mod, "category_name", ""):
                 pmeta.category_name = mod.category_name
+            _schema_cat = schema_file_id_to_category.get(mod.file_id, "")
+            if _schema_cat and not pmeta.category_name:
+                pmeta.category_name = _schema_cat
             if schema_file_id_to_install_type.get(mod.file_id, "").lower() == "dinput":
                 pmeta.root_folder = True
         except Exception:

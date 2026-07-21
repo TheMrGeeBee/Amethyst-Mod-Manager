@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from gui_qt.theme_qt import active_palette, _c, button_qss
 from gui_qt.safe_emit import safe_emit
 from gui_qt.wheel_guard import no_wheel
-from Utils.config_paths import get_profiles_dir, get_config_dir
+from Utils.config_paths import get_default_staging_root, get_config_dir
 from Utils import ui_config as uc
 from Utils.ui_config import (
     load_default_staging_path, save_default_staging_path,
@@ -359,7 +359,10 @@ class OnboardingView(QWidget):
 
         # -- Default mod staging folder --
         v.addWidget(self._section_title(self.tr("Default Mod Staging Folder")))
-        v.addWidget(self._hint(self.tr("Default: {0}").format(get_profiles_dir())))
+        # Display-only: new games default to ~/Games/Amethyst/<game>.  Nothing
+        # is created here — the folder appears when the first game is saved.
+        v.addWidget(self._hint(self.tr("Default: {0}").format(
+            get_default_staging_root() / self.tr("<game name>"))))
         self._staging_edit = QLineEdit(load_default_staging_path())
         self._staging_edit.setPlaceholderText(self.tr("Leave blank to use the default"))
         v.addLayout(self._folder_row(self._staging_edit, "staging"))

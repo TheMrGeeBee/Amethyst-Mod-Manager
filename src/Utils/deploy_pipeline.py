@@ -168,11 +168,11 @@ def _log_deploy_context(game, profile: str, profile_dir: Path,
     if deploy_mode is LinkMode.SYMLINK and game_root:
         _app = flatpak_runtime_app(Path(game_root))
         if _app and (staging is None or flatpak_runtime_app(Path(staging)) != _app):
-            log_fn(f"  WARNING: game runs inside the {_app} flatpak — "
-                   f"symlinked mods may be invisible to it. If mods don't "
-                   f"load, run: flatpak override --user {_app} "
-                   f"--filesystem='{staging}':ro  or switch the deploy "
-                   f"method to Hardlink (same drive) in game settings.")
+            log_fn(f"  NOTE: game runs inside the {_app} flatpak — sandbox "
+                   f"access to the staging/profile folders is granted "
+                   f"automatically so symlinked mods resolve. If mods still "
+                   f"don't load, restart the launcher or run: flatpak "
+                   f"override --user {_app} --filesystem='{staging}'")
     log_fn("=" * 60)
 
 
@@ -563,6 +563,21 @@ def run_deploy_pipeline(
                     game.restore(log_fn=log_fn)
             except RuntimeError as restore_err:
                 log_fn(f"Restore before deploy failed: {restore_err} — continuing.")
+        # Games launched by a flatpak launcher (Heroic flatpak et al.) run in
+        # its sandbox and can't follow symlinks whose targets aren't mounted
+        # there — grant staging/profile access up front (GH#275).
+        try:
+            from Utils.flatpak_sandbox import ensure_symlink_target_access
+            ensure_symlink_target_access(
+                game,
+                game_root=Path(game_root) if game_root else None,
+                staging=_safe(game.get_effective_mod_staging_path),
+                profile_dir=profile_dir,
+                log_fn=log_fn,
+            )
+        except Exception as exc:
+            log_fn(f"  WARN: flatpak sandbox access check failed: {exc}")
+
         _log_deploy_context(game, profile, profile_dir, deploy_mode,
                             log_fn=log_fn)
 

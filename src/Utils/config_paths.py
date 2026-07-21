@@ -114,6 +114,13 @@ def get_profiles_dir() -> Path:
     custom root via get_default_game_staging_root() so their layout is
     ~/Games/Amethyst/<game>/mods (no Profiles/ segment).  This function only
     resolves games that already carry an empty staging_path.
+
+    The fresh-install path is returned WITHOUT being created: this is called at
+    import time by every game handler (and re-run by discover_games on each
+    add-game reload), so an eager mkdir here dropped ~/Games/Amethyst into the
+    user's home on first startup and after every game add — even when nothing
+    ever stages there.  Anything that actually uses the path creates it with
+    mkdir(parents=True) at that point.
     """
     env = os.environ.get("MOD_MANAGER_PROFILES_DIR")
     if env:
@@ -123,9 +130,7 @@ def get_profiles_dir() -> Path:
     legacy = get_config_dir() / "Profiles"
     if legacy.exists():
         return legacy
-    p = get_default_staging_root() / "Profiles"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return get_default_staging_root() / "Profiles"
 
 
 def get_exe_args_path() -> Path:

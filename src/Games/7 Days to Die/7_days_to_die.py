@@ -273,6 +273,18 @@ class SevenDaysToDie(BaseGame):
         path_filters = _build_path_filters(
             self.conflict_ignore_filenames, None, None, excluded_by_mod)
 
+        # Per-mod strip prefixes ("Top Level" promotions from the Mod Files
+        # tab).  The tab writes exclusion/filemap keys in the *post-strip* key
+        # space (wrapper folders removed), but our classifier walks the raw
+        # disk tree — so the keep-filter offset must have these prefixes peeled
+        # off to line up with the stored keys, or per-mod "Disable" exclusions
+        # silently miss and disabled folders deploy anyway.
+        from Utils.profile_state import read_mod_strip_prefixes
+        strip_map = {
+            m: {p.lower() for p in prefs}
+            for m, prefs in read_mod_strip_prefixes(profile_dir).items()
+        }
+
         # Walk each enabled staging folder and split its *contents* into:
         #   - mods_folders: inner dirs that contain ModInfo.xml (each becomes
         #     its own Mods/NNNN_<name>/ on disk)
@@ -332,10 +344,15 @@ class SevenDaysToDie(BaseGame):
                 dst_name = _safe_folder_name(inner.name)
             dst = mods_dir / dst_name
             # Filter keys are relative to the staged mod root; `inner` may be a
-            # subfolder of it (legacy nested layout), so prepend that offset
+            # subfolder of it (nested / wrapped layout), so prepend that offset
             # when testing each file against the shared filemap filter chain.
+            # `offset` is the RAW disk offset (used to locate overwrite/ files
+            # and record deployed sections); `keep_offset` re-bases onto the
+            # POST-STRIP key space the exclusion/filemap keys live in, so
+            # "Disable" checkboxes on wrapped inner mods actually match.
             offset = _subtree_offset(staging / staged_name, inner)
-            keep = _make_keep(path_filters, staged_name, offset.lower())
+            keep = _make_keep(path_filters, staged_name, offset.lower(),
+                              strip_map.get(staged_name))
             try:
                 placed_rels = _deploy_mod_folder(inner, dst, mode, keep)
                 # Overlay runtime files rescued to overwrite/ by earlier
@@ -347,11 +364,22 @@ class SevenDaysToDie(BaseGame):
                 if ow_rels:
                     overlaid_total += len(ow_rels)
                     placed_rels += ow_rels
-                deployed_sections.append(
-                    (dst_name, staged_name, offset, placed_rels))
-                _log(f"  {staged_name} / {inner.name} → {dst_name}"
-                     + (f" (+{len(ow_rels)} overwrite file(s))"
-                        if ow_rels else ""))
+                if not placed_rels:
+                    # Every file in this inner mod was excluded ("Disable" on a
+                    # whole variant) — don't leave an empty Mods/<name>/ behind,
+                    # which 7D2D would list as a broken mod with no ModInfo.xml.
+                    try:
+                        shutil.rmtree(dst)
+                    except OSError:
+                        pass
+                    _log(f"  {staged_name} / {inner.name} → skipped "
+                         "(all files disabled)")
+                else:
+                    deployed_sections.append(
+                        (dst_name, staged_name, offset, placed_rels))
+                    _log(f"  {staged_name} / {inner.name} → {dst_name}"
+                         + (f" (+{len(ow_rels)} overwrite file(s))"
+                            if ow_rels else ""))
             except OSError as err:
                 _log(f"  ERROR: failed to deploy {staged_name}/{inner.name}: {err}")
             done += 1
@@ -370,7 +398,8 @@ class SevenDaysToDie(BaseGame):
             files_placed = 0
             for _idx, staged_name, loose in data_items_low_to_high:
                 mod_root = staging / staged_name
-                keep = _make_keep(path_filters, staged_name, "")
+                keep = _make_keep(path_filters, staged_name, "",
+                                  strip_map.get(staged_name))
                 placed = _deploy_loose_items(
                     mod_root, loose, game_root, mode, _log, keep)
                 placed_paths.extend(placed)
@@ -596,9 +625,25 @@ def _has_modinfo(folder: Path) -> bool:
 _STAGING_METADATA = frozenset({"meta.ini", "mm_ignore"})
 
 
+def _contains_modinfo(folder: Path) -> bool:
+    """Return True if ``folder`` contains a ``ModInfo.xml``-bearing directory
+    anywhere in its subtree (including itself).  Used to decide whether a
+    directory with no direct ModInfo.xml is a *wrapper* around real mods
+    (recurse into it) or genuine Data/-style content (deploy as loose)."""
+    if _has_modinfo(folder):
+        return True
+    try:
+        for entry in os.scandir(folder):
+            if entry.is_dir() and _contains_modinfo(Path(entry.path)):
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def _classify_stage_children(stage_root: Path) -> tuple[list[Path], list[Path]]:
-    """Split the immediate contents of a staging folder into Mods/-style
-    inner mod dirs and Data/-style loose paths.
+    """Split the contents of a staging folder into Mods/-style inner mod dirs
+    and Data/-style loose paths.
 
     Each entry of the returned ``inner_mods`` list is a directory that has a
     direct ``ModInfo.xml`` — deploy it as its own ``Mods/NNNN_<name>/``.
@@ -607,33 +652,45 @@ def _classify_stage_children(stage_root: Path) -> tuple[list[Path], list[Path]]:
     be linked into the game root via the loose-file pipeline.  Manager
     metadata files (``meta.ini`` etc.) are silently excluded.
 
-    Handles two staged layouts:
+    Handles arbitrarily-wrapped staged layouts:
       - **Flat** (post-strip, current installs): ``<stage>/ModInfo.xml`` —
         the staging folder itself is the mod.
-      - **Nested** (legacy): ``<stage>/<InnerMod>/ModInfo.xml`` — walk one
-        level down and treat each qualifying child as its own mod.
-    """
-    # Flat layout — the staging folder IS the mod.
-    if _has_modinfo(stage_root):
-        return [stage_root], []
+      - **Nested / variant packs**: ``<stage>/<Wrapper>/<InnerMod>/ModInfo.xml``
+        — a directory with no ModInfo.xml but containing mods deeper down is a
+        wrapper; recurse into it rather than dumping it to loose.  This keeps
+        repacked packs (a redundant top folder, or several variant sub-mods)
+        landing in ``Mods/`` instead of ``Data/Prefabs/``.
 
+    A directory that has ModInfo.xml is a complete mod — its own subfolders
+    (``Config/`` etc.) belong to it, so recursion never descends *into* one.
+    """
     inner_mods: list[Path] = []
     loose: list[Path] = []
-    try:
-        entries = list(os.scandir(stage_root))
-    except OSError:
-        return inner_mods, loose
-    for entry in entries:
-        if entry.is_dir():
-            p = Path(entry.path)
-            if _has_modinfo(p):
-                inner_mods.append(p)
-            else:
-                loose.append(p)
-        elif entry.is_file():
-            if entry.name.lower() in _STAGING_METADATA:
-                continue
-            loose.append(Path(entry.path))
+
+    def _walk(folder: Path) -> None:
+        # A ModInfo.xml here means the whole folder is one mod — stop.
+        if _has_modinfo(folder):
+            inner_mods.append(folder)
+            return
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            return
+        for entry in entries:
+            if entry.is_dir():
+                p = Path(entry.path)
+                if _contains_modinfo(p):
+                    # A mod folder, or a wrapper around one — recurse.
+                    _walk(p)
+                else:
+                    # No mods anywhere inside — genuine Data/-style content.
+                    loose.append(p)
+            elif entry.is_file():
+                if entry.name.lower() in _STAGING_METADATA:
+                    continue
+                loose.append(Path(entry.path))
+
+    _walk(stage_root)
     return inner_mods, loose
 
 
@@ -674,10 +731,20 @@ def _subtree_offset(stage_root: Path, inner: Path) -> str:
         return ""
 
 
-def _make_keep(path_filters, mod_name: str, offset: str):
+def _make_keep(path_filters, mod_name: str, offset: str, strip=None):
     """Build a ``keep(rel_key_lower) -> bool`` predicate that mirrors the
     filemap filter chain for ``mod_name``.  ``rel_key_lower`` is relative to the
-    walked root; ``offset`` re-bases it onto the staged-root key space."""
+    walked root; ``offset`` re-bases it onto the staged-root key space.
+
+    ``strip`` is an optional set of lowercase strip prefixes (the mod's "Top
+    Level" promotions).  The stored exclusion/filemap keys live in the
+    post-strip key space, so any wrapper prefix is peeled off the combined
+    ``offset + rel_key`` before testing — otherwise "Disable" exclusions on
+    wrapped content never match and the files deploy anyway."""
+    if strip:
+        from Utils.mod_files import rel_key_after_strip
+        return lambda rel_key: path_filters.accepts(
+            mod_name, rel_key_after_strip(offset + rel_key, strip))
     return lambda rel_key: path_filters.accepts(mod_name, offset + rel_key)
 
 

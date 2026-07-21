@@ -639,6 +639,20 @@ def resolve_nexus_meta_for_archive(
             file_data = hit.get("file_details", {})
 
             cat_name = mod_data.get("category_name", "") or mod_data.get("category", "") or ""
+            if not isinstance(cat_name, str):
+                cat_name = ""
+            try:
+                cat_id = int(mod_data.get("category_id", 0) or 0)
+            except (TypeError, ValueError):
+                cat_id = 0
+            if not cat_name and cat_id:
+                try:
+                    for c in api.get_game_categories(game_domain):
+                        if c.category_id == cat_id:
+                            cat_name = c.name or ""
+                            break
+                except Exception:
+                    pass
             meta = NexusModMeta(
                 game_domain=game_domain,
                 mod_id=mod_data.get("mod_id", 0),
@@ -651,8 +665,8 @@ def resolve_nexus_meta_for_archive(
                 installation_file=archive_name,
                 installed=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
                 description=mod_data.get("summary", ""),
-                category_id=mod_data.get("category_id", 0),
-                category_name=cat_name if isinstance(cat_name, str) else "",
+                category_id=cat_id,
+                category_name=cat_name,
                 file_category=file_data.get("category_name", ""),
                 nexus_url=f"https://www.nexusmods.com/{game_domain}/mods/{mod_data.get('mod_id', 0)}",
             )

@@ -274,6 +274,9 @@ class MainWindow(QMainWindow):
     _endorse_done = Signal(object)
     # "Endorse AMM" worker → UI thread ({"state": str, "message": str}).
     _amm_endorse_done = Signal(object)
+    # ui_hooks.warn from any backend thread → OK-only popup on the UI thread
+    # ((title, message, card_h|None)).
+    _warn_popup = Signal(str, str, object)
     # Copy/Move-to-profile worker → UI thread (result dict).
     _copy_done = Signal(object)
     # Collection update: staging meta.ini scan (worker) → apply (UI).
@@ -321,6 +324,8 @@ class MainWindow(QMainWindow):
     _bsa_op_done = Signal(object)
     # Custom-handler background sync worker → UI thread (files were written).
     _handlers_synced = Signal()
+    # Manual force-update of one repo handler → UI thread: (game name, status).
+    _handler_force_updated = Signal(str, str)
     # Language (.qm) background sync worker → UI thread (translations updated).
     _languages_synced = Signal()
     # Flatpak 32-bit extension repair worker → UI thread (install succeeded?).
@@ -369,6 +374,7 @@ class MainWindow(QMainWindow):
         self._op_progress.connect(self._on_op_progress)
         self._op_log.connect(self._append_log)
         self._op_done.connect(self._on_op_done)
+        self._warn_popup.connect(self._show_warn_popup)
         self._init_log_file()   # one on-disk log file per session
         self._bsa_op_running = False
         self._bsa_op_done.connect(self._on_bsa_op_done)
@@ -504,6 +510,10 @@ class MainWindow(QMainWindow):
 
         wired = glue.register_all(
             app, log=self._append_log, parent_window=self,
+            # Backend warnings (ui_hooks.warn) become an OK-only popup; the
+            # signal hop makes the call safe from any worker thread.
+            warn=lambda title, message, height=None, **kw: self._warn_popup.emit(
+                str(title), str(message), height),
         )
         print("[gui_qt] glue wired:", ", ".join(wired))
 
@@ -597,6 +607,7 @@ class MainWindow(QMainWindow):
         # branch on GitHub (background threads). A fresh/updated build re-fetches
         # immediately because the gh_cache is wiped when the app version changes.
         self._handlers_synced.connect(self._on_handlers_synced)
+        self._handler_force_updated.connect(self._on_handler_force_updated)
         self._languages_synced.connect(self._on_languages_synced)
         try:
             from Utils.gh_cache import clear_if_version_changed
@@ -2106,6 +2117,17 @@ class MainWindow(QMainWindow):
                 and getattr(game, "editable", False)):
             actions.append(
                 (self.tr("Edit custom game…"), lambda: self._on_game_action("edit_custom")))
+        # Repo handlers (downloaded from the Resources branch) carry version +
+        # editable metadata; user-authored definitions don't. Only those can be
+        # force-refreshed from the repo.
+        defn = getattr(game, "_defn", None) if game is not None else None
+        if (game is not None
+                and getattr(game, "is_custom", False)
+                and isinstance(defn, dict)
+                and "version" in defn and "editable" in defn):
+            actions.append(
+                (self.tr("Force update handler"),
+                 lambda: self._on_game_action("update_handler")))
         actions.append(
             (self.tr("Open"), [
                 (self.tr("Game folder"),     lambda: self._open_game_dir("game")),
@@ -2137,6 +2159,8 @@ class MainWindow(QMainWindow):
             self._open_custom_game_tab()
         elif which == "edit_custom":
             self._open_edit_custom_game_tab()
+        elif which == "update_handler":
+            self._force_update_handler()
         else:
             self._append_log(f"[game] {which} (not wired yet)")
 
@@ -2225,6 +2249,73 @@ class MainWindow(QMainWindow):
 
         view = CustomGameView(on_done=_done, existing=defn)
         self._tabs.open_tab(view, self.tr("Edit custom game"), key="custom_game")
+
+    def _force_update_handler(self):
+        """Re-download the active game's repo handler .json from the Resources
+        branch right now (bypassing the sync cache) so the user doesn't have to
+        wait for the next startup sync to pick up a repo fix."""
+        from gui_qt.safe_emit import safe_emit
+        from Utils.gh_sync import force_update_handler
+        game = self._gs.game
+        defn = getattr(game, "_defn", None) if game is not None else None
+        if not isinstance(defn, dict):
+            self._append_log("[game] no handler definition to update")
+            return
+        # Repo handlers are named <game_id>.json, but a local edit re-saves
+        # under the game_id — try the on-disk name first, then the canonical.
+        candidates = []
+        src = defn.get("_source_file", "")
+        if src:
+            candidates.append(Path(src).name)
+        gid_name = f"{game.game_id}.json"
+        if gid_name not in candidates:
+            candidates.append(gid_name)
+        name = game.name
+        self._notify(self.tr("Updating handler…"), "info")
+        self._append_log(f"[game] force handler update: {name} ({candidates[0]})")
+        force_update_handler(
+            candidates,
+            on_done=lambda status: safe_emit(
+                self._handler_force_updated, name, status))
+
+    def _on_handler_force_updated(self, name: str, status: str):
+        """Force-update worker finished (UI thread). On a real update, reload
+        the game registry and re-select the game through the normal path so the
+        new definition takes effect everywhere (views, actions, play bar)."""
+        if status == "failed":
+            self._notify(
+                self.tr("Handler update failed — check your connection."),
+                "error")
+            return
+        if status == "missing":
+            self._notify(
+                self.tr("Handler not found on the Resources branch."), "error")
+            return
+        if status == "unchanged":
+            self._notify(self.tr("Handler is already up to date."), "info")
+            return
+        from Utils.game_helpers import _load_games
+        names = _load_games()
+        self._gs.game_names = names
+        real_names = [n for n in names if n != "No games configured"]
+        # A repo rename may have changed the display name; fall back sanely.
+        target = (name if name in real_names
+                  else (real_names[0] if real_names else None))
+        if target is not None:
+            self._game_selector.set_items(real_names, current=target)
+            self._gs.set_game(target)
+            # set_game no-ops when the name didn't change (the common case) —
+            # but _load_games() just rebuilt the game object, so its active
+            # profile dir + per-profile path overrides must be re-applied.
+            self._gs._apply_active_profile()
+            self._game_selector.set_current(target)
+            self._refresh_game_actions()
+            self._refresh_profile_actions()
+            self._refresh_play_selector()
+            self._reload_modlist()
+            self._reload_plugins()
+        self._append_log(f"[game] handler updated from Resources: {name}")
+        self._notify(self.tr("Handler updated."), "success")
 
     def _start_gh_sync(self):
         """Kick off background sync of custom handlers + Qt plugins from GitHub."""
@@ -6929,6 +7020,19 @@ class MainWindow(QMainWindow):
             self._on_play_exe_selected(paths[0].name)
 
     def _on_play(self):
+        # An exception escaping a Qt slot only prints to stderr — invisible in
+        # a flatpak/AppImage GUI launch, so the button would "do nothing".
+        # Surface it in the log + a toast instead.
+        try:
+            self._do_play()
+        except Exception as exc:
+            import traceback
+            self._append_log(f"Play error: {exc!r}")
+            for ln in traceback.format_exc().strip().splitlines():
+                self._append_log(f"Play error:   {ln}")
+            self._notify(self.tr("Play failed — see log."), "error")
+
+    def _do_play(self):
         game = self._gs.game
         if game is None or not game.is_configured():
             self._notify(self.tr("No configured game selected."), "warning")
@@ -6937,6 +7041,11 @@ class MainWindow(QMainWindow):
         from Utils import exe_launch
         label = self._play_exe_selector.current()
         exe_path = self._play_exe_paths.get(label)
+        # First breadcrumb of every launch: proves the click reached the
+        # handler and records which dropdown entry it resolved to.
+        self._append_log(
+            f"Play: pressed — game '{game.name}', entry '{label}'"
+            + ("" if exe_path is None else f" ({exe_path})"))
         if exe_path is not None:
             # If this exe belongs to a wizard tool (xEdit, BodySlide, Script
             # Merger, …), open the wizard instead of a bare Proton launch — the
@@ -6977,11 +7086,14 @@ class MainWindow(QMainWindow):
                                      "warning")
                         return
                     run_path = resolved
-                threading.Thread(
-                    target=target,
-                    args=(run_path, game), kwargs={"log_fn": self._append_log},
-                    daemon=True,
-                ).start()
+
+                def _run(run_path=run_path):
+                    # Worker-thread exceptions otherwise vanish to stderr.
+                    try:
+                        target(run_path, game, log_fn=self._append_log)
+                    except Exception as exc:
+                        self._append_log(f"Run EXE error: {exc!r}")
+                threading.Thread(target=_run, daemon=True).start()
 
             # Auto-detected script extenders must run against the CURRENT
             # profile's files: deploy first when the exe is only staged (not
@@ -7012,11 +7124,13 @@ class MainWindow(QMainWindow):
 
         # Game entry → optional deploy first, then Steam/Heroic/Proton routing.
         def _launch():
-            threading.Thread(
-                target=exe_launch.launch_game,
-                args=(game,), kwargs={"log_fn": self._append_log},
-                daemon=True,
-            ).start()
+            def _run():
+                # Worker-thread exceptions otherwise vanish to stderr.
+                try:
+                    exe_launch.launch_game(game, log_fn=self._append_log)
+                except Exception as exc:
+                    self._append_log(f"Play error: {exc!r}")
+            threading.Thread(target=_run, daemon=True).start()
 
         if exe_launch.load_deploy_before_launch(game) and hasattr(game, "deploy"):
             self._post_deploy_action = _launch
@@ -7128,6 +7242,13 @@ class MainWindow(QMainWindow):
         the update check) — otherwise it auto-dismisses after a few seconds."""
         self._ensure_feedback()
         return self._notifier.notify(text, state, sticky=sticky)
+
+    def _show_warn_popup(self, title: str, message: str, card_h):
+        """ui_hooks.warn → OK-only message card (arrives via _warn_popup)."""
+        from gui_qt.confirm_overlay import ConfirmOverlay
+        ConfirmOverlay.show_message(
+            self, title, message,
+            card_h=card_h if isinstance(card_h, int) else None)
 
     def _set_deploy_buttons_enabled(self, enabled: bool):
         for b in (getattr(self, "_deploy_btn", None), getattr(self, "_restore_btn", None),
@@ -7500,6 +7621,9 @@ class MainWindow(QMainWindow):
             action, self._post_deploy_action = self._post_deploy_action, None
             if action is not None and success:
                 action()
+            elif action is not None:
+                self._append_log(
+                    "Play: deploy failed — the pending launch was cancelled.")
             # Wizard deploy steps: one-shot completion hooks (get the outcome
             # either way so the wizard can show failure and re-enable Deploy).
             hooks, self._deploy_done_hooks = self._deploy_done_hooks, []

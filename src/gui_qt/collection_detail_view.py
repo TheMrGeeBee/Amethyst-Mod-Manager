@@ -89,7 +89,7 @@ class CollectionDetailView(QWidget):
     *log_fn*, *on_install(chosen_fids, skipped_fids)* (install is stubbed)."""
 
     _detail_ready = Signal(object)      # (name, size, count, mods, dl_path, revisions) | None
-    _manifest_ready = Signal(object)    # (offsite list[(name, url)], manifest dict|None)
+    _manifest_ready = Signal(object)    # (token, offsite list[(name, url)], manifest dict|None)
     title_resolved = Signal(str)        # real collection name once the detail loads
 
     def __init__(self, api, collection, game, log_fn=None, on_install=None,
@@ -184,7 +184,7 @@ class CollectionDetailView(QWidget):
         self._fill_table()
         self._fill_optional()
         # Optional flags already came straight from the manifest — no override.
-        self._on_manifest_ready((offsite, None))
+        self._on_manifest_ready((self._detail_token, offsite, None))
 
     # -- construction -------------------------------------------------------
     def _build(self):
@@ -615,11 +615,22 @@ class CollectionDetailView(QWidget):
         self._update_install_btn_state()     # viewing rev changed → maybe Update
         self._start_detail_fetch()
 
+    @staticmethod
+    def _display_name(m) -> str:
+        """The name to show for a collection mod. Prefer ``file_name`` — the
+        per-file GraphQL ``file.name`` (e.g. "3c - Terran Armada - 256 Textures")
+        — which is distinct per file. ``mod_name`` is ``file.mod.name``, the
+        SHARED mod-page name, so several files from one page look identical
+        (GH #282). ``file_name`` is always a display-quality label here (not an
+        archive filename); fall back to ``mod_name`` only if it's empty."""
+        return (getattr(m, "file_name", "") or getattr(m, "mod_name", "")
+                or (f"Mod {getattr(m, 'mod_id', 0)}"))
+
     def _fill_table(self):
         self._table.setSortingEnabled(False)
         self._table.setRowCount(len(self._mods))
         for r, m in enumerate(self._mods):
-            self._set_cell(r, 0, m.mod_name or "")
+            self._set_cell(r, 0, self._display_name(m))
             self._set_cell(r, 1, m.mod_author or "")
             self._set_cell(r, 2, m.version or "")
             # Size — humanized text, numeric sort via the raw bytes in UserRole.
@@ -660,12 +671,13 @@ class CollectionDetailView(QWidget):
         # pre_skipped_fids) — only consulted for boxes not shown this session.
         saved_skipped = self._saved_skipped_fids()
         for i, m in enumerate(optionals):
-            cb = QCheckBox(m.mod_name or f"Mod {m.mod_id}")
+            name = self._display_name(m)
+            cb = QCheckBox(name)
             if m.file_id in prior_fids:
                 cb.setChecked(m.file_id not in prior_unticked)
             else:
                 cb.setChecked(m.file_id not in saved_skipped)
-            cb.setToolTip(m.mod_name or "")
+            cb.setToolTip(name)
             self._opt_layout.insertWidget(i, cb)
             self._opt_boxes.append((cb, m.file_id))
 
@@ -703,6 +715,10 @@ class CollectionDetailView(QWidget):
             return
         slug = getattr(self._collection, "slug", "") or ""
         game_name = getattr(self._game, "name", "") or ""
+        # Stamp the current detail token so a manifest that lands after the user
+        # has switched revisions is dropped (see _on_manifest_ready). Without
+        # this an old revision's manifest could overwrite the new one's names.
+        token = self._detail_token
 
         def worker():
             offsite = []
@@ -729,31 +745,55 @@ class CollectionDetailView(QWidget):
                     pass
             except Exception as exc:
                 self._log(f"Collection manifest error: {exc}")
-            safe_emit(self._manifest_ready, (offsite, manifest))
+            if not manifest:
+                # An empty manifest means the .7z download failed or the archive
+                # had no collection.json. The mod table then keeps the generic
+                # GraphQL page names (files from one mod page all look alike);
+                # log it so that looks like a fetch failure, not a naming bug.
+                self._log(
+                    f"Collection: manifest empty for {slug!r} rev={rev} — "
+                    f"per-file names not applied (using mod-page names).")
+            safe_emit(self._manifest_ready, (token, offsite, manifest))
 
         threading.Thread(target=worker, daemon=True,
                          name="collection-manifest").start()
 
     def _apply_manifest_overrides(self, manifest) -> bool:
-        """Override the optional flag (and, for mods sharing a mod page, the
-        display name) on each mod using collection.json as the authoritative
-        source — the GraphQL mod list sometimes marks non-optional mods as
-        optional and always uses the MAIN mod's name for both the main mod and
-        its optional patch when both come from the same page (Tk parity).
-        Returns True if anything changed."""
+        """Override the optional flag + the ambiguous display name on each mod
+        using collection.json as the authoritative source. Returns True if
+        anything changed.
+
+        The GraphQL mod list is unreliable in two ways this repairs:
+          * it sometimes marks non-optional mods as optional; and
+          * its per-file name comes from ``file.mod.name``, which is the SHARED
+            mod-page name — so every file from one page shows the same text
+            (the six identical "…Textures" rows). Worse, when GraphQL can't
+            resolve ``file.mod`` (adult/moderated/partial responses) it returns
+            ``modId=0`` and an EMPTY name; that's the intermittent case where
+            names never de-duplicate.
+
+        The manifest's ``name`` is the clean per-file label (its
+        ``logicalFilename`` is the archive-derived one, occasionally uglier —
+        e.g. hyphens collapsed to spaces — so it's only a fallback). We apply it
+        whenever the current name is ambiguous: empty, or shared by >1 file in
+        this collection. Unique, non-empty GraphQL names are left untouched."""
         info: "dict[int, tuple[bool, str]]" = {}   # file_id → (optional, name)
         for cm in (manifest or {}).get("mods", []):
             src = cm.get("source") or {}
             fid = src.get("fileId")
             if fid is not None:
-                info[int(fid)] = (bool(cm.get("optional", False)),
-                                  cm.get("name") or "")
+                cj_name = (cm.get("name") or src.get("logicalFilename") or "")
+                info[int(fid)] = (bool(cm.get("optional", False)), cj_name)
         if not info:
             return False
-        mod_id_counts: "dict[int, int]" = {}
+        # An ambiguous display name is one that is empty (GraphQL couldn't
+        # resolve the mod page) or shared by more than one file in this
+        # collection (all files from a single mod page). Counting by NAME rather
+        # than mod_id makes this robust to the modId=0 null-mod case.
+        name_counts: "dict[str, int]" = {}
         for m in self._mods:
-            if m.mod_id:
-                mod_id_counts[m.mod_id] = mod_id_counts.get(m.mod_id, 0) + 1
+            nm = m.mod_name or ""
+            name_counts[nm] = name_counts.get(nm, 0) + 1
         changed = False
         for m in self._mods:
             if m.file_id and m.file_id in info:
@@ -761,14 +801,17 @@ class CollectionDetailView(QWidget):
                 if bool(getattr(m, "optional", False)) != opt:
                     m.optional = opt
                     changed = True
-                if cj_name and mod_id_counts.get(m.mod_id, 1) > 1 \
-                        and m.mod_name != cj_name:
+                cur = m.mod_name or ""
+                ambiguous = (not cur) or name_counts.get(cur, 1) > 1
+                if cj_name and ambiguous and cur != cj_name:
                     m.mod_name = cj_name
                     changed = True
         return changed
 
     def _on_manifest_ready(self, payload):
-        offsite, manifest = payload
+        token, offsite, manifest = payload
+        if token != self._detail_token:
+            return                       # a newer revision switch superseded this
         self._offsite = list(offsite or [])
         if manifest and self._apply_manifest_overrides(manifest):
             self._fill_table()

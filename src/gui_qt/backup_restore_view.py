@@ -1,6 +1,10 @@
 """Restore backup overlay — lists a profile's backups (snapshots of
-modlist.txt / plugins.txt / state JSON taken before every deploy) so the user
-can restore one, mark it "kept" (never pruned), or create a fresh backup.
+modlist.txt / plugins.txt / state JSON) so the user can restore one, mark it
+"kept", create a fresh backup, or remove one.
+
+The list is split into two sections: user-made backups (created via the
+New backup button, or automated ones marked Keep — never pruned, no limit)
+and automated backups (created before every deploy, pruned to the newest 20).
 
 Opens as a plugins-panel-scoped tab (covers the whole plugins panel while the
 modlist stays live). Qt port of the Tk gui/backup_restore_dialog.py; reuses the
@@ -20,11 +24,13 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QAbstractItemView,
 )
 
-from gui_qt.theme_qt import active_palette, _c, danger_close_button
+from gui_qt.theme_qt import active_palette, _c, danger_close_button, button_qss
 from gui_qt.text_input_overlay import TextInputOverlay
+from gui_qt.confirm_overlay import ConfirmOverlay
 from Utils.profile_backup import (
-    create_backup, list_backups, restore_backup, backup_stats,
+    create_backup, list_backups, restore_backup, backup_stats, delete_backup,
     is_backup_kept, set_backup_kept, get_backup_label, set_backup_label,
+    is_backup_manual, is_backup_user_made,
 )
 
 # Human-friendly weekday + date + time, e.g. "Fri 04 Jul 2026 · 14:30".
@@ -32,7 +38,7 @@ _CARD_DATE_FMT = "%a %d %b %Y  ·  %H:%M"
 
 
 class BackupRestoreView(QWidget):
-    """Scoped-tab body listing profile backups with restore / keep / create."""
+    """Scoped-tab body listing profile backups with restore / keep / create / remove."""
 
     def __init__(self, profile_dir: Path, profile_name: str = "default",
                  on_restored=None, on_close=None, log_fn=None):
@@ -42,7 +48,9 @@ class BackupRestoreView(QWidget):
         self._on_restored = on_restored or (lambda: None)
         self._on_close = on_close or (lambda: None)
         self._log = log_fn or (lambda _m: None)
-        self._backups: list = []
+        # Per-row payload: (datetime, backup_dir) for backup rows, None for
+        # section headers / placeholder rows.
+        self._row_backups: list = []
 
         self.setObjectName("BackupRestoreView")
         self._build()
@@ -84,51 +92,84 @@ class BackupRestoreView(QWidget):
         self._list.itemSelectionChanged.connect(self._on_selection)
         v.addWidget(self._list, 1)
 
-        # Empty-state label (shown in place of the list when there are none).
-        self._empty = QLabel(self.tr("No backups yet. Backups are created when you deploy."))
-        self._empty.setAlignment(Qt.AlignCenter)
-        self._empty.setStyleSheet(f"color:{_c(p,'TEXT_DIM')}; padding:24px;")
-        self._empty.setVisible(False)
-        v.addWidget(self._empty, 1)
-
-        # Button row: New backup (left) | Keep, Cancel, Restore (right).
+        # Button row: New backup (left) | Restore, Keep, Rename, Remove (right).
+        # Colours are palette-driven so custom themes restyle them.
         row = QWidget()
         rh = QHBoxLayout(row); rh.setContentsMargins(12, 8, 12, 12); rh.setSpacing(8)
-        self._new_btn = QPushButton(self.tr("New backup"))
+        self._new_btn = self._colored_button(self.tr("New backup"), "BTN_SUCCESS")
         self._new_btn.clicked.connect(self._on_create)
         rh.addWidget(self._new_btn)
         rh.addStretch(1)
-        self._rename_btn = QPushButton(self.tr("Rename"))
-        self._rename_btn.setEnabled(False)
-        self._rename_btn.clicked.connect(self._on_rename)
-        rh.addWidget(self._rename_btn)
-        self._keep_btn = QPushButton(self.tr("Keep"))
-        self._keep_btn.setEnabled(False)
-        self._keep_btn.clicked.connect(self._on_keep)
-        rh.addWidget(self._keep_btn)
-        cancel = QPushButton(self.tr("Cancel"))
-        cancel.clicked.connect(lambda: self._on_close())
-        rh.addWidget(cancel)
-        self._restore_btn = QPushButton(self.tr("Restore"))
+        self._restore_btn = self._colored_button(self.tr("Restore"), "BTN_WARN_ORANGE")
         self._restore_btn.setEnabled(False)
         self._restore_btn.clicked.connect(self._on_restore)
         rh.addWidget(self._restore_btn)
+        self._keep_btn = self._colored_button(self.tr("Keep"), "BTN_PURPLE")
+        self._keep_btn.setEnabled(False)
+        self._keep_btn.clicked.connect(self._on_keep)
+        rh.addWidget(self._keep_btn)
+        self._rename_btn = self._colored_button(self.tr("Rename"), "BTN_INFO")
+        self._rename_btn.setEnabled(False)
+        self._rename_btn.clicked.connect(self._on_rename)
+        rh.addWidget(self._rename_btn)
+        self._remove_btn = self._colored_button(self.tr("Remove"), "BTN_DANGER")
+        self._remove_btn.setEnabled(False)
+        self._remove_btn.clicked.connect(self._on_remove)
+        rh.addWidget(self._remove_btn)
         v.addWidget(row)
+
+    @staticmethod
+    def _colored_button(text: str, key: str) -> QPushButton:
+        b = QPushButton(text)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setStyleSheet(button_qss(key, hover_key=key + "_HOV",
+                                   padding="6px 14px"))
+        return b
 
     # ---- data -------------------------------------------------------------
     def _reload_list(self):
-        self._backups = list_backups(self._profile_dir)
+        all_backups = list_backups(self._profile_dir)
+        user = [(dt, b) for dt, b in all_backups if is_backup_user_made(b)]
+        auto = [(dt, b) for dt, b in all_backups if not is_backup_user_made(b)]
+        self._row_backups = []
         self._list.clear()
-        for dt, bdir in self._backups:
+        self._add_section(
+            self.tr("User backups"), user,
+            self.tr("No user backups. Use New backup, or Keep an automated one."))
+        self._add_section(
+            self.tr("Automated backups"), auto,
+            self.tr("No automated backups yet. One is created every time you deploy."))
+        self._on_selection()
+
+    def _add_section(self, title: str, backups: list, empty_text: str):
+        p = active_palette()
+        header = QLabel(title)
+        header.setStyleSheet(
+            f"color:{_c(p,'TEXT_DIM')}; font-weight:600; font-size:11px;"
+            " padding:8px 4px 2px 4px; text-transform:uppercase;")
+        self._add_widget_row(header)
+        if not backups:
+            placeholder = QLabel(empty_text)
+            placeholder.setStyleSheet(
+                f"color:{_c(p,'TEXT_DIM')}; font-size:11px; padding:2px 8px 6px 8px;")
+            self._add_widget_row(placeholder)
+            return
+        for dt, bdir in backups:
             item = QListWidgetItem()
             card = self._make_card(dt, bdir)
             item.setSizeHint(card.sizeHint())
             self._list.addItem(item)
             self._list.setItemWidget(item, card)
-        has_any = bool(self._backups)
-        self._list.setVisible(has_any)
-        self._empty.setVisible(not has_any)
-        self._on_selection()
+            self._row_backups.append((dt, bdir))
+
+    def _add_widget_row(self, widget):
+        """Add a non-selectable decoration row (section header / placeholder)."""
+        item = QListWidgetItem()
+        item.setFlags(Qt.NoItemFlags)
+        item.setSizeHint(widget.sizeHint())
+        self._list.addItem(item)
+        self._list.setItemWidget(item, widget)
+        self._row_backups.append(None)
 
     def _make_card(self, dt, bdir) -> QWidget:
         """Build a summary card for one backup: date + mod/plugin counts."""
@@ -137,7 +178,7 @@ class BackupRestoreView(QWidget):
         stats = backup_stats(bdir)
 
         card = QWidget()
-        accent = _c(p, 'ACCENT') if kept else _c(p, 'BORDER')
+        accent = _c(p, 'ACCENT') if is_backup_user_made(bdir) else _c(p, 'BORDER')
         card.setStyleSheet(
             f"QWidget#bcard {{ background:{_c(p,'BG_PANEL')};"
             f" border:1px solid {_c(p,'BORDER')};"
@@ -182,50 +223,64 @@ class BackupRestoreView(QWidget):
         g.addWidget(stat, row, 0, 1, 2)
         return card
 
-    def _selected_index(self) -> int:
-        return self._list.currentRow() if self._backups else -1
+    def _selected_backup(self):
+        """Return (datetime, backup_dir) for the selected row, or None."""
+        row = self._list.currentRow()
+        if 0 <= row < len(self._row_backups):
+            return self._row_backups[row]
+        return None
+
+    def _select_backup(self, bdir: Path):
+        """Re-select a backup by folder after the list was rebuilt."""
+        for row, payload in enumerate(self._row_backups):
+            if payload is not None and payload[1] == bdir:
+                self._list.setCurrentRow(row)
+                return
 
     # ---- handlers ---------------------------------------------------------
     def _on_selection(self):
-        idx = self._selected_index()
-        has_sel = 0 <= idx < len(self._backups)
-        self._restore_btn.setEnabled(has_sel)
-        self._keep_btn.setEnabled(has_sel)
-        self._rename_btn.setEnabled(has_sel)
-        if has_sel:
-            _dt, bdir = self._backups[idx]
-            self._keep_btn.setText(self.tr("Unkeep") if is_backup_kept(bdir) else self.tr("Keep"))
+        sel = self._selected_backup()
+        self._restore_btn.setEnabled(sel is not None)
+        self._rename_btn.setEnabled(sel is not None)
+        self._remove_btn.setEnabled(sel is not None)
+        if sel is not None and not is_backup_manual(sel[1]):
+            # Keep toggles an automated backup into/out of the user section.
+            # Manual backups are user-made by definition, so Keep is moot.
+            self._keep_btn.setEnabled(True)
+            self._keep_btn.setText(
+                self.tr("Unkeep") if is_backup_kept(sel[1]) else self.tr("Keep"))
         else:
+            self._keep_btn.setEnabled(False)
             self._keep_btn.setText(self.tr("Keep"))
 
     def _on_create(self):
         try:
-            create_backup(self._profile_dir, log_fn=self._log)
+            create_backup(self._profile_dir, log_fn=self._log, manual=True)
         except Exception as exc:  # noqa: BLE001 — surface, don't crash the tab
             self._log(f"[backup] create failed: {exc}")
         self._reload_list()
 
     def _on_keep(self):
-        idx = self._selected_index()
-        if not (0 <= idx < len(self._backups)):
+        sel = self._selected_backup()
+        if sel is None:
             return
-        _dt, bdir = self._backups[idx]
+        _dt, bdir = sel
         set_backup_kept(bdir, not is_backup_kept(bdir))
         self._reload_list()
-        self._list.setCurrentRow(idx)
+        self._select_backup(bdir)
 
     def _on_rename(self):
-        idx = self._selected_index()
-        if not (0 <= idx < len(self._backups)):
+        sel = self._selected_backup()
+        if sel is None:
             return
-        _dt, bdir = self._backups[idx]
+        _dt, bdir = sel
 
         def _done(text):
             if text is None:
                 return
             set_backup_label(bdir, text)
             self._reload_list()
-            self._list.setCurrentRow(idx)
+            self._select_backup(bdir)
 
         TextInputOverlay.show_over(
             self,
@@ -236,11 +291,35 @@ class BackupRestoreView(QWidget):
             ok_label=self.tr("Rename"),
         )
 
-    def _on_restore(self):
-        idx = self._selected_index()
-        if not (0 <= idx < len(self._backups)):
+    def _on_remove(self):
+        sel = self._selected_backup()
+        if sel is None:
             return
-        _dt, backup_dir = self._backups[idx]
+        dt, bdir = sel
+        name = get_backup_label(bdir) or dt.strftime(_CARD_DATE_FMT)
+
+        def _done(ok):
+            if not ok:
+                return
+            try:
+                delete_backup(bdir)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[backup] remove failed: {exc}")
+            self._reload_list()
+
+        ConfirmOverlay.show_over(
+            self,
+            self.tr("Remove backup"),
+            self.tr("Remove backup \"{0}\"? This cannot be undone.").format(name),
+            _done,
+            confirm_label=self.tr("Remove"),
+        )
+
+    def _on_restore(self):
+        sel = self._selected_backup()
+        if sel is None:
+            return
+        _dt, backup_dir = sel
         try:
             restore_backup(self._profile_dir, backup_dir)
         except Exception as exc:  # noqa: BLE001

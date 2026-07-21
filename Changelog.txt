@@ -8,14 +8,18 @@
 - Added a refresh plugins button to gather loot meta data without sorting plugins. xedit wizards now refresh meta data automatically once they close
 - Added an option to supress the update notification
 ### Changes
+- When deploying a game installed via heroic flatpak, heroic is granted permission to access the staging folder to allow it to read symlinked files.
 - File dependancies (plugins) in fomods are now saved to their meta.ini. If the plugin is later installed or removed a flag is shown as a reminder to reinstall the fomod
 - When installing mods, they are no longer queued if a fomod window is open (This was necessary before 2.0 but the tab system means this is no longer needed)
 - Selecting and installing multiple mods in the downloads tab will now install them in parallel, like collections
 - Exporting a profile now shows export progress
 - Reworked the Oblivion Remastered handler to be more in line with how other ue5 games are handled
+- Separated automated backups from manually created backups in the restore backup menu
 ### Bug Fixes
 - Fixed fomod flag not being applied to the meta.ini meaning the show only fomod filter would not work on new fomod installs
 - Fixed an issue where vanilla files could be removed from the game folder when removing a mod that contained vanilla file overrides
+- Fixed an issue where mods would not have their category filled when installed via a collection or when an md5 lookup is used on the mod
+- Fixed folders being created in the home directory when the default staging folder was changed
 
 ---
 

@@ -37,7 +37,7 @@ from Utils.config_paths import (
     get_profile_exe_args_path,
 )
 from Utils.protontricks import strip_appimage_env
-from Utils.xdg import spawn_watched, xdg_open
+from Utils.xdg import spawn_watched
 
 _LAUNCH_MODE_FILE = "exe_launch_mode.json"
 _CUSTOM_EXES_FILE = "custom_exes.json"
@@ -725,6 +725,71 @@ def game_is_lutris_install(game) -> bool:
 # Steam / Heroic / Lutris launch
 # ---------------------------------------------------------------------------
 
+def spawn_process_watched(cmd: list, *, env: "dict | None" = None,
+                          cwd=None, label: str, log_fn=_noop_log) -> None:
+    """Popen *cmd* detached and watch its exit so failures aren't silent.
+
+    The old ``Popen(..., stdout=DEVNULL, stderr=DEVNULL)`` pattern made a
+    Proton/game process that died instantly (bad prefix, missing runtime,
+    umu error) indistinguishable from a successful launch — the log ended at
+    "launching …" and the Play button looked like it did nothing.
+
+    stderr goes to an unlinked temp *file* (not a pipe: a pipe would EPIPE the
+    game if our app exits first, and a full pipe buffer could block it); a
+    daemon thread waits for the exit and logs the code plus a stderr tail.
+    The exit line also fires on a normal quit hours later — that's fine, it
+    confirms the lifecycle in the session log.
+    """
+    import tempfile
+    import threading
+
+    errfile = None
+    try:
+        errfile = tempfile.TemporaryFile()
+    except Exception:
+        pass
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=str(cwd) if cwd is not None else None,
+            stdout=subprocess.DEVNULL,
+            stderr=errfile if errfile is not None else subprocess.DEVNULL,
+        )
+    except Exception as e:
+        if errfile is not None:
+            errfile.close()
+        log_fn(f"{label} error: {e}")
+        return
+    log_fn(f"{label}: started (pid {proc.pid})")
+
+    def _watch() -> None:
+        rc = proc.wait()
+        tail = ""
+        if errfile is not None:
+            try:
+                errfile.seek(0, os.SEEK_END)
+                size = errfile.tell()
+                errfile.seek(max(0, size - 4096))
+                tail = errfile.read().decode(errors="replace").strip()
+            except Exception:
+                tail = ""
+            finally:
+                try:
+                    errfile.close()
+                except Exception:
+                    pass
+        if rc == 0:
+            log_fn(f"{label}: exited cleanly (rc=0)")
+            return
+        log_fn(f"{label}: exited with code {rc}")
+        for line in tail.splitlines()[-8:]:
+            if line.strip():
+                log_fn(f"{label}:   {line}")
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
 def launch_via_steam(steam_id: str, log_fn=_noop_log) -> None:
     """Launch through Steam (steam://rungameid) so the Steam API initialises.
 
@@ -764,6 +829,7 @@ def launch_via_steam(steam_id: str, log_fn=_noop_log) -> None:
             f"Play steam://{steam_id}",
             log_fn,
             on_fail=lambda: _try(idx + 1),
+            log_success=True,
         )
 
     _try(0)
@@ -771,17 +837,44 @@ def launch_via_steam(steam_id: str, log_fn=_noop_log) -> None:
 
 def launch_via_heroic(heroic_app_names: list, log_fn=_noop_log) -> bool:
     """Launch through Heroic (heroic://launch). Returns False if the game
-    isn't in a Heroic library (caller may fall through to Proton)."""
+    isn't in a Heroic library (caller may fall through to Proton).
+
+    Same chain-on-failure pattern as launch_via_steam: xdg-open only works
+    when a heroic:// scheme handler is registered on the host, which AppImage
+    Heroic installs don't do — fall through to invoking the Heroic flatpak /
+    binary directly with the URL as argument (Heroic accepts it via its
+    protocol Exec line)."""
     from Utils.heroic_finder import find_heroic_launch_info
     info = find_heroic_launch_info(heroic_app_names)
     if info is None:
         log_fn("Play: game not found in Heroic library.")
         return False
     store, app_name = info
+    url = f"heroic://launch/{store}/{app_name}"
     log_fn(f"Play: launching via Heroic ({store}/{app_name}) ...")
-    # xdg_open spawns asynchronously and reports failures through log_fn (it
-    # doesn't raise), so pass it through rather than wrapping in try/except.
-    xdg_open(f"heroic://launch/{store}/{app_name}", log_fn=log_fn)
+
+    in_flatpak = Path("/.flatpak-info").exists()
+    host = (["flatpak-spawn", "--host"]
+            if in_flatpak and shutil.which("flatpak-spawn") else [])
+    candidates = [
+        [*host, "xdg-open", url],
+        [*host, "flatpak", "run", "com.heroicgameslauncher.hgl", url],
+        [*host, "heroic", url],
+    ]
+
+    def _try(idx: int) -> None:
+        if idx >= len(candidates):
+            log_fn("Play error: could not reach Heroic (no working launcher).")
+            return
+        spawn_watched(
+            candidates[idx],
+            f"Play heroic://{store}/{app_name}",
+            log_fn,
+            on_fail=lambda: _try(idx + 1),
+            log_success=True,
+        )
+
+    _try(0)
     return True
 
 
@@ -847,6 +940,7 @@ def launch_via_lutris(slugs: list, log_fn=_noop_log) -> bool:
             f"Play lutris:{slug}",
             log_fn,
             on_fail=lambda: _try(idx + 1),
+            log_success=True,
         )
 
     _try(0)
@@ -1457,21 +1551,28 @@ def launch_wine_tool_in_prefix(proton_script: Path, prefix_dir: Path, env: dict,
 def launch_game(game, log_fn=_noop_log) -> None:
     """Launch the game itself: native command / Steam / Heroic / Proton,
     honouring the saved launch mode. Call from a worker thread."""
+    from Utils.xdg import host_env
     native_cmd = getattr(game, "get_launch_command", lambda: None)()
     if native_cmd is not None:
         log_fn(f"Play: launching natively: {' '.join(native_cmd)}")
-        try:
-            subprocess.Popen(
-                native_cmd,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        except Exception as e:
-            log_fn(f"Play error: {e}")
+        spawn_process_watched(native_cmd, env=host_env(),
+                              label="Play (native)", log_fn=log_fn)
         return
 
     mode = load_launch_mode(game, game_exe_key(game))
     steam_id = effective_steam_id(game)
     heroic_app_names = heroic_app_names_for_launch(game)
+    is_steam = game_is_steam_install(game)
+
+    # One routing-trace line so a user's session log shows WHY a launch route
+    # was chosen or skipped — "the Play button does nothing" reports are
+    # undiagnosable without it.
+    pkg = ("flatpak" if Path("/.flatpak-info").exists()
+           else "appimage" if os.environ.get("APPIMAGE") else "host")
+    log_fn(f"Play: routing — mode={mode}, steam_id={steam_id or 'none'}, "
+           f"steam_library_install={is_steam}, "
+           f"heroic={','.join(heroic_app_names) if heroic_app_names else 'none'}, "
+           f"pkg={pkg}")
 
     if mode == "steam":
         if steam_id:
@@ -1496,7 +1597,7 @@ def launch_game(game, log_fn=_noop_log) -> None:
         return
 
     if mode != "none":  # "auto"
-        if steam_id and game_is_steam_install(game):
+        if steam_id and is_steam:
             launch_via_steam(steam_id, log_fn)
             return
         if heroic_app_names and game_is_heroic_install(game):
@@ -1508,6 +1609,8 @@ def launch_game(game, log_fn=_noop_log) -> None:
         if lutris_slugs:
             if launch_via_lutris(lutris_slugs, log_fn):
                 return
+        log_fn("Play: no Steam/Heroic/Lutris route matched — launching the "
+               "game executable directly.")
 
     exe_path = resolve_game_exe(game)
     if exe_path is None:
@@ -1518,14 +1621,9 @@ def launch_game(game, log_fn=_noop_log) -> None:
     # routing through Proton, which would fail on an ELF executable.
     if exe_path.suffix.lower() not in (".exe", ".bat"):
         log_fn(f"Play: launching native binary: {exe_path}")
-        try:
-            subprocess.Popen(
-                [str(exe_path)],
-                cwd=str(exe_path.parent),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        except Exception as e:
-            log_fn(f"Play error: {e}")
+        spawn_process_watched([str(exe_path)], env=host_env(),
+                              cwd=exe_path.parent,
+                              label="Play (native)", log_fn=log_fn)
         return
 
     launch_exe_via_proton(exe_path, game, log_fn)
@@ -1770,15 +1868,8 @@ def launch_exe_via_proton(exe_path: Path, game, log_fn=_noop_log) -> None:
     if _env_summary:
         log_fn(f"Run EXE:   env: {_env_summary}")
 
-    try:
-        subprocess.Popen(
-            final_cmd,
-            env=env,
-            cwd=exe_path.parent,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    except Exception as e:
-        log_fn(f"Run EXE error: {e}")
+    spawn_process_watched(final_cmd, env=env, cwd=exe_path.parent,
+                          label=f"Run EXE {exe_path.name}", log_fn=log_fn)
 
 
 def resolve_jar_prefix_env(jar_path: Path, game, log_fn=_noop_log):

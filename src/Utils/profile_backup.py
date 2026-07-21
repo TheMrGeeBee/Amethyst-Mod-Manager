@@ -3,6 +3,11 @@ profile_backup.py
 Backup and restore modlist.txt, plugins.txt, and related JSON state for a profile.
 Each backup is stored in its own folder under profile_dir/backups/<timestamp>/.
 Used before deploy (create_backup) and via Restore backup UI (list_backups, restore_backup).
+
+Backups fall into two groups:
+  - Automated: created before each deploy; pruned to the newest _MAX_BACKUPS.
+  - User-made: created via the New backup button (.manual marker) or marked
+    kept (.keep marker). Never pruned; removable only via delete_backup.
 """
 
 from __future__ import annotations
@@ -67,6 +72,23 @@ def set_backup_kept(backup_dir: Path, keep: bool) -> None:
         marker.unlink()
 
 
+_MANUAL_MARKER = ".manual"
+
+
+def is_backup_manual(backup_dir: Path) -> bool:
+    """Return True if this backup was created by the user (New backup button)."""
+    return (backup_dir / _MANUAL_MARKER).is_file()
+
+
+def is_backup_user_made(backup_dir: Path) -> bool:
+    """Return True if this backup belongs to the user-made group.
+
+    User-made = created manually via the New backup button, or an automated
+    backup the user marked kept. These are never pruned.
+    """
+    return is_backup_manual(backup_dir) or is_backup_kept(backup_dir)
+
+
 _LABEL_MARKER = ".label"
 
 
@@ -95,12 +117,13 @@ def set_backup_label(backup_dir: Path, label: str) -> None:
         marker.unlink()
 
 
-def create_backup(profile_dir: Path, log_fn=None) -> None:
+def create_backup(profile_dir: Path, log_fn=None, manual: bool = False) -> None:
     """
     Create a new backup in profile_dir/backups/<timestamp>/ containing
     modlist.txt, plugins.txt, and (if present) profile_state.json.
-    Keep at most _MAX_BACKUPS backup folders; delete oldest when over limit.
-    Backups marked with .keep are never pruned.
+    Automated backups (manual=False) are pruned to the newest _MAX_BACKUPS;
+    user-made backups (manual=True, or later marked kept) are never pruned
+    and don't count toward the limit.
     """
     _log = _safe_log(log_fn)
     backups_dir = profile_dir / _BACKUPS_SUBDIR
@@ -116,13 +139,16 @@ def create_backup(profile_dir: Path, log_fn=None) -> None:
             shutil.copy2(src, dst)
             _log(f"Backup: {name}")
 
+    if manual:
+        (backup_folder / _MANUAL_MARKER).touch(exist_ok=True)
+
     # Prune to _MAX_BACKUPS: list subdirs by name (chronological order), remove oldest.
-    # Kept backups are excluded from pruning (and from the count).
+    # User-made backups are excluded from pruning (and from the count).
     def _prunable_backups():
         dirs = [
             p for p in backups_dir.iterdir()
             if p.is_dir() and _parse_timestamp_from_dirname(p.name) is not None
-               and not is_backup_kept(p)
+               and not is_backup_user_made(p)
         ]
         dirs.sort(key=lambda p: p.name)
         return dirs
@@ -217,3 +243,16 @@ def restore_backup(profile_dir: Path, backup_dir: Path) -> None:
         src = backup_dir / name
         if src.is_file():
             shutil.copy2(src, profile_dir / name)
+
+
+def delete_backup(backup_dir: Path) -> None:
+    """Permanently delete one backup folder.
+
+    Guards against deleting anything that isn't a timestamp-named folder
+    directly inside a ``backups`` dir, so a bad path can't wipe a profile.
+    """
+    backup_dir = Path(backup_dir)
+    if (backup_dir.parent.name != _BACKUPS_SUBDIR
+            or _parse_timestamp_from_dirname(backup_dir.name) is None):
+        raise ValueError(f"Not a backup folder: {backup_dir}")
+    shutil.rmtree(backup_dir)

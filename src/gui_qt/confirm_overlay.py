@@ -79,11 +79,11 @@ class ConfirmOverlay(OverlayBase):
         return cls(top or host, title, body, on_done, **kw)
 
     @classmethod
-    def show_message(cls, host, title, body, on_done=None, ok_label=None):
+    def show_message(cls, host, title, body, on_done=None, ok_label=None, **kw):
         """OK-only message card (QMessageBox.warning/critical replacement)."""
         from PySide6.QtCore import QCoreApplication
         if ok_label is None:
             ok_label = QCoreApplication.translate("ConfirmOverlay", "OK")
         return cls.show_over(host, title, body, on_done,
                              confirm_label=ok_label, cancel_label=None,
-                             danger=False)
+                             danger=False, **kw)

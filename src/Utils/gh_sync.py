@@ -124,6 +124,68 @@ def sync_custom_handlers(on_changed: Optional[Callable[[], None]] = None) -> Non
     threading.Thread(target=_do, daemon=True).start()
 
 
+def force_update_handler(candidates,
+                         on_done: Optional[Callable[[str], None]] = None) -> None:
+    """Force re-download a single custom handler .json from the Resources
+    branch, bypassing the fetch-cache throttle (a manual "Force update
+    handler" press — so it also ignores dev mode, like sync_languages
+    force=True).
+
+    *candidates* is a sequence of possible file names inside the repo's
+    ``Custom Handlers/`` folder, tried in order against a fresh listing
+    (normally ``[basename of _source_file, "<game_id>.json"]`` — repo
+    handlers are named ``<game_id>.json``, but a local edit re-saves under
+    the game_id so the two can differ).
+
+    Runs on a daemon thread. ``on_done`` fires on the worker thread —
+    marshal to the GUI thread yourself — with one of:
+
+    * ``"updated"``   — a newer definition was downloaded and written
+    * ``"unchanged"`` — the repo copy already matches the local file
+    * ``"missing"``   — no candidate exists on the Resources branch
+    * ``"failed"``    — network error or the repo copy isn't valid JSON
+    """
+
+    def _do():
+        status = "failed"
+        try:
+            listing = fetch_text(
+                _CUSTOM_HANDLERS_API_URL, timeout=15, min_interval=0, force=True,
+            )
+            if listing is not None:
+                by_name = {
+                    e.get("name"): e.get("download_url")
+                    for e in json.loads(listing)
+                    if isinstance(e, dict) and e.get("type") == "file"
+                }
+                download_url = next(
+                    (by_name[c] for c in candidates if by_name.get(c)), None)
+                if download_url is None:
+                    status = "missing"
+                else:
+                    raw = fetch_text(
+                        download_url, accept="*/*", timeout=15,
+                        min_interval=0, force=True,
+                    )
+                    if raw is not None:
+                        json.loads(raw)  # validate
+                        # Write back under the repo name so future startup
+                        # syncs keep updating the same file.
+                        matched = next(c for c in candidates if by_name.get(c))
+                        dest = get_custom_games_dir() / matched
+                        status = ("updated" if _write_if_changed(dest, raw)
+                                  else "unchanged")
+        except Exception:
+            status = "failed"
+        if on_done is not None:
+            try:
+                on_done(status)
+            except Exception:
+                pass
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
 def sync_plugins(on_changed: Optional[Callable[[], None]] = None) -> None:
     """Background-download every Qt wizard plugin, overwriting stale copies.
 

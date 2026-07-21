@@ -19,9 +19,6 @@ decky/
 .mcp.json
 **/__pycache__/
 /tools
-src/appimage/dist/
-/sync-upstream.shsrc/appimage/dist/
 AmethystModManager-AppImage/
-*.AppImage
 *.AppImage.zsync
-*.flatpak
+src/appimage/dist/
