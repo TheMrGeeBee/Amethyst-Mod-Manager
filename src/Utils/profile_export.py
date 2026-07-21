@@ -79,6 +79,7 @@ def load_rows(entries, game) -> list[dict]:
         category_name = ""
         size_bytes = 0
         root_folder = False
+        is_modio = False
         if staging_root:
             meta_path = Path(staging_root) / name / "meta.ini"
             if meta_path.is_file():
@@ -93,6 +94,18 @@ def load_rows(entries, game) -> list[dict]:
                     root_folder = bool(meta.root_folder)
                 except Exception:
                     pass
+                if not mod_id:
+                    # No Nexus identification — check whether this is a
+                    # mod.io-identified mod instead, which has no downloadable
+                    # reference on export and must be bundled (its files zipped
+                    # into the .amethyst package) rather than blocked.
+                    try:
+                        import configparser as _cp_modio
+                        _cp = _cp_modio.ConfigParser(interpolation=None)
+                        _cp.read(str(meta_path), encoding="utf-8")
+                        is_modio = int(_cp.get("General", "modioModId", fallback="0") or "0") > 0
+                    except Exception:
+                        is_modio = False
 
         if file_id and version:
             ver_label = f"{file_id} — {version}"
@@ -131,7 +144,7 @@ def load_rows(entries, game) -> list[dict]:
             "root_folder":      root_folder,
             "enabled":          bool(getattr(entry, "enabled", True)),
             "locked":           bool(mod_locks.get(name)),
-            "source":           "nexus",
+            "source":           "bundle" if is_modio else "nexus",
             "direct_url":       "",
         })
 

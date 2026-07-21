@@ -2433,8 +2433,55 @@ def _write_install_meta(dest_root: Path, archive: Path, game, log_fn: LogFn,
             _clear_meta_key(meta_path, "fomodPendingDeps")
         if is_fomod and not fomod_active_deps:
             _clear_meta_key(meta_path, "fomodActiveDeps")
+        # mod.io mods ship no Nexus-compatible meta file, so a Nexus miss is
+        # our only signal to try mod.io identification — BG3-only, and a
+        # no-op without a configured mod.io API key.
+        if (prebuilt_meta is None and not getattr(meta, "mod_id", 0)
+                and getattr(game, "game_id", "") == "baldurs_gate_3"):
+            _try_resolve_modio(meta_path, dest_root, archive, log_fn)
     except Exception as exc:
         log_fn(f"meta.ini write skipped ({exc}).")
+
+
+def _load_bg3_sibling(stem: str):
+    """Load a ``Games/Baldur's Gate 3/<stem>.py`` module by file path.
+
+    The folder name has a space, so it isn't importable by dotted path.
+    Cached in ``sys.modules`` under ``f"{stem}_bg3"``, mirroring the same
+    loader duplicated in ``modio_meta.py`` and ``gui_qt/app.py``.
+    """
+    import importlib.util
+    import sys as _sys
+    mod_name = f"{stem}_bg3"
+    cached = _sys.modules.get(mod_name)
+    if cached is not None:
+        return cached
+    bg3_dir = Path(__file__).resolve().parent.parent / "Games" / "Baldur's Gate 3"
+    spec = importlib.util.spec_from_file_location(mod_name, str(bg3_dir / f"{stem}.py"))
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _try_resolve_modio(meta_path: Path, dest_root: Path, archive: Path, log_fn: LogFn) -> None:
+    """Identify a BG3 mod.io mod and stamp its meta.ini, if possible.
+
+    Silent no-op without a configured mod.io API key or if the pak carries
+    no mod.io PublishHandle — never raises, mirrors the enclosing Nexus
+    resolution's failure handling.
+    """
+    try:
+        modio_key = _load_bg3_sibling("modio_key")
+        api_key = modio_key.load_modio_key()
+        if not api_key:
+            return
+        modio_meta = _load_bg3_sibling("modio_meta")
+        meta = modio_meta.resolve_modio_meta(archive, dest_root, api_key, log_fn)
+        if meta is not None and meta.mod_id > 0:
+            modio_meta.write_modio_meta(meta_path, meta)
+    except Exception as exc:
+        log_fn(f"mod.io meta resolution skipped ({exc}).")
 
 
 def _check_nexus_flags_after_install(game, mod_names, log_fn: LogFn) -> None:

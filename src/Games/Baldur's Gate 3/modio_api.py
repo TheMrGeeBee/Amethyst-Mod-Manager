@@ -77,6 +77,44 @@ class ModioModSummary:
         )
 
 
+@dataclass
+class ModioModDetail:
+    """Full detail for one mod, from the single-mod endpoint."""
+
+    mod_id: int = 0
+    name: str = ""
+    profile_url: str = ""
+    uploader: str = ""
+    tags: "list[str]" = None
+    # The mod's live/public release — distinct from the full upload history
+    # returned by the files endpoint, which also includes hidden/test builds
+    # (e.g. cross-platform test samples) that were never made the official
+    # release. This is what "latest version" should mean.
+    latest_file_id: int = 0
+    latest_version: str = ""
+    latest_date_added: int = 0
+
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = []
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ModioModDetail":
+        submitter = d.get("submitted_by") or {}
+        tags = [str(t.get("name") or "") for t in (d.get("tags") or [])]
+        mf = d.get("modfile") or {}
+        return cls(
+            mod_id=int(d.get("id") or 0),
+            name=str(d.get("name") or ""),
+            profile_url=str(d.get("profile_url") or ""),
+            uploader=str(submitter.get("username") or ""),
+            tags=[t for t in tags if t],
+            latest_file_id=int(mf.get("id") or 0),
+            latest_version=str(mf.get("version") or ""),
+            latest_date_added=int(mf.get("date_added") or 0),
+        )
+
+
 class ModioAPIError(Exception):
     """Raised on a failed mod.io API request (network or HTTP error)."""
 
@@ -213,6 +251,24 @@ class ModioAPI:
         except (requests.RequestException, ValueError) as e:
             app_log(f"mod.io: profile_url lookup failed for {mod_id}: {e}")
             return ""
+
+    def get_mod_detail(self, mod_id: int) -> "ModioModDetail | None":
+        """Return full detail (name, profile URL, uploader, tags) for *mod_id*.
+
+        Returns None on failure — same fetch as :meth:`get_mod_profile_url`
+        but keeps the rest of the mod object instead of discarding it.
+        """
+        if mod_id <= 0:
+            return None
+        url = f"{_API_ROOT}/games/{_GAME}/mods/{mod_id}"
+        try:
+            resp = self._get(url, {"api_key": self._api_key})
+            if resp.status_code != 200:
+                return None
+            return ModioModDetail.from_json(resp.json())
+        except (requests.RequestException, ValueError) as e:
+            app_log(f"mod.io: mod detail lookup failed for {mod_id}: {e}")
+            return None
 
     def test_key(self) -> bool:
         """Lightweight key validation: a cheap games query that needs auth.
