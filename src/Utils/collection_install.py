@@ -1423,6 +1423,12 @@ def run_collection_install(
         except Exception as exc:
             log(f"Collection install: apply disabled states failed: {exc}")
         try:
+            _apply_schema_locked_mods(
+                modlist_path, collection_schema, schema_file_id_to_pos,
+                install_order, profile_dir, log)
+        except Exception as exc:
+            log(f"Collection install: apply mod locks failed: {exc}")
+        try:
             _apply_manifest_separators(
                 profile_dir, modlist_path, collection_schema, log)
         except Exception as exc:
@@ -1714,6 +1720,54 @@ def _apply_schema_disabled_mods(modlist_path, collection_schema,
             f"(manifest enabled=false).")
 
 
+def _apply_schema_locked_mods(modlist_path, collection_schema,
+                              schema_file_id_to_pos, install_order,
+                              profile_dir, log):
+    """Reorder-lock the mods the manifest carries as ``locked: true`` (share-
+    code exports include the source profile's per-mod reorder locks — see
+    ``profile_export.load_rows`` — so the recipient understands why those
+    mods won't reorder). Resolution mirrors ``_apply_schema_disabled_mods``
+    (install_order key, falling back to a name match). Unlike enabled/
+    disabled, the lock isn't a modlist.txt prefix — it's written into the
+    target profile's ``mod_locks`` (Utils.profile_state), same as a manual
+    Lock mod would."""
+    schema_mods: list[dict] = collection_schema.get("mods", [])
+    key_to_folder: dict[int, str] = {key: folder for key, folder in install_order}
+    targets: set[str] = set()
+    for m in schema_mods:
+        if not m.get("locked"):
+            continue
+        folder = ""
+        fid = (m.get("source") or {}).get("fileId")
+        if fid is not None:
+            try:
+                folder = key_to_folder.get(
+                    schema_file_id_to_pos.get(int(fid), -1), "")
+            except (TypeError, ValueError):
+                folder = ""
+        if not folder:
+            folder = m.get("name") or ""
+        if folder:
+            targets.add(folder.lower())
+    if not targets:
+        return
+    entries = read_modlist(modlist_path)
+    locked_names = [e.name for e in entries
+                   if not e.is_separator and e.name.lower() in targets]
+    if not locked_names:
+        return
+    try:
+        from Utils.profile_state import read_mod_locks, write_mod_locks
+        locks = read_mod_locks(profile_dir)
+        for name in locked_names:
+            locks[name] = True
+        write_mod_locks(profile_dir, locks)
+        log(f"Collection install: reorder-locked {len(locked_names)} mod(s) "
+            f"(manifest locked=true).")
+    except Exception as exc:
+        log(f"Collection install: apply mod locks failed: {exc}")
+
+
 def _apply_manifest_separators(profile_dir, modlist_path, collection_schema, log):
     """Re-insert the source modlist's separators from the manifest's
     ``modlistSeparators`` block (share-code exports; see
@@ -1750,7 +1804,12 @@ def _apply_manifest_separators(profile_dir, modlist_path, collection_schema, log
         if sep.get("color"):
             colors[name] = str(sep["color"])
         if sep.get("locked"):
-            locks[name] = True
+            # separator_colors is keyed by the internal (`..._separator`) name
+            # but separator_locks is keyed by the DISPLAY name (see
+            # ModlistModel.is_sep_locked/toggle_sep_lock) — writing under the
+            # internal name here means the UI never reads it back as locked.
+            display_name = name[:-len("_separator")] if name.endswith("_separator") else name
+            locks[display_name] = True
     if not added:
         return
     write_modlist(modlist_path, entries)

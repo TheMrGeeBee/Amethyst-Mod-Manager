@@ -18,7 +18,7 @@ from gui_qt.theme_qt import active_palette, _c, qc, qc_contrast
 from gui_qt.icons import icon
 from gui_qt.modlist_model import (
     EntryRole, ConflictRole, BsaConflictRole, FlagsRole, HighlightRole,
-    COL_NAME, COL_FLAGS, COL_CONFLICTS,
+    COL_NAME, COL_FLAGS, COL_CONFLICTS, COL_LOCKED,
 )
 from gui_qt.modlist_data import (
     FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF, FLAG_MISSING_REQS,
@@ -284,6 +284,9 @@ class ModRowDelegate(QStyledItemDelegate):
         elif index.column() == COL_CONFLICTS:
             self._paint_conflicts(p, r, index.data(ConflictRole) or 0,
                                   index.data(BsaConflictRole) or 0)
+        elif index.column() == COL_LOCKED:
+            if not e.is_separator:
+                self._paint_locked_col(p, r, index.model().is_mod_locked(e.name))
         else:
             # Plain columns (Installed/Version/Priority): centred to match the
             # centred headers + the icon columns.
@@ -308,6 +311,27 @@ class ModRowDelegate(QStyledItemDelegate):
         y = r.top() + (r.height() - self.LOCK_SZ) // 2
         return QRect(r.right() - self.PAD - self.LOCK_SZ, y,
                      self.LOCK_SZ, self.LOCK_SZ)
+
+    def _lock_col_rect(self, r):
+        """Centred lock-box rect for the dedicated Locked column (mod rows) —
+        same size/style as _lock_rect, just centred in the cell instead of
+        pinned to its right edge, matching the Flags/Conflicts icon columns."""
+        sz = self.LOCK_SZ
+        return QRect(r.left() + (r.width() - sz) // 2,
+                    r.top() + (r.height() - sz) // 2, sz, sz)
+
+    def _paint_locked_col(self, p, r, locked):
+        """Locked column cell: empty box when unlocked, (gold) lock.png on a
+        neutral fill when locked — same visual language as the separator/
+        Name-column lock boxes. Click handling in editorEvent()."""
+        box = self._lock_col_rect(r)
+        p.setPen(QPen(self.c_border, 1))
+        p.setBrush(QBrush(self.c_check_off))
+        p.drawRoundedRect(box, 3, 3)
+        if locked:
+            lico = icon("lock.png", self.LOCK_SZ - 2)
+            if not lico.isNull():
+                lico.paint(p, box.adjusted(1, 1, -1, -1))
 
     def _col_rect(self, col, r):
         """Sub-rect of a (full-width, spanned) separator row aligned with a
@@ -474,20 +498,14 @@ class ModRowDelegate(QStyledItemDelegate):
 
         tx = box.right() + 10
 
-        # Lock glyph — MO2 "always-on" flag (emoji).
+        # Lock glyph — MO2 "always-on" flag (emoji). The independent reorder-
+        # lock flag has its own dedicated Locked column (see _paint_locked_col)
+        # rather than crowding the Name cell.
         if e.locked:
             p.setPen(self.c_lock)
             p.drawText(QRect(tx, r.top(), 16, r.height()),
                        Qt.AlignVCenter, "\U0001F512")
             tx += 18
-
-        # Reorder-lock glyph — independent flag, distinct icon so it isn't
-        # confused with the "always-on" emoji above (both can show at once).
-        if index.model().is_mod_locked(e.name):
-            lico = icon("lock.png", 14)
-            if not lico.isNull():
-                lico.paint(p, QRect(tx, r.top() + (r.height() - 14) // 2, 14, 14))
-                tx += 18
 
         # Name (elided).
         p.setPen(text_color)
@@ -663,10 +681,22 @@ class ModRowDelegate(QStyledItemDelegate):
     def editorEvent(self, event, model, opt, index):
         if event.type() != QEvent.MouseButtonRelease:
             return False
-        if index.column() not in (COL_NAME, COL_FLAGS, COL_CONFLICTS):
+        if index.column() not in (COL_NAME, COL_FLAGS, COL_CONFLICTS, COL_LOCKED):
             return False
         pos = event.position().toPoint()
         e = model.entry(index.row())
+
+        # Locked column: click anywhere in the cell toggles the mod's reorder
+        # lock directly — no context menu needed. Separators have no reorder
+        # lock (they use the Name-column lock box instead).
+        if index.column() == COL_LOCKED:
+            if e.is_separator:
+                return False
+            view = self.parent()
+            toggle = getattr(view, "_toggle_mod_lock_row", None)
+            if callable(toggle):
+                toggle(index.row())
+            return True
 
         # Flags cell: a click on a flag icon may trigger an action (the update
         # flag opens Change Version). Other flags are inert for now.

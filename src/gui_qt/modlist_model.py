@@ -1,7 +1,7 @@
 """Modlist model — QAbstractTableModel over the ModEntry list.
 
 Columns: Mod Name, Category, Flags, Conflicts, Installed, Version, Author,
-Priority, Size (the checkbox is painted into column 0 by the delegate). Fed by
+Priority, Size, Locked (the checkbox is painted into column 0 by the delegate). Fed by
 read_modlist; version / installed / flags / conflicts / authors are optional
 dicts keyed by mod name (blank when absent). Index 0 = highest priority; the Priority column shows a descending
 number (highest-priority row = largest value).
@@ -40,8 +40,9 @@ COL_VERSION = 5
 COL_AUTHOR = 6
 COL_PRIORITY = 7
 COL_SIZE = 8
+COL_LOCKED = 9
 COLUMNS = ["Mod Name", "Category", "Flags", "Conflicts", "Installed",
-           "Version", "Author", "Priority", "Size"]
+           "Version", "Author", "Priority", "Size", "Locked"]
 
 # COLUMNS doubles as canonical persistence keys, so it must stay untranslated;
 # headerData() translates each label at display time via self.tr(COLUMNS[i]).
@@ -58,6 +59,7 @@ _COLUMN_TR_MARKERS = [
     QT_TRANSLATE_NOOP("ModListModel", "Author"),
     QT_TRANSLATE_NOOP("ModListModel", "Priority"),
     QT_TRANSLATE_NOOP("ModListModel", "Size"),
+    QT_TRANSLATE_NOOP("ModListModel", "Locked"),
 ]
 
 # Custom roles for the delegate.
