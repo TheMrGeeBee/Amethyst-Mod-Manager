@@ -2,9 +2,13 @@
 ### Additions
 - Added a per-mod reorder lock: locked mods can't be dragged, sorted, moved to a separator, removed, or moved to another profile until unlocked (rename and notes remain available). "Set priority…" shows greyed out while locked
 - Added the ability to copy or move separators (name, colour, lock state) to another profile, preserving their relative order
+- Added a dedicated "Locked" column for the per-mod reorder lock (click to toggle), hidden by default but automatically shown when a loaded profile actually has a locked mod, so shared/imported profiles surface their locks
+### Changes
+- Fixed the "Show / hide columns" tooltip capitalisation to "Show / Hide columns"
 ### Bug Fixes
 - Fixed mods not retaining their priority order when copied or moved to another profile while the modlist was sorted by a column or in reverse-priority view
 - Fixed separator colour/lock/collapsed state not being fully cleaned up when a separator was removed
+- Fixed mod and separator reorder-lock state being silently dropped from share-code (AMMCODE1) exports and imports
 
 ---
 
