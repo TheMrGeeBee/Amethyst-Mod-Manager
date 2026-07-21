@@ -615,11 +615,22 @@ class CollectionDetailView(QWidget):
         self._update_install_btn_state()     # viewing rev changed → maybe Update
         self._start_detail_fetch()
 
+    @staticmethod
+    def _display_name(m) -> str:
+        """The name to show for a collection mod. Prefer ``file_name`` — the
+        per-file GraphQL ``file.name`` (e.g. "3c - Terran Armada - 256 Textures")
+        — which is distinct per file. ``mod_name`` is ``file.mod.name``, the
+        SHARED mod-page name, so several files from one page look identical
+        (GH #282). ``file_name`` is always a display-quality label here (not an
+        archive filename); fall back to ``mod_name`` only if it's empty."""
+        return (getattr(m, "file_name", "") or getattr(m, "mod_name", "")
+                or (f"Mod {getattr(m, 'mod_id', 0)}"))
+
     def _fill_table(self):
         self._table.setSortingEnabled(False)
         self._table.setRowCount(len(self._mods))
         for r, m in enumerate(self._mods):
-            self._set_cell(r, 0, m.mod_name or "")
+            self._set_cell(r, 0, self._display_name(m))
             self._set_cell(r, 1, m.mod_author or "")
             self._set_cell(r, 2, m.version or "")
             # Size — humanized text, numeric sort via the raw bytes in UserRole.
@@ -660,12 +671,13 @@ class CollectionDetailView(QWidget):
         # pre_skipped_fids) — only consulted for boxes not shown this session.
         saved_skipped = self._saved_skipped_fids()
         for i, m in enumerate(optionals):
-            cb = QCheckBox(m.mod_name or f"Mod {m.mod_id}")
+            name = self._display_name(m)
+            cb = QCheckBox(name)
             if m.file_id in prior_fids:
                 cb.setChecked(m.file_id not in prior_unticked)
             else:
                 cb.setChecked(m.file_id not in saved_skipped)
-            cb.setToolTip(m.mod_name or "")
+            cb.setToolTip(name)
             self._opt_layout.insertWidget(i, cb)
             self._opt_boxes.append((cb, m.file_id))
 
