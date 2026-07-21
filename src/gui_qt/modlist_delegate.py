@@ -474,12 +474,20 @@ class ModRowDelegate(QStyledItemDelegate):
 
         tx = box.right() + 10
 
-        # Lock glyph.
+        # Lock glyph — MO2 "always-on" flag (emoji).
         if e.locked:
             p.setPen(self.c_lock)
             p.drawText(QRect(tx, r.top(), 16, r.height()),
                        Qt.AlignVCenter, "\U0001F512")
             tx += 18
+
+        # Reorder-lock glyph — independent flag, distinct icon so it isn't
+        # confused with the "always-on" emoji above (both can show at once).
+        if index.model().is_mod_locked(e.name):
+            lico = icon("lock.png", 14)
+            if not lico.isNull():
+                lico.paint(p, QRect(tx, r.top() + (r.height() - 14) // 2, 14, 14))
+                tx += 18
 
         # Name (elided).
         p.setPen(text_color)

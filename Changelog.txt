@@ -1,6 +1,10 @@
 - v2.0.6
+### Additions
+- Added a per-mod reorder lock: locked mods can't be dragged, sorted, moved to a separator, removed, or moved to another profile until unlocked (rename and notes remain available). "Set priority…" shows greyed out while locked
+- Added the ability to copy or move separators (name, colour, lock state) to another profile, preserving their relative order
 ### Bug Fixes
 - Fixed mods not retaining their priority order when copied or moved to another profile while the modlist was sorted by a column or in reverse-priority view
+- Fixed separator colour/lock/collapsed state not being fully cleaned up when a separator was removed
 
 ---
 

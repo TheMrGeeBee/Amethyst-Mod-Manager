@@ -5513,26 +5513,47 @@ class MainWindow(QMainWindow):
         self._modlist_view.viewport().update()
 
     def _on_separators_removed(self, names):
-        """Drop stored colour + deploy override for removed separators."""
+        """Drop stored colour + deploy override + lock + collapsed state for
+        removed separators."""
+        from Utils.modlist import _SEPARATOR_SUFFIX
         profile_dir = self._gs.profile_dir()
+        display_names = set()
         for nm in names:
             self._modlist_model.set_sep_color(nm, None)
             self._modlist_model.set_sep_deploy_info(nm, None)
+            disp = nm[:-len(_SEPARATOR_SUFFIX)] if nm.endswith(_SEPARATOR_SUFFIX) else nm
+            display_names.add(disp)
+            self._modlist_model._sep_locks.pop(disp, None)
+            self._modlist_model._collapsed.discard(disp)
         if profile_dir is not None:
             try:
                 from Utils.profile_state import (
                     read_separator_colors, write_separator_colors,
-                    read_separator_deploy_paths, write_separator_deploy_paths)
+                    read_separator_deploy_paths, write_separator_deploy_paths,
+                    read_separator_locks, write_separator_locks,
+                    read_collapsed_seps, write_collapsed_seps)
                 colors = read_separator_colors(profile_dir)
                 paths = read_separator_deploy_paths(profile_dir)
-                changed_c = changed_p = False
+                locks = read_separator_locks(profile_dir)
+                collapsed = read_collapsed_seps(profile_dir)
+                changed_c = changed_p = changed_l = changed_col = False
                 for nm in names:
                     changed_c |= colors.pop(nm, None) is not None
                     changed_p |= paths.pop(nm, None) is not None
+                for disp in display_names:
+                    if locks.pop(disp, None) is not None:
+                        changed_l = True
+                    if disp in collapsed:
+                        collapsed.discard(disp)
+                        changed_col = True
                 if changed_c:
                     write_separator_colors(profile_dir, colors)
                 if changed_p:
                     write_separator_deploy_paths(profile_dir, paths)
+                if changed_l:
+                    write_separator_locks(profile_dir, locks)
+                if changed_col:
+                    write_collapsed_seps(profile_dir, collapsed)
             except Exception as exc:
                 print(f"[gui_qt] separator removal cleanup failed: {exc}",
                       flush=True)
@@ -6081,6 +6102,56 @@ class MainWindow(QMainWindow):
                 model.save()  # single save → one filemap rebuild for the batch
         if payload.get("removed"):
             self._reload_modlist()
+
+    def _copy_separators_to_profile(self, sep_names, sep_rows, target_profile, move):
+        """Copy (or move) the given separators — marker only (name, color,
+        lock) — into *target_profile*. Synchronous: separators are small
+        JSON/text writes, no worker thread or collision overlay needed;
+        colliding names are skipped (dedup by name)."""
+        from Utils import separator_copy
+        from Utils.modlist import _SEPARATOR_SUFFIX
+        game = self._gs.game
+        src_profile_dir = self._gs.profile_dir()
+        if game is None or src_profile_dir is None:
+            return
+        model = self._modlist_model
+        sep_names = [n for n in sep_names if n]
+        if not sep_names:
+            return
+        payload = []
+        for name in sep_names:
+            display = (name[:-len(_SEPARATOR_SUFFIX)]
+                      if name.endswith(_SEPARATOR_SUFFIX) else name)
+            payload.append({"name": name,
+                            "color": model.sep_color(name),
+                            "locked": model.is_sep_locked(display)})
+        try:
+            target_profile_dir = game.get_profile_root() / "profiles" / target_profile
+            target_modlist = target_profile_dir / "modlist.txt"
+        except Exception as exc:
+            self._notify(self.tr("Could not resolve target profile: {0}").format(exc), "error")
+            return
+        added = separator_copy.register_separators_in_modlist(
+            target_modlist, target_profile_dir, payload)
+        skipped = len(payload) - len(added)
+        if move and added:
+            from gui_qt.modlist_menu import _remove_separator_rows
+            rows = [r for r in sep_rows
+                    if (e := model.entry(r)) is not None
+                    and e.is_separator and e.name in added]
+            removed = _remove_separator_rows(self._modlist_view, model, rows)
+            if removed:
+                self._on_separators_removed(removed)
+        if added:
+            msg = ((self.tr("Moved {0} separator(s) to '{1}'.") if move
+                   else self.tr("Copied {0} separator(s) to '{1}'."))
+                  .format(len(added), target_profile))
+            if skipped:
+                msg += " " + self.tr("({0} already existed there and were skipped.)").format(skipped)
+            self._notify(msg, "success")
+        else:
+            self._notify(self.tr("All selected separator(s) already exist in '{0}'.")
+                         .format(target_profile), "info")
 
     # ---- install a Nexus mod by id (used by Missing Requirements cards) ----
     # Mirrors the Nexus browser's install flow: premium check → fetch files →
@@ -10490,6 +10561,7 @@ class MainWindow(QMainWindow):
         self._modlist_view.on_notes_changed = self._refresh_modlist_flags
         # Copy/Move to profile: worker copy + collision overlay + (move) remove.
         self._modlist_view.on_copy_to_profile = self._copy_mods_to_profile
+        self._modlist_view.on_copy_separators_to_profile = self._copy_separators_to_profile
         # Rename (context menu): folder + modindex + per-mod state migration.
         self._modlist_view.on_rename_mod = self._rename_mod_on_disk
         # Separator settings (colour + deploy override): open the scoped tab;
@@ -10507,6 +10579,7 @@ class MainWindow(QMainWindow):
             self._apply_modlist_sizes()
         with span("reload_modlist.load_separator_state"):
             self._modlist_view.load_separator_state()
+        self._modlist_view.load_mod_lock_state()
         # Point the Mod Files tab at this game/profile (index next to filemap).
         if hasattr(self, "_mod_files_view"):
             idx = (staging.parent / "modindex.bin") if staging is not None else None

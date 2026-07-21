@@ -159,6 +159,10 @@ class ModListModel(QAbstractTableModel):
         # dragged. Set via set_separator_state(); persistence lives in the view.
         self._collapsed: set[str] = set()
         self._sep_locks: dict[str, bool] = {}
+        # Per-mod reorder lock (keyed by mod name), independent of the MO2
+        # `*`-prefix ModEntry.locked flag. Blocks drag/set_priority/move-to-
+        # separator/sort/remove/move-to-profile; does NOT block rename/notes.
+        self._mod_locks: dict[str, bool] = {}
         # Custom separator background colours, keyed by the internal
         # `..._separator` name (matches the Tk / profile_state storage key).
         self._sep_colors: dict[str, str] = {}
@@ -631,7 +635,8 @@ class ModListModel(QAbstractTableModel):
         f = Qt.ItemIsEnabled | Qt.ItemIsSelectable
         # Draggable unless pinned: boundary separators + locked MODS can't be
         # dragged (a regular separator reads as locked=True but IS draggable).
-        pinned = e.name in _BOUNDARY_NAMES or (not e.is_separator and e.locked)
+        pinned = e.name in _BOUNDARY_NAMES or (
+            not e.is_separator and (e.locked or self.is_mod_locked(e.name)))
         if not pinned:
             f |= Qt.ItemIsDragEnabled
         if not e.is_separator:
@@ -742,6 +747,19 @@ class ModListModel(QAbstractTableModel):
 
     def is_sep_locked(self, sep_name: str) -> bool:
         return bool(self._sep_locks.get(sep_name, False))
+
+    # ---- per-mod reorder lock ---------------------------------------------
+    def set_mod_locks(self, locks: dict[str, bool]) -> None:
+        self._mod_locks = dict(locks or {})
+
+    def is_mod_locked(self, name: str) -> bool:
+        return bool(self._mod_locks.get(name, False))
+
+    def toggle_mod_lock(self, row: int) -> dict[str, bool]:
+        e = self._entries[row]
+        if not e.is_separator:
+            self._mod_locks[e.name] = not self._mod_locks.get(e.name, False)
+        return self._mod_locks
 
     def sep_color(self, sep_name: str) -> str | None:
         """Custom background colour ("#rrggbb") for a separator, keyed by its
@@ -957,6 +975,8 @@ class ModListModel(QAbstractTableModel):
         e = self._entries[row]
         if e.is_separator:
             return
+        if self.is_mod_locked(e.name):
+            return
         nat = self._natural
         nonsep = [i for i, x in enumerate(nat) if not x.is_separator]
         n = len(nonsep)
@@ -1059,7 +1079,8 @@ class ModListModel(QAbstractTableModel):
         call save() once at the end — save() fires on_saved() which kicks off a
         full conflict/filemap rebuild, so per-row saving rebuilds N times."""
         e = self._entries[row]
-        if e.name in _PINNED_NAMES or (not e.is_separator and e.locked):
+        if e.name in _PINNED_NAMES or (
+                not e.is_separator and (e.locked or self.is_mod_locked(e.name))):
             return
         self.beginRemoveRows(QModelIndex(), row, row)
         del self._entries[row]
@@ -1181,7 +1202,7 @@ class ModListModel(QAbstractTableModel):
             e = self._entries[r]
             if e.name in _PINNED_NAMES:
                 return False
-            if not e.is_separator and e.locked:
+            if not e.is_separator and (e.locked or self.is_mod_locked(e.name)):
                 return False
         # Keep within the movable span (below Overwrite, above Root Folder).
         lo, hi = self._movable_span()
@@ -1225,7 +1246,7 @@ class ModListModel(QAbstractTableModel):
             e = self._entries[r]
             if e.name in _PINNED_NAMES:
                 return False
-            if not e.is_separator and e.locked:
+            if not e.is_separator and (e.locked or self.is_mod_locked(e.name)):
                 return False
         lo, hi = self._movable_span()
         if first < lo or last >= hi:
