@@ -199,6 +199,24 @@ def read_meta_for_entries(entries: list[ModEntry], staging_dir: Path,
                 if _lfid and _fid and _lfid != _fid:
                     bits |= FLAG_MODIO_UPDATE
                     updates.add(e.name)
+                # mod.io mods never populate the Nexus "version" key — fall
+                # back to the installed mod.io file's version so the Version
+                # column isn't left blank.
+                if e.name not in versions:
+                    _modio_version = cp.get("General", "modioVersion", fallback="").strip()
+                    if _modio_version:
+                        versions[e.name] = _modio_version
+                # mod.io has no Nexus-style category/uploader — fall back to its
+                # nearest equivalents (tags, submitter) only when the Nexus
+                # fields above weren't already set for this mod.
+                if e.name not in authors:
+                    _modio_uploader = cp.get("General", "modioUploader", fallback="").strip()
+                    if _modio_uploader:
+                        authors[e.name] = _modio_uploader
+                if e.name not in categories:
+                    _modio_tags = cp.get("General", "modioTags", fallback="").strip()
+                    if _modio_tags:
+                        categories[e.name] = _modio_tags
             except Exception:
                 pass
         # Per-profile user note.

@@ -50,6 +50,8 @@ _KEY_LATEST_VERSION = "modioLatestVersion"
 _KEY_INSTALLED = "modioInstalled"
 _KEY_NAME = "modioName"
 _KEY_PROFILE_URL = "modioProfileUrl"
+_KEY_UPLOADER = "modioUploader"
+_KEY_TAGS = "modioTags"
 
 
 def _load_sibling(stem: str):
@@ -80,6 +82,8 @@ class ModioMeta:
     version: str = ""
     name: str = ""
     profile_url: str = ""
+    uploader: str = ""
+    tags: str = ""
     latest_file_id: int = 0
     latest_version: str = ""
     installed: str = ""
@@ -194,21 +198,39 @@ def resolve_modio_meta(
         _log(f"mod.io: mod {mod_id} has no released files.")
         return None
 
-    latest = files[0]
+    # The mod page is slug-based; the numeric id doesn't resolve in a browser,
+    # so capture the real profile_url now (used by the "open page" flag click).
+    # Also pulls uploader + tags, and — critically — the mod's live/public
+    # release (its "modfile"), which is what "latest version" must mean. The
+    # files endpoint returns the ENTIRE upload history, including hidden/test
+    # builds (e.g. cross-platform test samples) that were never made the
+    # official release; taking files[0] (newest by date) would flag those as
+    # updates even though they're not public.
+    try:
+        detail = api.get_mod_detail(mod_id)
+    except Exception:
+        detail = None
+
+    if detail is not None and detail.latest_file_id:
+        latest_file_id = detail.latest_file_id
+        latest_version = detail.latest_version
+    else:
+        # Defensive fallback if the single-mod lookup failed — better an
+        # approximate "latest" than none at all.
+        latest_file_id = files[0].file_id
+        latest_version = files[0].version
+
     meta = ModioMeta(
         mod_id=mod_id,
         name=pak_name,
-        latest_file_id=latest.file_id,
-        latest_version=latest.version,
+        latest_file_id=latest_file_id,
+        latest_version=latest_version,
         installed=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
     )
-
-    # The mod page is slug-based; the numeric id doesn't resolve in a browser,
-    # so capture the real profile_url now (used by the "open page" flag click).
-    try:
-        meta.profile_url = api.get_mod_profile_url(mod_id)
-    except Exception:
-        meta.profile_url = ""
+    if detail is not None:
+        meta.profile_url = detail.profile_url
+        meta.uploader = detail.uploader
+        meta.tags = ", ".join(detail.tags)
 
     # --- Strategy 1: md5 of the original archive matches a file's filehash ---
     matched = None
@@ -236,13 +258,13 @@ def resolve_modio_meta(
     if matched is not None:
         meta.file_id = matched.file_id
         meta.version = matched.version
-        up = " (update available)" if matched.file_id != latest.file_id else ""
+        up = " (update available)" if matched.file_id != latest_file_id else ""
         _log(f"mod.io: matched file {matched.file_id} v{matched.version}{up}.")
     else:
         # Can't pin the installed version; record the mod + latest anyway.
         # file_id stays 0 → the update checker reports this mod as "unknown".
         _log(f"mod.io: mod {mod_id} tracked but installed file not identified "
-             f"(latest is {latest.file_id} v{latest.version}).")
+             f"(latest is {latest_file_id} v{latest_version}).")
 
     return meta
 
@@ -270,6 +292,10 @@ def write_modio_meta(meta_ini_path: Path, meta: ModioMeta) -> None:
         cp.set(_SECTION, _KEY_NAME, meta.name)
     if meta.profile_url:
         cp.set(_SECTION, _KEY_PROFILE_URL, meta.profile_url)
+    if meta.uploader:
+        cp.set(_SECTION, _KEY_UPLOADER, meta.uploader)
+    if meta.tags:
+        cp.set(_SECTION, _KEY_TAGS, meta.tags)
     if meta.installed:
         cp.set(_SECTION, _KEY_INSTALLED, meta.installed)
 
@@ -300,5 +326,7 @@ def read_modio_meta(meta_ini_path: Path) -> ModioMeta:
     meta.latest_version = cp.get(_SECTION, _KEY_LATEST_VERSION, fallback="")
     meta.name = cp.get(_SECTION, _KEY_NAME, fallback="")
     meta.profile_url = cp.get(_SECTION, _KEY_PROFILE_URL, fallback="")
+    meta.uploader = cp.get(_SECTION, _KEY_UPLOADER, fallback="")
+    meta.tags = cp.get(_SECTION, _KEY_TAGS, fallback="")
     meta.installed = cp.get(_SECTION, _KEY_INSTALLED, fallback="")
     return meta
