@@ -29,6 +29,7 @@ A *row* is a plain dict describing one mod's export configuration::
         "size_bytes":    int,   # original archive size from meta.ini (0 if unknown)
         "root_folder":   bool,  # deploys to game root (meta.ini rootFolder)
         "enabled":       bool,  # modlist enabled state of the source entry
+        "locked":        bool,  # reorder-locked (Utils.profile_state mod_locks)
         "source":        str,   # "nexus" | "direct" | "bundle" | "ignore"
         "direct_url":    str,
     }
@@ -61,6 +62,13 @@ def load_rows(entries, game) -> list[dict]:
 
     staging_root = game.get_effective_mod_staging_path() if game else None
     profile_dir = getattr(game, "_active_profile_dir", None) if game else None
+    mod_locks: dict = {}
+    if profile_dir:
+        try:
+            from Utils.profile_state import read_mod_locks
+            mod_locks = read_mod_locks(Path(profile_dir))
+        except Exception:
+            pass
 
     rows: list[dict] = []
     for entry in entries:
@@ -122,6 +130,7 @@ def load_rows(entries, game) -> list[dict]:
             "size_bytes":       size_bytes,
             "root_folder":      root_folder,
             "enabled":          bool(getattr(entry, "enabled", True)),
+            "locked":           bool(mod_locks.get(name)),
             "source":           "nexus",
             "direct_url":       "",
         })
@@ -257,6 +266,9 @@ def build_manifest(rows, game_domain: str, app_version: str, *,
         # importer stages the mod normally, then marks it disabled.
         if row.get("enabled") is False:
             mod_entry["enabled"] = False
+        # Carry the reorder-lock (unlocked mods stay implicit, like enabled).
+        if row.get("locked"):
+            mod_entry["locked"] = True
         # Root-deploy mods use the Nexus-collections "dinput" install type —
         # the importer already maps details.type == "dinput" to meta rootFolder.
         if row.get("root_folder"):
@@ -649,7 +661,13 @@ def _separator_blocks(entries, kept_names: set, profile_dir) -> list[dict]:
             current = {"name": name, "mods": []}
             if colors.get(name):
                 current["color"] = colors[name]
-            if locks.get(name):
+            # separator_colors is keyed by the internal (`..._separator`) name
+            # but separator_locks is keyed by the DISPLAY name (see
+            # ModlistModel.is_sep_locked/toggle_sep_lock) — strip the suffix
+            # before the lock lookup or a locked separator silently exports
+            # as unlocked.
+            display_name = getattr(entry, "display_name", None) or name
+            if locks.get(display_name):
                 current["locked"] = True
             blocks.append(current)
         elif current is not None and name in kept_names:

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from gui_qt.modlist_model import (
     ModListModel, COLUMNS, COL_NAME, COL_CATEGORY, COL_PRIORITY, COL_FLAGS,
     COL_CONFLICTS, COL_INSTALLED, COL_VERSION, COL_AUTHOR, COL_SIZE,
-    HighlightRole,
+    COL_LOCKED, HighlightRole,
 )
 from gui_qt.modlist_delegate import ModRowDelegate, SEP_H
 from gui_qt import column_state
@@ -45,21 +45,27 @@ class _StayOpenMenu(QMenu):
 COL_DEFAULTS = {
     COL_CATEGORY: 120, COL_FLAGS: 70, COL_CONFLICTS: 95, COL_INSTALLED: 100,
     COL_VERSION: 90, COL_AUTHOR: 110, COL_PRIORITY: 75, COL_SIZE: 85,
+    COL_LOCKED: 60,
 }
 COL_MINS = {
     COL_NAME: 120, COL_CATEGORY: 90, COL_FLAGS: 60, COL_CONFLICTS: 90,
     COL_INSTALLED: 90, COL_VERSION: 80, COL_AUTHOR: 80, COL_PRIORITY: 70,
-    COL_SIZE: 70,
+    COL_SIZE: 70, COL_LOCKED: 50,
 }
 NAME_MIN = COL_MINS[COL_NAME]
 
 # Columns shown by default on a fresh INI (no persisted state). Tk parity:
 # Category, Installed, Size are hidden until the user enables them; Author
-# (Nexus uploader) is likewise opt-in.
-_FIRST_RUN_HIDDEN = {COL_CATEGORY, COL_INSTALLED, COL_AUTHOR, COL_SIZE}
+# (Nexus uploader) is likewise opt-in. Locked is a new (Qt-only) column and
+# stays opt-in too — most mods are never locked, so showing it for everyone
+# by default would just be a mostly-empty column.
+_FIRST_RUN_HIDDEN = {COL_CATEGORY, COL_INSTALLED, COL_AUTHOR, COL_SIZE, COL_LOCKED}
 
 # Header column → sort key (Tk _DATA_COL_SORT_KEYS; keys persisted by name via
-# column_state's sort_col, which stores the COLUMNS display name).
+# column_state's sort_col, which stores the COLUMNS display name). COL_LOCKED
+# is intentionally absent — clicking its header is a no-op (see
+# _on_header_sort_clicked/sort_triangle_spec's `key is None` guards); it's a
+# click-to-toggle control column, not a sortable data field.
 _COL_TO_SORTKEY = {
     COL_NAME: "name", COL_CATEGORY: "category", COL_FLAGS: "flags",
     COL_CONFLICTS: "conflicts", COL_INSTALLED: "installed",
@@ -272,7 +278,7 @@ class ModListView(QTreeView):
         btn.setCursor(Qt.ArrowCursor)
         btn.setFocusPolicy(Qt.NoFocus)
         btn.setAutoRaise(True)
-        btn.setToolTip(self.tr("Show / hide columns"))
+        btn.setToolTip(self.tr("Show / Hide columns"))
         # Opaque header-coloured background so it sits cleanly over the Mod Name
         # header text; hover/press come from the global QToolButton QSS.
         bg = _c(active_palette(), "BG_HEADER")
@@ -363,6 +369,12 @@ class ModListView(QTreeView):
 
     def _set_column_visible(self, col: int, visible: bool):
         self.setColumnHidden(col, not visible)
+        if col == COL_LOCKED:
+            # A deliberate toggle (either way) from the show/hide menu is now
+            # the user's real preference — it should persist normally and
+            # never get silently reverted by load_mod_lock_state()'s auto-show
+            # nudge on a later profile switch.
+            self._locked_col_auto_shown = False
         if visible:
             # Qt collapses a hidden section's width to 0; restore a sensible
             # width so the re-shown column is actually visible (not a 0-px
@@ -414,7 +426,26 @@ class ModListView(QTreeView):
 
     def load_mod_lock_state(self):
         """Read per-mod reorder-lock state for the active profile into the
-        model. Called by the window after a modlist reload."""
+        model. Called by the window after a modlist reload (profile switch,
+        mod install/remove, refresh, ...).
+
+        The Locked column is opt-in (hidden by default — see _FIRST_RUN_HIDDEN)
+        so it doesn't clutter the view for the vast majority of profiles that
+        never use it. But an IMPORTED/shared profile may carry real locks the
+        recipient doesn't know about and has no reason to have pre-enabled the
+        column for — so the FIRST time this profile is seen with any mod
+        actually locked, force the column visible regardless of the persisted/
+        default column state, so the lock (and why those mods won't reorder)
+        is discoverable.
+
+        This only fires once per profile ACTIVATION, not on every reload —
+        reloads (installs, refreshes, ...) are far more frequent than profile
+        switches, and re-forcing the column open on each one would make it
+        impossible to hide again while viewing a locked profile. If the user
+        switches away and back to the same locked profile, it's nudged open
+        again; if they switch to a different profile with no locks, an
+        auto-shown column reverts to hidden (a genuinely user-shown column,
+        i.e. it was already visible before we nudged it, never gets touched)."""
         locks = {}
         if self.profile_dir is not None:
             try:
@@ -423,6 +454,22 @@ class ModListView(QTreeView):
             except Exception:
                 pass
         self.model().set_mod_locks(locks)
+
+        changed_profile = getattr(self, "_locked_col_last_profile", object()) != self.profile_dir
+        self._locked_col_last_profile = self.profile_dir
+        if not changed_profile:
+            return
+        if any(locks.values()):
+            if self.isColumnHidden(COL_LOCKED):
+                self.setColumnHidden(COL_LOCKED, False)
+                if self.columnWidth(COL_LOCKED) <= 0:
+                    self.header().resizeSection(COL_LOCKED, COL_DEFAULTS.get(COL_LOCKED, 60))
+                self._fit_name_to_width()
+                self._locked_col_auto_shown = True
+        elif getattr(self, "_locked_col_auto_shown", False):
+            self.setColumnHidden(COL_LOCKED, True)
+            self._fit_name_to_width()
+            self._locked_col_auto_shown = False
 
     def _apply_separator_spanning(self):
         """Separator rows span all columns so the band + centred name + the
