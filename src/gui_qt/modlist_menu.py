@@ -232,10 +232,11 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         # Group: organise
         _others = _other_profiles(view)
         if _others:
+            _copy_names = _natural_order_names(model, _names)
             submenu(_mtf("Copy to profile ({0})", n),
-                    _profile_submenu_items(view, _names, sel_mods, _others, False))
+                    _profile_submenu_items(view, _copy_names, sel_mods, _others, False))
             submenu(_mtf("Move to profile ({0})", n),
-                    _profile_submenu_items(view, _names, sel_mods, _others, True))
+                    _profile_submenu_items(view, _copy_names, sel_mods, _others, True))
         act(_mtf("Disable selected ({0})", n),
             lambda: _set_enabled(view, model, sel_mods, False))
         act(_mtf("Enable selected ({0})", n),
@@ -593,6 +594,18 @@ def _move_to_separator(view, model, mod_rows, sep_name):
 
 
 # ---- Copy / Move to profile ------------------------------------------------
+def _natural_order_names(model, names):
+    """*names* reordered to match the model's natural (modlist.txt / priority,
+    highest-priority-first) order. Selection-derived name lists follow the
+    current DISPLAY row order, which can be a sorted or reverse-priority
+    permutation (see ``ModlistModel.natural_entries``) — copy/move-to-profile
+    must register mods in real priority order regardless of how they're
+    currently sorted on screen."""
+    order = {e.name: i for i, e in enumerate(model.natural_entries())
+             if not e.is_separator}
+    return sorted(names, key=lambda nm: order.get(nm, 0))
+
+
 def _other_profiles(view):
     """Profile names for this game, excluding the current one ([] if none)."""
     game = getattr(view, "game", None)
