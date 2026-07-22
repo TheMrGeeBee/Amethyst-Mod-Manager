@@ -384,13 +384,30 @@ def load_plugins(game, profile: str,
         vanilla = {n.lower(): n for n in getattr(game, "vanilla_plugins", [])}
 
     # Recover plugins still deployed by an enabled mod (per the fresh filemap)
-    # but missing from plugins.txt — see _filemap_deployed_plugins. The guard is
-    # plugins.txt entries only (NOT loadorder.txt): a disabled patcher mod's
-    # sync strips its plugins from plugins.txt but leaves them in loadorder.txt,
-    # so keying on loadorder would skip the very plugins we need to recover.
+    # but missing from plugins.txt — see _filemap_deployed_plugins. The guard
+    # is the listed-entry set below: a disabled patcher mod's toggle sync
+    # (Utils/plugin_sync.py) strips its plugins from BOTH plugins.txt and
+    # loadorder.txt, so a name absent from both that the filemap still deploys
+    # is exactly the case to recover as enabled.
     exts = tuple(e.lower() for e in (getattr(game, "plugin_extensions", []) or [])) \
         or (".esp", ".esm", ".esl")
     listed_lower = {e.name.lower() for e in entries}
+    # Legacy (non-star) games have no disabled syntax in plugins.txt — a
+    # user-disabled plugin is OMITTED from the file and survives only in
+    # loadorder.txt (see Utils/plugins.py). Reconstruct those names as
+    # disabled entries BEFORE the filemap recovery below: the plugin's file is
+    # still deployed by its (enabled) mod, so without this the recovery
+    # re-added it as enabled — and persisted it back into plugins.txt — on
+    # every reload. Deploy and LOOT sort both end in a reload, so "disable a
+    # plugin, then deploy/sort" silently re-enabled it. Names whose mod was
+    # since removed don't resolve to a file and are pruned further down.
+    if not star:
+        for name in saved_order:
+            low = name.lower()
+            if low in listed_lower or low in vanilla:
+                continue
+            entries.append(PluginEntry(name=name, enabled=False))
+            listed_lower.add(low)
     with span("plugins.filemap_deployed"):
         deployed = _filemap_deployed_plugins(game, exts)
     recovered: list[str] = []
@@ -1384,7 +1401,10 @@ def apply_loot_sort(rows: list[PluginRow], locked_indices: dict[int, PluginRow],
     _apply_result (264-295).
     """
     vanilla_lower = {r.name.lower() for r in rows if r.vanilla}
-    name_to_enabled = {r.name: r.enabled for r in rows}
+    # Case-insensitive: LOOT returns names with on-disk casing, which can
+    # differ from the plugins.txt casing in *rows* — a case-sensitive miss
+    # here silently re-enabled disabled plugins on every sort.
+    name_to_enabled = {r.name.lower(): r.enabled for r in rows}
     total = len(rows)
     pre_unlocked = [r.name for i, r in enumerate(rows) if i not in locked_indices]
     if len(sorted_names) != len(pre_unlocked):
@@ -1399,7 +1419,7 @@ def apply_loot_sort(rows: list[PluginRow], locked_indices: dict[int, PluginRow],
         else:
             name = next(it)
             new_rows.append(PluginRow(
-                name, name_to_enabled.get(name, True), 0,
+                name, name_to_enabled.get(name.lower(), True), 0,
                 name.lower() in vanilla_lower))
 
     # Moved count over plugins the user actually sees (exclude hidden vanilla).
