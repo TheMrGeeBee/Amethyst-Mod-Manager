@@ -1155,6 +1155,7 @@ PREFIX_MODE_SHARED = "shared"      # wine_prefixes/shared_<Proton>/, one per Pro
 PREFIX_MODE_GAME = "game"          # reuse the game's own prefix
 
 _LAUNCH_ENV_FILE = "launch_env.json"
+_LAUNCH_ARGS_FILE = "launch_args.json"
 _ENV_VAR_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
 
 
@@ -1212,6 +1213,50 @@ def save_tool_launch_env(exe: Path | None, text: str) -> None:
             p.unlink()
     except OSError:
         pass
+
+
+def load_tool_launch_args(exe: Path | None) -> str:
+    """Return the saved extra launch-args string for this exe ('' if none)."""
+    if exe is None:
+        return ""
+    p = exe.parent / _LAUNCH_ARGS_FILE
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get(exe.name) or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def save_tool_launch_args(exe: Path | None, text: str) -> None:
+    """Persist the extra launch-args string in launch_args.json next to the exe."""
+    if exe is None:
+        return
+    p = exe.parent / _LAUNCH_ARGS_FILE
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    if text:
+        data[exe.name] = text
+    else:
+        data.pop(exe.name, None)
+    try:
+        if data:
+            p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        elif p.is_file():
+            p.unlink()
+    except OSError:
+        pass
+
+
+def parse_launch_args(text: str) -> list:
+    """Split a launch-args string into a list of tokens (shell-quoting aware)."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
 
 
 def parse_env_overrides(text: str) -> dict:
