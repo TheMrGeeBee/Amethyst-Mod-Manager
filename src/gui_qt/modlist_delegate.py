@@ -374,10 +374,13 @@ class ModRowDelegate(QStyledItemDelegate):
             self._paint_deploy_badge(p, r, deploy, tx + tw + 10, collapsed)
         else:
             # Strikethrough line across the row, broken around the centred name
-            # (Tk-style — makes separators easy to distinguish).
+            # (Tk-style — makes separators easy to distinguish). The left line
+            # starts just past the collapse arrow so it doesn't run under it.
             p.setPen(QPen(self.c_border, 1))
             gap = tw // 2 + 12
-            p.drawLine(r.left() + 6, cy, cx - gap, cy)
+            left_start = a.right() + 8
+            if left_start < cx - gap:
+                p.drawLine(left_start, cy, cx - gap, cy)
             p.drawLine(cx + gap, cy, r.right() - 6, cy)
 
             # Centred name + "(N)" count over the Mod Name column.
