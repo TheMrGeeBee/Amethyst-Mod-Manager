@@ -68,7 +68,7 @@ class ModFilesView(QWidget):
         tbl = QHBoxLayout(tb)
         tbl.setContentsMargins(8, 4, 8, 4)
         self._label = QLabel(self.tr("(no mod selected)"))
-        self._label.setStyleSheet("color:#aaa;")
+        self._label.setObjectName("HeaderCaption")
         tbl.addWidget(self._label, 1)
         v.addWidget(tb)
 
