@@ -1064,6 +1064,10 @@ def get_tool_prefix_env(
     Returns None if the Proton version can't be found. The prefix directory is
     created if missing; wineboot initialises it when brand new (synchronous,
     up to 60s — call from a worker thread).
+
+    *steam_id* is accepted for call-site symmetry but intentionally NOT used to
+    set SteamAppId — see the app-context note below (the tool env pins app 0 so
+    Steam Input doesn't apply the game's controller profile to the tool).
     """
     from Utils.steam_finder import (
         find_any_installed_proton,
@@ -1086,11 +1090,17 @@ def get_tool_prefix_env(
     env = strip_appimage_env(os.environ.copy())
     env["STEAM_COMPAT_DATA_PATH"] = str(prefix_dir)
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(steam_root)
-    # lsteamclient asserts when it tries to attach to the Steam client with no
-    # app context; tools in an isolated prefix have no AppId from Steam.
-    if steam_id:
-        env.setdefault("SteamAppId", steam_id)
-        env.setdefault("SteamGameId", steam_id)
+    # App *context* of 0 (not the game's AppId): lsteamclient asserts when it
+    # attaches with no app context at all, so it needs *some* value — but the
+    # real game AppId also makes Steam Input bind the game's controller profile
+    # to the tool (mouse-less, no on-screen keyboard, trackpad-as-mouse gone),
+    # even though "runinprefix" keeps the game from showing as Running. Tools in
+    # an isolated prefix don't need SteamAPI_Init to see the *game*, so app 0
+    # keeps lsteamclient happy while leaving the desktop/OSK input profile in
+    # place. The game's own launch path still sets the real AppId (where the
+    # profile swap is wanted).
+    env.setdefault("SteamAppId", "0")
+    env.setdefault("SteamGameId", "0")
 
     if is_new:
         try:
