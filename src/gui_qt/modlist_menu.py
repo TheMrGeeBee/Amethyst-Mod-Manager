@@ -207,21 +207,34 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         _reinstall_multi = [nm for nm in _names
                             if _installation_archive(view, nm) is not None
                             or _can_redownload(view, nm)]
+        # Endorse/version/check/track/open-on-Nexus nest under "Nexus Actions".
+        _track_multi = [nm for nm in _names if _has_nexus_id(view, nm)]
+        _nexus_sub = []
         if _abstain_multi:
-            act(_mtf("Abstain selected ({0})", len(_abstain_multi)),
-                lambda ns=_abstain_multi: _endorse(view, ns, False))
+            _nexus_sub.append(
+                (_mtf("Abstain selected ({0})", len(_abstain_multi)),
+                 lambda ns=_abstain_multi: _endorse(view, ns, False)))
         if _check_multi:
-            act(_mtf("Check Updates ({0})", len(_check_multi)),
-                lambda ns=_check_multi: _check_updates(view, ns))
+            _nexus_sub.append(
+                (_mtf("Check Updates ({0})", len(_check_multi)),
+                 lambda ns=_check_multi: _check_updates(view, ns)))
         if _endorse_multi:
-            act(_mtf("Endorse selected ({0})", len(_endorse_multi)),
-                lambda ns=_endorse_multi: _endorse(view, ns, True))
+            _nexus_sub.append(
+                (_mtf("Endorse selected ({0})", len(_endorse_multi)),
+                 lambda ns=_endorse_multi: _endorse(view, ns, True)))
+        if _track_multi:
+            _nexus_sub.append(
+                (_mtf("Track Mod ({0})", len(_track_multi)),
+                 lambda ns=_track_multi: _track(view, ns)))
+        if _nexus_multi:
+            _nexus_sub.append(
+                (_mtf("Open on Nexus ({0})", len(_nexus_multi)),
+                 lambda ns=_nexus_multi: _open_on_nexus_multi(view, ns)))
+        if _nexus_sub:
+            submenu(_mt("Nexus Actions"), _nexus_sub)
         if _reqs_multi:
             act(_mtf("Missing Requirements ({0})", len(_reqs_multi)),
                 lambda ns=_reqs_multi: _missing_reqs(view, ns))
-        if _nexus_multi:
-            act(_mtf("Open on Nexus ({0})", len(_nexus_multi)),
-                lambda ns=_nexus_multi: _open_on_nexus_multi(view, ns))
         if _qu:
             act(_mtf("Quick Update ({0})", len(_qu)),
                 lambda ns=_qu: _quick_update(view, ns))
@@ -287,20 +300,30 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
             lambda: _toggle_root_folder(view, [name], not _is_rf))
     divider()
     # Group 3: Nexus / online & updates — each item shows only when applicable.
+    # The endorse/version/check/track/open-on-Nexus items nest under a
+    # "Nexus Actions" submenu; the rest stay inline.
     _endorsed = _is_endorsed(view, name)
     _has_id = _has_nexus_id(view, name)
+    _nexus_items = []
     if _has_id:
-        act(_mt("Abstain from Endorsement") if _endorsed else _mt("Endorse Mod"),
-            lambda: _endorse(view, [name], not _endorsed))
-        act(_mt("Change Version"), lambda: _change_version(view, name))
+        _nexus_items.append(
+            (_mt("Abstain from Endorsement") if _endorsed else _mt("Endorse Mod"),
+             lambda: _endorse(view, [name], not _endorsed)))
+        _nexus_items.append(
+            (_mt("Change Version"), lambda: _change_version(view, name)))
     if _has_id or bool(_modio_url(view, name)):
-        act(_mt("Check Updates"), lambda: _check_updates(view, [name]))
-    if _has_missing_reqs(view, name):
-        act(_mt("Missing Requirements"), lambda: _missing_reqs(view, [name]))
+        _nexus_items.append(
+            (_mt("Check Updates"), lambda: _check_updates(view, [name])))
+    if _has_id:
+        _nexus_items.append(
+            (_mt("Track Mod"), lambda: _track(view, [name])))
+    if _has_nexus_page(view, name):
+        _nexus_items.append(
+            (_mt("Open on Nexus"), lambda: _open_on_nexus(view, name)))
+    if _nexus_items:
+        submenu(_mt("Nexus Actions"), _nexus_items)
     if _modio_url(view, name):
         act(_mt("Open on mod.io"), lambda: _open_on_modio(view, name))
-    if _has_nexus_page(view, name):
-        act(_mt("Open on Nexus"), lambda: _open_on_nexus(view, name))
     if _has_update_flag(view, name):
         act(_mt("Quick Update"), lambda: _quick_update(view, [name]))
     divider()
@@ -325,6 +348,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         lambda: _open_note_editor(view, [name]))
     if _has_conflict(model, row):
         act(_mt("Show Conflicts"), lambda: _show_conflicts(view, name))
+    if _has_missing_reqs(view, name):
+        act(_mt("Missing Requirements"), lambda: _missing_reqs(view, [name]))
     if _has_id:
         act(_mt("View Requirements"), lambda: _view_requirements(view, name))
     divider()
@@ -770,6 +795,14 @@ def _endorse(view, names, endorse: bool):
     cb = getattr(view, "on_endorse", None)
     if cb is not None and names:
         cb(list(names), endorse)
+
+
+def _track(view, names):
+    """Start tracking the mods on Nexus — delegated to the window (needs the
+    shared Nexus API + a worker thread; see app._on_modlist_track)."""
+    cb = getattr(view, "on_track", None)
+    if cb is not None and names:
+        cb(list(names))
 
 
 # ---- Notes -----------------------------------------------------------------
@@ -1266,6 +1299,7 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Move to profile ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Move to separator ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Nexus Actions"),
     QT_TRANSLATE_NOOP("ModListMenu", "New name:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Open folder"),
     QT_TRANSLATE_NOOP("ModListMenu", "Open on Nexus"),
@@ -1291,6 +1325,8 @@ _TR_MARKERS = (
     QT_TRANSLATE_NOOP("ModListMenu", "Priority for {0}:"),
     QT_TRANSLATE_NOOP("ModListMenu", "Show Conflicts"),
     QT_TRANSLATE_NOOP("ModListMenu", "Sort Alphabetically ({0})"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Track Mod"),
+    QT_TRANSLATE_NOOP("ModListMenu", "Track Mod ({0})"),
     QT_TRANSLATE_NOOP("ModListMenu", "Unlock Separator"),
     QT_TRANSLATE_NOOP("ModListMenu", "Unlock Separators"),
     QT_TRANSLATE_NOOP("ModListMenu", "{0} ({1})"),
