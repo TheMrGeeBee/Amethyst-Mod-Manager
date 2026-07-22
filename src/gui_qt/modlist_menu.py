@@ -93,18 +93,28 @@ def build_context_menu(view, index):
         # Greyed-out placeholder for an action not yet wired.
         return act(label, lambda: None, enabled=False)
 
-    def submenu(label, items, enabled=True):
+    def submenu(label, items, enabled=True, scroll_cap=0):
         """Add a nested QMenu. *items* is a list of (text, slot) pairs — one
         action each. Used for Copy/Move to profile (the profile list nests as a
-        submenu instead of opening a picker window)."""
+        submenu instead of opening a picker window).
+
+        *scroll_cap* > 0 caps the visible height at that many rows: past the cap
+        the submenu holds a single QWidgetAction wrapping a scrollable list
+        instead of plain actions (used by Move to separator). QMenu's own
+        scroller can't do this — it only engages when the popup exceeds the
+        SCREEN height, and a max-height-constrained QMenu just clips and
+        mis-positions."""
         # `label` is already translated by the caller.
         sub = QMenu(label, menu)
         sub.setEnabled(enabled)
-        for text, slot in items:
-            # Profile names in items are DATA (not translated).
-            a = QAction(text, sub)
-            _connect(a, slot)
-            sub.addAction(a)
+        if scroll_cap and len(items) > scroll_cap:
+            _fill_scroll_submenu(menu, sub, items, scroll_cap)
+        else:
+            for text, slot in items:
+                # Profile names in items are DATA (not translated).
+                a = QAction(text, sub)
+                _connect(a, slot)
+                sub.addAction(a)
         menu.addMenu(sub)
         state["group_started"] = True
         state["any"] = True
@@ -255,7 +265,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
             lambda: _set_enabled(view, model, sel_mods, True))
         if _separator_choices(model):
             submenu(_mtf("Move to separator ({0})", n),
-                    _separator_submenu_items(view, model, sel_mods))
+                    _separator_submenu_items(view, model, sel_mods),
+                    scroll_cap=10)
         if len(sel_mods) >= 2:
             act(_mtf("Sort Alphabetically ({0})", n),
                 lambda: _sort_selected_alphabetically(view, model, sel_mods))
@@ -338,7 +349,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
                 _profile_submenu_items(view, [name], [row], _others, True))
     if not locked and _separator_choices(model):
         submenu(_mt("Move to separator"),
-                _separator_submenu_items(view, model, [row]))
+                _separator_submenu_items(view, model, [row]),
+                scroll_cap=10)
     if not locked:
         act(_mt("Set priority…"), lambda: _set_priority(view, model, row))
     divider()
@@ -355,6 +367,46 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
     divider()
     # Group 6: remove
     act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked)
+
+
+def _fill_scroll_submenu(root_menu, sub, items, scroll_cap):
+    """Fill *sub* with a single QWidgetAction wrapping a QListWidget showing
+    *items* — visible height capped at *scroll_cap* rows, real scrollbar past
+    that. Clicking a row closes the whole menu and runs its slot."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListWidget, QWidgetAction
+    lst = QListWidget(sub)
+    lst.setFrameShape(QListWidget.Shape.NoFrame)
+    lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    lst.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    lst.setMouseTracking(True)
+    # Menu-like hover highlight (QListWidget only tints on selection by default).
+    lst.setStyleSheet(
+        "QListWidget { background: transparent; outline: none; }"
+        "QListWidget::item { padding: 3px 16px; }"
+        "QListWidget::item:hover, QListWidget::item:selected {"
+        " background: palette(highlight); color: palette(highlighted-text); }")
+    slots = []
+    for text, slot in items:
+        # Item texts are DATA (separator names), not translated.
+        lst.addItem(text)
+        slots.append(slot)
+    row_h = lst.sizeHintForRow(0) or 22
+    lst.setFixedHeight(row_h * scroll_cap + 4)
+    sbar_w = lst.verticalScrollBar().sizeHint().width()
+    lst.setMinimumWidth(lst.sizeHintForColumn(0) + sbar_w + 8)
+
+    def _picked(item):
+        row = lst.row(item)
+        sub.close()
+        root_menu.close()
+        if 0 <= row < len(slots):
+            slots[row]()
+
+    lst.itemClicked.connect(_picked)
+    wa = QWidgetAction(sub)
+    wa.setDefaultWidget(lst)
+    sub.addAction(wa)
 
 
 def _boundary_names():
@@ -575,12 +627,13 @@ def _separator_choices(model):
 
 def _separator_submenu_items(view, model, mod_rows):
     """(display, slot) pairs for the Move-to-separator submenu — one entry per
-    non-boundary separator (Tk lists them inline rather than in a picker window).
-    Separator display names are DATA, not translated."""
+    non-boundary separator, sorted A→Z by display name (the natural list order
+    isn't useful in a menu). Separator display names are DATA, not translated."""
+    choices = sorted(_separator_choices(model), key=lambda c: c[0].casefold())
     return [
         (display,
          lambda sep=internal: _move_to_separator(view, model, mod_rows, sep))
-        for display, internal in _separator_choices(model)
+        for display, internal in choices
     ]
 
 
