@@ -29,8 +29,9 @@ from gui_qt.safe_emit import safe_emit
 from Utils.exe_launch import (
     PREFIX_MODE_GAME, PREFIX_MODE_ISOLATED, PREFIX_MODE_SHARED,
     load_prefix_mode, load_proton_override, load_tool_launch_args,
-    load_tool_launch_env, save_prefix_mode, save_proton_override,
-    save_tool_launch_args, save_tool_launch_env, shared_prefix_dir,
+    load_tool_launch_env, load_winetricks_style, save_prefix_mode,
+    save_proton_override, save_tool_launch_args, save_tool_launch_env,
+    save_winetricks_style, shared_prefix_dir,
 )
 
 if TYPE_CHECKING:
@@ -146,6 +147,19 @@ class ProtonStepWidget(QWidget):
             game_note.setStyleSheet(dim)
             game_note.setContentsMargins(26, 0, 0, 0)
             v.addWidget(game_note)
+
+        # ---- winetricks-style launch ----
+        self._winetricks_chk = QCheckBox(
+            self.tr("Launch with plain Wine (winetricks-style)"))
+        self._winetricks_chk.setChecked(
+            load_winetricks_style(game, tool_exe_name))
+        v.addWidget(self._winetricks_chk)
+        wt_note = QLabel(
+            self.tr("Use Winetricks style launch"))
+        wt_note.setWordWrap(True)
+        wt_note.setStyleSheet(dim)
+        wt_note.setContentsMargins(26, 0, 0, 6)
+        v.addWidget(wt_note)
 
         # ---- proton picker row + delete ----
         row = QWidget()
@@ -283,6 +297,11 @@ class ProtonStepWidget(QWidget):
         name = self._proton_combo.currentText()
         save_proton_override(self._game, self._tool_exe_name, name)
         save_prefix_mode(self._game, self._tool_exe_name, mode)
+        wt = self._winetricks_chk.isChecked()
+        save_winetricks_style(self._game, self._tool_exe_name, wt)
+        if wt:
+            self._log(f"{self._tool_display_name} Wizard: winetricks-style "
+                      "launch enabled (plain Wine, no Proton session).")
         try:
             save_tool_launch_env(self._exe, self._env_entry.text().strip())
         except Exception:
