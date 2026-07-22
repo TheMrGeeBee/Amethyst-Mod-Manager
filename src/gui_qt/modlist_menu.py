@@ -21,6 +21,13 @@ from gui_qt.confirm_overlay import ConfirmOverlay
 from gui_qt.modlist_model import COL_NAME
 from gui_qt.text_input_overlay import TextInputOverlay
 
+# Display-only shortcut hints shown right-aligned in the context menu. These MUST
+# match the real window-level QShortcut bindings in gui_qt/shortcuts.py — they are
+# not registered as accelerators here, only rendered as menu text.
+_SC_RENAME = "F2"
+_SC_REMOVE = "Del"
+_SC_TOGGLE = "Enter"
+
 
 def _mt(label: str) -> str:
     """Translate a modlist context-menu label. These live in module-level
@@ -78,12 +85,19 @@ def build_context_menu(view, index):
         # and clobbers that default. Wrap so the bool is always swallowed.
         action.triggered.connect(lambda _checked=False, _s=slot: _s())
 
-    def act(label, slot, enabled=True):
+    def act(label, slot, enabled=True, shortcut=None):
         # `label` is already translated by the caller (via _mt / _mtf); helpers
         # never translate, so count-templates like _mtf("… ({0})", n) work.
         a = QAction(label, menu)
         _connect(a, slot)
         a.setEnabled(enabled)
+        if shortcut:
+            # Display-only: show the matching global QShortcut (see shortcuts.py)
+            # right-aligned in the menu. We set the shortcut TEXT via a tab in the
+            # label rather than QAction.setShortcut() so no duplicate accelerator
+            # is registered (which would trigger Qt's ambiguous-shortcut warning
+            # and could steal the key from the real window-level QShortcut).
+            a.setText(f"{label}\t{shortcut}")
         menu.addAction(a)
         state["group_started"] = True
         state["any"] = True
@@ -177,7 +191,8 @@ def _build_separator_menu(view, model, row, entry, sel_seps, multi, act, stub, d
     act(_mt("Unlock Separator") if locked else _mt("Lock Separator"),
         lambda: _toggle_sep_lock(view, model, row))
     divider()
-    act(_mt("Rename separator"), lambda: _rename(view, model, row))
+    act(_mt("Rename separator"), lambda: _rename(view, model, row),
+        shortcut=_SC_RENAME)
     act(_mt("Separator settings…"), lambda: _open_sep_settings(view, model, row))
     act(_mt("Add separator above"), lambda: _add_separator(view, model, row, True))
     act(_mt("Add separator below"), lambda: _add_separator(view, model, row, False))
@@ -260,9 +275,11 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
             submenu(_mtf("Move to profile ({0})", n),
                     _profile_submenu_items(view, _names, sel_mods, _others, True))
         act(_mtf("Disable selected ({0})", n),
-            lambda: _set_enabled(view, model, sel_mods, False))
+            lambda: _set_enabled(view, model, sel_mods, False),
+            shortcut=_SC_TOGGLE)
         act(_mtf("Enable selected ({0})", n),
-            lambda: _set_enabled(view, model, sel_mods, True))
+            lambda: _set_enabled(view, model, sel_mods, True),
+            shortcut=_SC_TOGGLE)
         if _separator_choices(model):
             submenu(_mtf("Move to separator ({0})", n),
                     _separator_submenu_items(view, model, sel_mods),
@@ -280,7 +297,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         divider()
         # Group: remove
         act(_mtf("Remove mod ({0})", n),
-            lambda: _remove_mods_multi(view, model, sel_mods))
+            lambda: _remove_mods_multi(view, model, sel_mods),
+            shortcut=_SC_REMOVE)
         return
 
     locked = entry.locked
@@ -302,7 +320,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         act(_mt("Reinstall Mod"), lambda: _reinstall(view, [name]))
     elif _can_redownload(view, name):
         act(_mt("Reinstall (Redownload)"), lambda: _reinstall(view, [name]))
-    act(_mt("Rename mod"), lambda: _rename(view, model, row), enabled=not locked)
+    act(_mt("Rename mod"), lambda: _rename(view, model, row), enabled=not locked,
+        shortcut=_SC_RENAME)
     divider()
     # Group 2: files & install options
     if _staging_ok:
@@ -366,7 +385,8 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
         act(_mt("View Requirements"), lambda: _view_requirements(view, name))
     divider()
     # Group 6: remove
-    act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked)
+    act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked,
+        shortcut=_SC_REMOVE)
 
 
 def _fill_scroll_submenu(root_menu, sub, items, scroll_cap):
