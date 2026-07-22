@@ -11592,6 +11592,17 @@ class MainWindow(QMainWindow):
         supported = self._plugins_supported()
         # Column header: hide for plugin-less games.
         self._plugin_view.setHeaderHidden(not supported)
+        # Sub-tab strip: plugin-less games hide the Plugins tab entirely and
+        # land on Downloads instead. Switching back to a plugin game restores
+        # the tab (and returns to it if we auto-moved off it).
+        was_hidden = getattr(self, "_plugins_tab_hidden", False)
+        self._plugins_tab_hidden = not supported
+        self._plugin_tab_labels[0].setVisible(supported)
+        if not supported and self._plugin_stack.currentIndex() == 0:
+            self._select_plugin_tab(self._DOWNLOADS_TAB_IDX)
+        elif (supported and was_hidden
+                and self._plugin_stack.currentIndex() == self._DOWNLOADS_TAB_IDX):
+            self._select_plugin_tab(0)
         # Footer (page 0 of the swap stack = the plugin tools) is hidden only
         # while the Plugins sub-tab is active; other tabs keep their own footer.
         self._refresh_plugin_footer_visibility()
@@ -12271,6 +12282,9 @@ class MainWindow(QMainWindow):
         return frame
 
     def _select_plugin_tab(self, idx: int):
+        # Plugin-less games have no Plugins tab — route to Downloads instead.
+        if idx == 0 and getattr(self, "_plugins_tab_hidden", False):
+            idx = getattr(self, "_DOWNLOADS_TAB_IDX", 4)
         self._plugin_stack.setCurrentIndex(idx)
         # Swap the column footer to match the active sub-tab. Footer pages:
         # 0 plugins / 1 Mod Files / 2 Data / 3 Downloads / 4 Text Files.
