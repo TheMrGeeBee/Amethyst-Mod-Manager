@@ -1064,6 +1064,10 @@ def get_tool_prefix_env(
     Returns None if the Proton version can't be found. The prefix directory is
     created if missing; wineboot initialises it when brand new (synchronous,
     up to 60s — call from a worker thread).
+
+    *steam_id* is accepted for call-site symmetry but intentionally NOT used to
+    set SteamAppId — see the app-context note below (the tool env pins app 0 so
+    Steam Input doesn't apply the game's controller profile to the tool).
     """
     from Utils.steam_finder import (
         find_any_installed_proton,
@@ -1086,11 +1090,17 @@ def get_tool_prefix_env(
     env = strip_appimage_env(os.environ.copy())
     env["STEAM_COMPAT_DATA_PATH"] = str(prefix_dir)
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(steam_root)
-    # lsteamclient asserts when it tries to attach to the Steam client with no
-    # app context; tools in an isolated prefix have no AppId from Steam.
-    if steam_id:
-        env.setdefault("SteamAppId", steam_id)
-        env.setdefault("SteamGameId", steam_id)
+    # App *context* of 0 (not the game's AppId): lsteamclient asserts when it
+    # attaches with no app context at all, so it needs *some* value — but the
+    # real game AppId also makes Steam Input bind the game's controller profile
+    # to the tool (mouse-less, no on-screen keyboard, trackpad-as-mouse gone),
+    # even though "runinprefix" keeps the game from showing as Running. Tools in
+    # an isolated prefix don't need SteamAPI_Init to see the *game*, so app 0
+    # keeps lsteamclient happy while leaving the desktop/OSK input profile in
+    # place. The game's own launch path still sets the real AppId (where the
+    # profile swap is wanted).
+    env.setdefault("SteamAppId", "0")
+    env.setdefault("SteamGameId", "0")
 
     if is_new:
         try:
@@ -1155,6 +1165,7 @@ PREFIX_MODE_SHARED = "shared"      # wine_prefixes/shared_<Proton>/, one per Pro
 PREFIX_MODE_GAME = "game"          # reuse the game's own prefix
 
 _LAUNCH_ENV_FILE = "launch_env.json"
+_LAUNCH_ARGS_FILE = "launch_args.json"
 _ENV_VAR_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
 
 
@@ -1179,6 +1190,19 @@ def save_prefix_mode(game, exe_name: str, mode: str) -> None:
     _write_launch_mode_key(
         game, f"__prefix_mode_{exe_name}",
         mode if mode in (PREFIX_MODE_SHARED, PREFIX_MODE_GAME) else None)
+
+
+def load_winetricks_style(game, exe_name: str) -> bool:
+    """Whether exe_name should launch via plain Wine (winetricks-style)
+    instead of the proton script. Off by default; opt-in per tool."""
+    return bool(_read_launch_mode_data(game).get(
+        f"__winetricks_style_{exe_name}", False))
+
+
+def save_winetricks_style(game, exe_name: str, enabled: bool) -> None:
+    """Persist the winetricks-style launch choice (off = remove key)."""
+    _write_launch_mode_key(game, f"__winetricks_style_{exe_name}",
+                           True if enabled else None)
 
 
 def load_tool_launch_env(exe: Path | None) -> str:
@@ -1212,6 +1236,50 @@ def save_tool_launch_env(exe: Path | None, text: str) -> None:
             p.unlink()
     except OSError:
         pass
+
+
+def load_tool_launch_args(exe: Path | None) -> str:
+    """Return the saved extra launch-args string for this exe ('' if none)."""
+    if exe is None:
+        return ""
+    p = exe.parent / _LAUNCH_ARGS_FILE
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get(exe.name) or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def save_tool_launch_args(exe: Path | None, text: str) -> None:
+    """Persist the extra launch-args string in launch_args.json next to the exe."""
+    if exe is None:
+        return
+    p = exe.parent / _LAUNCH_ARGS_FILE
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    if text:
+        data[exe.name] = text
+    else:
+        data.pop(exe.name, None)
+    try:
+        if data:
+            p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        elif p.is_file():
+            p.unlink()
+    except OSError:
+        pass
+
+
+def parse_launch_args(text: str) -> list:
+    """Split a launch-args string into a list of tokens (shell-quoting aware)."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
 
 
 def parse_env_overrides(text: str) -> dict:
@@ -1403,6 +1471,12 @@ def resolve_tool_prefix(exe: Path, game, proton_name: str, prefix_mode: str,
         env.update(extra)
         log_fn("applying saved env vars: "
                + " ".join(f"{k}={v}" for k, v in extra.items()))
+    # Marker consumed by run_tool_logged: launch this tool winetricks-style
+    # (plain wine, no proton session — see run_tool_winetricks_style). Set
+    # here so every wizard honours the Proton-step checkbox without each
+    # run call having to look the setting up itself.
+    if load_winetricks_style(game, exe.name):
+        env["AMM_WINETRICKS_STYLE"] = "1"
     return proton_script, compat_data, env
 
 
@@ -1434,6 +1508,19 @@ def run_tool_logged(
     from Utils.steam_finder import proton_run_command
 
     label = label or exe.name
+
+    # Winetricks-style launch chosen on the Proton step (marker set by
+    # resolve_tool_prefix): bypass the proton script entirely and run the
+    # tool the way winetricks does. The prefix location travels in env.
+    if env.get("AMM_WINETRICKS_STYLE") == "1":
+        prefix = env.get("STEAM_COMPAT_DATA_PATH") or env.get("WINEPREFIX")
+        if prefix:
+            return run_tool_winetricks_style(
+                proton_script, exe, Path(prefix), log_fn=log_fn,
+                extra_args=extra_args, cwd=cwd, label=label)
+        log_fn(f"{label}: winetricks-style launch requested but no prefix "
+               "path in env — falling back to Proton.")
+
     # Only set WINEDEBUG when the caller hasn't chosen its own channels
     # (BodySlide sets +wgl,+opengl for its GL trace and must win).
     env.setdefault("WINEDEBUG", winedebug)
@@ -1448,6 +1535,103 @@ def run_tool_logged(
     if extra_args:
         cmd = cmd + list(extra_args)
 
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=str(cwd) if cwd is not None else str(exe.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except OSError as exc:
+        log_fn(f"{label}: failed to launch — {exc}")
+        raise
+
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        if line:
+            log_fn(f"{label}: {line}")
+    rc = proc.wait()
+    if rc != 0:
+        log_fn(f"{label}: exited with code {rc}")
+    return rc
+
+
+def run_tool_winetricks_style(
+    proton_script: Path,
+    exe: Path,
+    compat_data: Path,
+    log_fn=_noop_log,
+    *,
+    extra_args: "list[str] | None" = None,
+    extra_env: "dict | None" = None,
+    cwd: "Path | None" = None,
+    label: str | None = None,
+) -> int:
+    """Launch *exe* exactly the way winetricks' "Run an arbitrary executable"
+    does: plain ``wine start.exe`` against WINEPREFIX, no ``proton`` script.
+
+    Rationale (Steam Deck): the Proton session env carries the bridge to the
+    running Steam client (STEAM_COMPAT_CLIENT_INSTALL_PATH + lsteamclient), and
+    some users report Steam Input still swapping to the game's controller
+    profile — locking the trackpad/OSK out of the tool's UI — even with
+    SteamAppId neutralised. Running an exe from the winetricks GUI never has
+    that problem, because winetricks knows nothing of Steam: it inherits the
+    desktop environment, sets WINEPREFIX, and calls the raw wine binary. This
+    helper mirrors that launch byte-for-byte (env from ``os.environ`` + \
+WINEPREFIX + Proton's bin on PATH, ``wine start.exe <exe>``), with only two
+    deviations: ``/wait`` so the wizard flow can block until the tool exits,
+    and ``/unix`` in place of winetricks' winepath round-trip.
+
+    The prefix itself must already exist (still created/updated through the
+    proton script — only the tool launch goes bare). Saved per-exe env-var
+    overrides (launch_env.json) are merged like the Proton path does;
+    *extra_env* is applied last, a value of ``None`` removes the variable.
+    Blocking — call from a worker thread. Returns the exit code.
+    """
+    label = label or exe.name
+    script = Path(proton_script)
+    if script.name in ("wine", "wine64"):
+        # Lutris/Heroic classic-wine prefix: the runner's wine IS the script.
+        wine_bin = script
+    else:
+        wine_bin = next(
+            (script.parent / d / "bin" / "wine" for d in ("files", "dist")
+             if (script.parent / d / "bin" / "wine").is_file()),
+            None,
+        )
+    if wine_bin is None:
+        from Utils.protontricks import _get_proton_bin
+        found = _get_proton_bin()
+        wine_bin = Path(found) / "wine" if found else None
+    if wine_bin is None or not wine_bin.is_file():
+        log_fn(f"{label}: no bare wine binary found for {script.parent.name}.")
+        return 1
+    bin_dir = wine_bin.parent
+
+    pfx = Path(compat_data) / "pfx"
+    env = strip_appimage_env(os.environ.copy())
+    env["WINEPREFIX"] = str(pfx if pfx.is_dir() else Path(compat_data))
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    saved = parse_env_overrides(load_tool_launch_env(exe))
+    if saved:
+        env.update(saved)
+        log_fn(f"{label}: applying saved env vars: "
+               + " ".join(f"{k}={v}" for k, v in saved.items()))
+    for k, v in (extra_env or {}).items():
+        if v is None:
+            env.pop(k, None)
+        else:
+            env[k] = v
+
+    cmd = [str(wine_bin), "start.exe", "/wait", "/unix", str(exe)]
+    if extra_args:
+        cmd = cmd + list(extra_args)
+    log_fn(f"{label}: launching with plain Wine (winetricks-style): "
+           f"{' '.join(cmd)}")
     try:
         proc = subprocess.Popen(
             cmd,

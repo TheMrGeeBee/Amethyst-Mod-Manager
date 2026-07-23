@@ -488,6 +488,7 @@ class XEditView(QWidget):
             on_continue=self._on_proton_chosen,
             log_fn=self._log,
             title=self.tr("Step 5: Choose Proton Version"),
+            show_launch_args=True,
         ))
 
     def _on_proton_chosen(self, proton_name: str, prefix_mode: str):
@@ -569,7 +570,8 @@ class XEditView(QWidget):
 
         def worker():
             from Utils.exe_launch import (
-                resolve_tool_prefix, run_tool_logged, shutdown_prefix_wineserver,
+                load_tool_launch_args, parse_launch_args, resolve_tool_prefix,
+                run_tool_logged, shutdown_prefix_wineserver,
             )
             from Utils.wine_paths import to_wine_path
             from Utils.xedit_tools import (
@@ -604,6 +606,10 @@ class XEditView(QWidget):
                 # -SSE / -FO4 / -SF1) to pick the game — it errors out without it.
                 if self._discord and self._discord_mode:
                     extra_args.insert(0, f"-{self._discord_mode}")
+                # User-supplied extra launch arguments (Step 5 field) go last.
+                user_args = parse_launch_args(load_tool_launch_args(exe))
+                if user_args:
+                    extra_args.extend(user_args)
 
                 # Registry seed + plugins.txt / My Games links + viewsettings
                 # seed + WinXP compat flag (see Utils.xedit_tools).

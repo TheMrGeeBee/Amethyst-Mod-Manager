@@ -897,6 +897,21 @@ class ModListModel(QAbstractTableModel):
             end += 1
         return range(sep_row + 1, end)
 
+    def sep_block_priority_range(self, sep_row: int) -> str:
+        """Priority range of the mods a separator owns, for the collapsed-
+        separator Priority column (Tk parity — e.g. "0 - 20", or "5" when the
+        block holds a single mod). Empty when the block has no mods."""
+        prios = [
+            self._priority_for_row(r)
+            for r in self.sep_block_rows(sep_row)
+            if not self._entries[r].is_separator
+        ]
+        prios = [p for p in prios if p >= 0]
+        if not prios:
+            return ""
+        lo, hi = min(prios), max(prios)
+        return str(lo) if lo == hi else f"{lo} - {hi}"
+
     def sep_block_summary(self, block) -> tuple[int, set, set]:
         """(flag-bit union, loose conflict codes, BSA conflict codes) for the
         mods at *block* display rows — the collapsed-separator icon summary.

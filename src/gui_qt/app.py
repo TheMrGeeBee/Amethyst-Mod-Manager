@@ -272,6 +272,8 @@ class MainWindow(QMainWindow):
     _app_update_found = Signal(object)
     # Endorse/abstain worker → UI thread ({"ok": n, "endorse": bool}).
     _endorse_done = Signal(object)
+    # Track worker → UI thread ({"ok": n}).
+    _track_done = Signal(object)
     # "Endorse AMM" worker → UI thread ({"state": str, "message": str}).
     _amm_endorse_done = Signal(object)
     # ui_hooks.warn from any backend thread → OK-only popup on the UI thread
@@ -553,6 +555,7 @@ class MainWindow(QMainWindow):
         self._reinstall_manual_ready.connect(self._on_reinstall_manual_ready)
         self._reinstall_manual_found.connect(self._on_reinstall_manual_found)
         self._endorse_done.connect(self._on_endorse_done)
+        self._track_done.connect(self._on_track_done)
         self._amm_endorse_done.connect(self._on_amm_endorse_done)
         self._copy_done.connect(self._on_copy_done)
         self._col_update_scan_done.connect(self._finish_collection_update)
@@ -5930,6 +5933,52 @@ class MainWindow(QMainWindow):
             self._notify(self.tr("No mods were updated (already in that state or no "
                          "Nexus id)."), "info")
 
+    def _on_modlist_track(self, names):
+        """Start tracking the given mods on Nexus (right-click). Runs on a worker
+        thread via the shared API, reading each mod's Nexus id from its meta.ini.
+        Mirrors _on_modlist_endorse (track has no meta.ini flag to persist)."""
+        import threading
+        names = [n for n in (names or []) if n]
+        if not names:
+            return
+        api = self._ensure_nexus_api()
+        if api is None:
+            self._notify(self.tr("Log in first: Nexus ▸ Login to Nexus."), "warning")
+            return
+        game = self._gs.game
+        domain = getattr(game, "nexus_game_domain", "") or ""
+        staging = self._gs.staging_dir()
+        if staging is None or not domain:
+            return
+        self._notify(self.tr("Tracking {0} mod(s)…").format(len(names)), "info")
+
+        def _worker():
+            from Nexus.nexus_meta import read_meta
+            ok = 0
+            for nm in names:
+                meta_path = staging / nm / "meta.ini"
+                if not meta_path.is_file():
+                    continue
+                try:
+                    meta = read_meta(meta_path)
+                    if not meta.mod_id:
+                        continue
+                    api.track_mod(domain, meta.mod_id)
+                    ok += 1
+                except Exception as exc:
+                    self._op_log.emit(f"Nexus: track failed for '{nm}': {exc}")
+            self._track_done.emit({"ok": ok})
+
+        threading.Thread(target=_worker, daemon=True, name="track").start()
+
+    def _on_track_done(self, payload):
+        """UI thread: report the track result."""
+        ok = payload.get("ok", 0)
+        if ok:
+            self._notify(self.tr("Tracking {0} mod(s).").format(ok), "success")
+        else:
+            self._notify(self.tr("No mods were tracked (no Nexus id)."), "info")
+
     def _copy_mods_to_profile(self, names, enabled_map, target_profile, move):
         """Copy (or move) the given mods' staging folders into *target_profile*.
         Resolves collisions (single → Replace/Rename/Cancel overlay; multi → one
@@ -10557,6 +10606,8 @@ class MainWindow(QMainWindow):
                            self._rebuild_conflicts_async(rescan_index=True))
         # Endorse/Abstain: needs the shared Nexus API + a flag refresh.
         self._modlist_view.on_endorse = self._on_modlist_endorse
+        # Track: needs the shared Nexus API (no meta.ini flag to persist).
+        self._modlist_view.on_track = self._on_modlist_track
         # A saved note may change the note flag — light flag-only refresh.
         self._modlist_view.on_notes_changed = self._refresh_modlist_flags
         # Copy/Move to profile: worker copy + collision overlay + (move) remove.
@@ -11614,6 +11665,17 @@ class MainWindow(QMainWindow):
         supported = self._plugins_supported()
         # Column header: hide for plugin-less games.
         self._plugin_view.setHeaderHidden(not supported)
+        # Sub-tab strip: plugin-less games hide the Plugins tab entirely and
+        # land on Downloads instead. Switching back to a plugin game restores
+        # the tab (and returns to it if we auto-moved off it).
+        was_hidden = getattr(self, "_plugins_tab_hidden", False)
+        self._plugins_tab_hidden = not supported
+        self._plugin_tab_labels[0].setVisible(supported)
+        if not supported and self._plugin_stack.currentIndex() == 0:
+            self._select_plugin_tab(self._DOWNLOADS_TAB_IDX)
+        elif (supported and was_hidden
+                and self._plugin_stack.currentIndex() == self._DOWNLOADS_TAB_IDX):
+            self._select_plugin_tab(0)
         # Footer (page 0 of the swap stack = the plugin tools) is hidden only
         # while the Plugins sub-tab is active; other tabs keep their own footer.
         self._refresh_plugin_footer_visibility()
@@ -12293,6 +12355,9 @@ class MainWindow(QMainWindow):
         return frame
 
     def _select_plugin_tab(self, idx: int):
+        # Plugin-less games have no Plugins tab — route to Downloads instead.
+        if idx == 0 and getattr(self, "_plugins_tab_hidden", False):
+            idx = getattr(self, "_DOWNLOADS_TAB_IDX", 4)
         self._plugin_stack.setCurrentIndex(idx)
         # Swap the column footer to match the active sub-tab. Footer pages:
         # 0 plugins / 1 Mod Files / 2 Data / 3 Downloads / 4 Text Files.

@@ -263,12 +263,15 @@ def build_qss(pal: dict | None = None) -> str:
     /* Close button — a clear square on the right of the tab (matches the
        mockup). Larger hit area, subtle by default, soft rounded red on hover. */
     QTabBar::close-button {{
-        image: url({_icon_url('close_white.png')});
+        image: url({_tinted_icon_url('close_white.png', c('TEXT_DIM'))});
         subcontrol-position: right;
         margin: 3px 6px 3px 4px;
         border-radius: 4px;
     }}
-    QTabBar::close-button:hover {{ background: {c('BTN_DANGER')}; }}
+    QTabBar::close-button:hover {{
+        background: {c('BTN_DANGER')};
+        image: url({_tinted_icon_url('close_white.png', ct('BTN_DANGER'))});
+    }}
 
     /* Slim modern scrollbars — applied globally (modlist, plugins, log, …) */
     QScrollBar:vertical {{
@@ -397,6 +400,9 @@ def build_qss(pal: dict | None = None) -> str:
         background: {c('BG_HEADER')};
         border-bottom: 1px solid {c('BORDER')};
     }}
+    /* Dim caption above a tab's column header (Mod Files / Data / …). Palette-
+       driven so it stays legible in light themes (was a hardcoded #aaa). */
+    #HeaderCaption {{ color: {c('TEXT_DIM')}; }}
     #GroupSep {{ background: {c('BORDER')}; border: none; }}
     #ActionButton {{
         background: {c('BG_ROW')};

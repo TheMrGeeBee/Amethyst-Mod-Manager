@@ -385,6 +385,11 @@ class CustomGameView(QWidget):
                 "Supports glob patterns: *.<ext> matches any file with that "
                 "extension, <name>.* matches that name with any extension. "
                 "e.g. modinfo.ini, manifest.json, *.txt, LICENCE.*")),
+            ("conflict_ignore_foldernames", _T("Conflict Ignore Folder Names"),
+             _T("Comma-separated folder names excluded from deployment and "
+                "conflict detection. A folder whose name matches (at any "
+                "depth) is skipped along with everything inside it. Supports "
+                "glob patterns. e.g. docs, screenshots, *_backup")),
         ]
         self._adv_edits: dict[str, QLineEdit] = {}
 
@@ -940,6 +945,8 @@ class CustomGameView(QWidget):
             _set_to_str(e.get("mod_folder_strip_prefixes_post", [])))
         self._adv_edits["conflict_ignore_filenames"].setText(
             _set_to_str(e.get("conflict_ignore_filenames", [])))
+        self._adv_edits["conflict_ignore_foldernames"].setText(
+            _set_to_str(e.get("conflict_ignore_foldernames", [])))
 
         self._adv_toggles["mod_auto_strip_until_required"].setChecked(
             bool(e.get("mod_auto_strip_until_required", False)))
@@ -1058,6 +1065,8 @@ class CustomGameView(QWidget):
                 _str_to_list(self._adv_edits["mod_folder_strip_prefixes"].text()),
             "conflict_ignore_filenames":
                 _str_to_list(self._adv_edits["conflict_ignore_filenames"].text()),
+            "conflict_ignore_foldernames":
+                _str_to_list(self._adv_edits["conflict_ignore_foldernames"].text()),
             "mod_folder_strip_prefixes_post":
                 _str_to_list(self._adv_edits["mod_folder_strip_prefixes_post"].text()),
             "mod_install_prefix":

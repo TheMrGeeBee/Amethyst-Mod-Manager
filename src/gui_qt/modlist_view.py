@@ -1057,9 +1057,40 @@ class ModListView(QTreeView):
         # Handle the Name-column description tooltip ourselves; anything else
         # (flags / conflicts cell tooltips) falls through to the delegate's
         # helpEvent via the base implementation.
-        if event.type() == QEvent.ToolTip and self._name_tooltip(event):
+        if event.type() == QEvent.ToolTip and (
+                self._lock_tooltip(event) or self._name_tooltip(event)):
             return True
         return super().viewportEvent(event)
+
+    def _lock_tooltip(self, help_event) -> bool:
+        """Tk parity: hovering a separator's lock box explains what it does.
+        Returns True if shown."""
+        idx = self.indexAt(help_event.pos())
+        if not idx.isValid():
+            return False
+        m = self.model()
+        row = idx.row()
+        e = m.entry(row) if 0 <= row < m.rowCount() else None
+        from gui_qt.modlist_model import _PINNED_NAMES
+        if e is None or not e.is_separator or e.name in _PINNED_NAMES:
+            return False
+        delegate = self.itemDelegate()
+        lock = getattr(delegate, "_lock_rect", None)
+        if lock is None:
+            return False
+        # Separator rows span the full width; build a full-width row rect so the
+        # lock rect (computed from its right edge) lands where the delegate drew.
+        row_rect = self.visualRect(m.index(row, COL_NAME))
+        row_rect.setLeft(0)
+        row_rect.setWidth(self.viewport().width())
+        lk = lock(row_rect)
+        if not lk.contains(help_event.pos()):
+            return False
+        QToolTip.showText(
+            help_event.globalPos(),
+            self.tr("Lock Separator - Mods in this separator are attached to it"),
+            self, lk)
+        return True
 
     def _name_tooltip(self, help_event) -> bool:
         """Show the hovered mod's description tooltip. Returns True if shown."""
