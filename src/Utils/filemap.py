@@ -296,6 +296,7 @@ def _build_incr_fingerprint(
     allowed_extensions,
     exclude_dirs,
     conflict_ignore_filenames,
+    conflict_ignore_foldernames,
     excluded_loose_filenames,
     allowed_top_level_folders,
     excluded_mod_files,
@@ -323,6 +324,7 @@ def _build_incr_fingerprint(
         frozenset(allowed_extensions or ()),
         frozenset(exclude_dirs or ()),
         frozenset(conflict_ignore_filenames or ()),
+        frozenset(conflict_ignore_foldernames or ()),
         frozenset(excluded_loose_filenames or ()),
         frozenset(allowed_top_level_folders or ()),
         tuple(sorted(
@@ -712,6 +714,7 @@ def _try_incremental(
             "index_path", "index_mtime", "modlist_path", "staging_root",
             "strip_prefixes", "per_mod_strip_prefixes", "allowed_extensions",
             "exclude_dirs", "conflict_ignore_filenames",
+            "conflict_ignore_foldernames",
             "excluded_loose_filenames", "allowed_top_level_folders",
             "excluded_mod_files", "normalize_folder_case", "filemap_casing",
             "filemap_casing_pins",
@@ -2034,7 +2037,8 @@ class _PathFilters:
     the incremental fast path — both must apply EXACTLY the same logic (same
     compiled regex objects, same check order).
     """
-    __slots__ = ("ignore_re", "loose_excl_re", "allowed_top", "excluded")
+    __slots__ = ("ignore_re", "loose_excl_re", "allowed_top", "excluded",
+                 "folder_ignore_re", "_dir_cache")
 
     def __init__(
         self,
@@ -2042,11 +2046,26 @@ class _PathFilters:
         loose_excl_re: "re.Pattern[str] | None",
         allowed_top: "set[str] | None",
         excluded: dict[str, set[str]],
+        folder_ignore_re: "re.Pattern[str] | None" = None,
     ):
         self.ignore_re = ignore_re
         self.loose_excl_re = loose_excl_re
         self.allowed_top = allowed_top
         self.excluded = excluded
+        self.folder_ignore_re = folder_ignore_re
+        self._dir_cache: dict[str, bool] = {}
+
+    def dir_ignored(self, rel_key: str) -> bool:
+        """True when any directory segment of rel_key matches folder_ignore_re."""
+        if self.folder_ignore_re is None or "/" not in rel_key:
+            return False
+        dirpath = rel_key.rsplit("/", 1)[0]
+        hit = self._dir_cache.get(dirpath)
+        if hit is None:
+            match = self.folder_ignore_re.match
+            hit = any(match(seg) for seg in dirpath.split("/"))
+            self._dir_cache[dirpath] = hit
+        return hit
 
     def accepts(self, mod: str, rel_key: str) -> bool:
         """Mirror of the merge-loop filter chain (same order, same semantics)."""
@@ -2063,6 +2082,8 @@ class _PathFilters:
         if (self.ignore_re is not None
                 and self.ignore_re.match(rel_key.rsplit("/", 1)[-1])):
             return False
+        if self.dir_ignored(rel_key):
+            return False
         return True
 
 
@@ -2071,6 +2092,7 @@ def _build_path_filters(
     excluded_loose_filenames: "set[str] | None",
     allowed_top_level_folders: "set[str] | None",
     excluded_mod_files: "dict[str, set[str]] | None",
+    conflict_ignore_foldernames: "set[str] | None" = None,
 ) -> _PathFilters:
     """Compile the per-file filter inputs into a shared _PathFilters object."""
     # Pre-compile ignore patterns once into a single regex for O(1) matching.
@@ -2085,6 +2107,15 @@ def _build_path_filters(
             if pl.endswith(".*") and "*" not in pl[:-2] and "?" not in pl[:-2]:
                 parts.append(fnmatch.translate(pl[:-2]))
         _ignore_re = re.compile("|".join(parts))
+
+    # Folder-name ignore patterns: a match on any directory segment drops the
+    # whole subtree from the filemap (no `<name>.*` expansion — file-specific).
+    _folder_ignore_re: "re.Pattern[str] | None" = None
+    if conflict_ignore_foldernames:
+        _folder_ignore_re = re.compile(
+            "|".join(fnmatch.translate(p.lower())
+                     for p in conflict_ignore_foldernames)
+        )
 
     # Pre-compile loose-filename exclusion patterns.  Matches drop the file
     # from the filemap entirely, but only when the file is loose (no "/" in
@@ -2105,7 +2136,7 @@ def _build_path_filters(
     )
 
     return _PathFilters(_ignore_re, _loose_excl_re, _allowed_top,
-                        excluded_mod_files or {})
+                        excluded_mod_files or {}, _folder_ignore_re)
 
 
 # ---------------------------------------------------------------------------
@@ -2122,6 +2153,7 @@ def build_filemap(
     root_deploy_folders: set[str] | None = None,  # unused, kept for call-site compat
     disabled_plugins: dict[str, list[str]] | None = None,
     conflict_ignore_filenames: set[str] | None = None,
+    conflict_ignore_foldernames: set[str] | None = None,
     excluded_loose_filenames: set[str] | None = None,
     allowed_top_level_folders: set[str] | None = None,
     excluded_mod_files: dict[str, set[str]] | None = None,
@@ -2152,9 +2184,14 @@ def build_filemap(
     Previously wrote a ``filemap_root.txt``; routing is now done via
     ``custom_routing_rules`` at deploy time.
 
-    conflict_ignore_filenames — lowercase filenames (not paths) excluded from
-    conflict tracking.  Files still appear in the filemap but do not count
-    toward a mod's conflict status.  Pass None or an empty set to disable.
+    conflict_ignore_filenames — lowercase filename glob patterns (not paths);
+    matching files are dropped from the filemap entirely — never deployed and
+    never conflict-tracked.  Pass None or an empty set to disable.
+
+    conflict_ignore_foldernames — lowercase folder-name glob patterns; a
+    folder whose name matches (at any depth) is dropped from the filemap along
+    with its entire subtree — never deployed and never conflict-tracked.
+    Pass None or an empty set to disable.
 
     excluded_loose_filenames — lowercase glob patterns; matching files are
     dropped from the filemap entirely, but only when the file is loose (no
@@ -2226,6 +2263,7 @@ def build_filemap(
                 index_path, _index_mtime, modlist_path, staging_root,
                 strip_prefixes, per_mod_strip_prefixes, allowed_extensions,
                 exclude_dirs, conflict_ignore_filenames,
+                conflict_ignore_foldernames,
                 excluded_loose_filenames, allowed_top_level_folders,
                 excluded_mod_files, normalize_folder_case, filemap_casing,
                 _pins, conflict_key_fn, root_folder_mods, _utf8_bad,
@@ -2238,6 +2276,7 @@ def build_filemap(
     _pf = _build_path_filters(
         conflict_ignore_filenames, excluded_loose_filenames,
         allowed_top_level_folders, excluded_mod_files,
+        conflict_ignore_foldernames,
     )
     _ignore_re = _pf.ignore_re
     _loose_excl_re = _pf.loose_excl_re
@@ -2326,6 +2365,8 @@ def build_filemap(
     _has_excluded_loose = _loose_excl_re is not None
     _has_unknown_top    = _allowed_top is not None
     _has_ignore         = _ignore_re is not None
+    _has_folder_ignore  = _pf.folder_ignore_re is not None
+    _dir_ignored        = _pf.dir_ignored
 
     _merge_t0 = time.perf_counter()
     for name in priority_order:
@@ -2405,6 +2446,8 @@ def build_filemap(
             if _has_unknown_top and _is_unknown_top_level(rel_key):
                 continue
             if _has_ignore and _is_ignored(rel_key):
+                continue
+            if _has_folder_ignore and _dir_ignored(rel_key):
                 continue
             had_file = True
             if _incr_on:

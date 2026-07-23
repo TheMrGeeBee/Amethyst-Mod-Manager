@@ -218,11 +218,26 @@ class BaseGame(ABC):
     @property
     def conflict_ignore_filenames(self) -> set[str]:
         """
-        Lowercase filenames that are excluded from conflict detection.
+        Lowercase filename glob patterns excluded from the filemap.
 
-        Files whose name (not path) matches an entry here are counted in the
-        filemap as normal but do not contribute to a mod's conflict status.
+        Files whose name (not path) matches an entry here are dropped from
+        the filemap entirely — never deployed and never conflict-tracked.
         Useful for metadata files that many mods ship (e.g. modinfo.ini) which would otherwise cause spurious conflict markers.
+
+        Return an empty set (the default) to disable.
+        """
+        return set()
+
+    @property
+    def conflict_ignore_foldernames(self) -> set[str]:
+        """
+        Lowercase folder-name glob patterns excluded from the filemap.
+
+        A folder whose name matches an entry here — at any depth inside a
+        mod — is skipped along with its entire subtree: nothing inside it is
+        deployed or conflict-tracked.  Files remain in modindex.bin; the
+        exclusion is applied at filemap-merge time, unlike
+        ``filemap_exclude_dirs`` which removes top-level dirs at scan time.
 
         Return an empty set (the default) to disable.
         """
