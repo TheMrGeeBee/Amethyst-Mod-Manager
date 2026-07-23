@@ -999,9 +999,13 @@ class BaseGame(ABC):
         users lack a working winetricks/cabextract setup, and the winetricks
         vcredist/d3dcompiler verbs are also less reliable for DLL mods.
 
-        Return an empty list (the default) to skip automatic installation.
+        Default: ``["vcredist"]`` for every game (including custom games) —
+        the VC++ x64 runtime is a near-universal requirement for Windows
+        titles and mod DLLs, and games without a Proton prefix (native Linux)
+        are skipped anyway. Games needing more override this (see
+        ``MODERN_DIRECTX_DEPS``); returning ``[]`` opts a game out entirely.
         """
-        return []
+        return ["vcredist"]
 
     @property
     def custom_routing_rules(self) -> list:
