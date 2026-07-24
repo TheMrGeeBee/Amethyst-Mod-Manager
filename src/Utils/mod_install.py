@@ -2635,6 +2635,7 @@ def _add_to_modlist(profile_dir: Path, mod_name: str, log_fn: LogFn,
         default_enabled = not load_install_mods_disabled()
     except Exception:
         default_enabled = True
+    modlist_path = profile_dir / "modlist.txt"
     try:
         if preserve_position:
             # Replacing an existing mod — keep its load-order position and its
@@ -2642,17 +2643,35 @@ def _add_to_modlist(profile_dir: Path, mod_name: str, log_fn: LogFn,
             # silently re-enable a disabled mod).
             from Utils.modlist import ensure_mod_preserving_position
             ensure_mod_preserving_position(
-                profile_dir / "modlist.txt", mod_name, enabled=default_enabled,
+                modlist_path, mod_name, enabled=default_enabled,
                 preserve_existing_state=True)
         else:
             # New mods land at the top with the configured default state; but if
             # this name already exists (reinstall without position-preservation)
             # keep its current state.
             from Utils.modlist import prepend_mod
-            prepend_mod(profile_dir / "modlist.txt", mod_name,
+            prepend_mod(modlist_path, mod_name,
                         enabled=default_enabled, preserve_existing_state=True)
     except Exception as exc:
-        log_fn(f"modlist update failed ({exc}).")
+        log_fn(f"modlist update failed for '{mod_name}' in "
+               f"{modlist_path} ({exc}).")
+        return
+    # Diagnostic verification (temporary): prepend_mod/ensure_mod_preserving_
+    # position reported success with no exception, but confirm the entry is
+    # actually readable back from disk — a mismatch here means the write
+    # landed somewhere other than what _reload_modlist reads, or was
+    # immediately overwritten by another writer.
+    try:
+        from Utils.modlist import read_modlist
+        names = {e.name for e in read_modlist(modlist_path)}
+        if mod_name not in names:
+            log_fn(f"modlist update: wrote '{mod_name}' to {modlist_path} "
+                   f"but it's NOT there on read-back ({len(names)} entries).")
+        else:
+            log_fn(f"modlist update: '{mod_name}' confirmed in "
+                   f"{modlist_path} ({len(names)} entries).")
+    except Exception as exc:
+        log_fn(f"modlist update: read-back verification failed ({exc}).")
 
 
 def _add_plugins(game, profile_dir: Path, dest_root: Path, log_fn: LogFn) -> None:

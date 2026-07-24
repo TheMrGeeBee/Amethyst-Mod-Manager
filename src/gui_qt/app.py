@@ -9265,13 +9265,23 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._notify(self.tr("Replace failed: {0}").format(exc), "warning")
             return
-        # Drop the replaced mod's modlist row so it isn't left dangling.
-        m = self._modlist_model
-        for r in range(m.rowCount()):
-            e = m.entry(r)
-            if not e.is_separator and e.name == new_name:
-                m.remove_row(r)
-                break
+        # Drop the replaced mod's modlist row so it isn't left dangling. File-
+        # level, not self._modlist_model — same stale-snapshot hazard as
+        # _do_rename_mod_on_disk below (this whole flow runs before the
+        # post-install reload for a fresh install), and remove_row's default
+        # save=True would silently re-persist that stale state.
+        try:
+            from Utils.modlist import read_modlist, write_modlist, _lock_for
+            ml_path = self._gs.modlist_path()
+            if ml_path is not None:
+                with _lock_for(ml_path):
+                    entries = read_modlist(ml_path)
+                    entries = [e for e in entries
+                              if e.is_separator or e.name != new_name]
+                    write_modlist(ml_path, entries)
+        except Exception as exc:
+            print(f"[gui_qt] replace-then-rename modlist update failed: {exc}",
+                  flush=True)
         self._do_rename_mod_on_disk(old_name, new_name)
 
     def _do_rename_mod_on_disk(self, old_name: str, new_name: str) -> str | None:
@@ -9306,13 +9316,29 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             print(f"[gui_qt] rename state migration failed: {exc}", flush=True)
         # Update the modlist entry by name, persist, and reload everything.
-        m = self._modlist_model
-        for r in range(m.rowCount()):
-            e = m.entry(r)
-            if not e.is_separator and e.name == old_name:
-                e.name = new_name
-                break
-        m.save()
+        # Read-modify-write the FILE directly rather than renaming the row in
+        # self._modlist_model and calling m.save() — the rename prompt (this
+        # whole flow) runs BEFORE _on_install_done's _reload_modlist() for a
+        # single install (_finish_one_install, which the prompt gates, is what
+        # continues the queue into _install_done), so the model is still
+        # showing its PRE-install snapshot at this point. Renaming a row that
+        # isn't there yet was a silent no-op, and m.save() then overwrote the
+        # freshly-written modlist.txt with that stale snapshot — deleting the
+        # just-installed mod's entry outright (root cause of mods vanishing
+        # until a manual Refresh, but only when using this rename prompt).
+        try:
+            from Utils.modlist import read_modlist, write_modlist, _lock_for
+            ml_path = self._gs.modlist_path()
+            if ml_path is not None:
+                with _lock_for(ml_path):
+                    entries = read_modlist(ml_path)
+                    for e in entries:
+                        if not e.is_separator and e.name == old_name:
+                            e.name = new_name
+                            break
+                    write_modlist(ml_path, entries)
+        except Exception as exc:
+            print(f"[gui_qt] rename modlist update failed: {exc}", flush=True)
         self._reload_modlist()
         self._notify(self.tr("Renamed to '{0}'.").format(new_name), "info")
         return new_name
