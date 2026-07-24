@@ -119,6 +119,29 @@ class ModioAPIError(Exception):
     """Raised on a failed mod.io API request (network or HTTP error)."""
 
 
+class ModioModNotFoundError(ModioAPIError):
+    """Raised when mod.io confirms *mod_id* has no mod under this game.
+
+    Distinct from a transient 403 (throttle) — mod.io's own error_ref 15024
+    ("The mod ID you have included in your request could not be found")
+    means the id will never resolve, so callers can cache this negatively
+    instead of retrying it on every future check. This happens for BG3 paks
+    whose ``PublishHandle`` is a leftover/placeholder value that was never
+    actually published to mod.io, not just genuine mod.io mods.
+    """
+
+
+def _mod_not_found(resp) -> bool:
+    """True if *resp* is mod.io's "mod ID could not be found" error_ref 15024."""
+    if resp.status_code not in (403, 404):
+        return False
+    try:
+        err = resp.json().get("error") or {}
+    except ValueError:
+        return False
+    return err.get("error_ref") == 15024
+
+
 class ModioAPI:
     """Read-only mod.io client.  Requires a public read-only API key."""
 
@@ -139,11 +162,17 @@ class ModioAPI:
 
         Under bulk checking mod.io occasionally throttles with 429 or returns a
         spurious 403; both clear on retry, so we back off rather than fail the
-        mod.  Returns the final ``requests.Response`` (caller checks status).
+        mod.  A confirmed "mod ID could not be found" 403 (error_ref 15024) is
+        never transient — it's returned immediately without retrying, so a pak
+        with a bogus/leftover ``PublishHandle`` doesn't burn ~7s of backoff on
+        every single check.  Returns the final ``requests.Response`` (caller
+        checks status).
         """
         delay = 1.0
         for attempt in range(retries + 1):
             resp = self._session.get(url, params=params, timeout=self._timeout)
+            if resp.status_code == 403 and _mod_not_found(resp):
+                return resp
             if resp.status_code in (429, 403) and attempt < retries:
                 wait = delay
                 if resp.status_code == 429:
@@ -183,6 +212,9 @@ class ModioAPI:
         if resp.status_code == 401:
             raise ModioAPIError("invalid or missing mod.io API key (HTTP 401)")
         if resp.status_code in (403, 404):
+            if _mod_not_found(resp):
+                raise ModioModNotFoundError(
+                    f"mod {mod_id} does not exist on mod.io (confirmed)")
             raise ModioAPIError(f"mod {mod_id} not found on mod.io (HTTP {resp.status_code})")
         if resp.status_code != 200:
             raise ModioAPIError(f"HTTP {resp.status_code}: {resp.text[:200]}")

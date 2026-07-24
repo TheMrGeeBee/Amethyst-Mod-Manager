@@ -52,6 +52,11 @@ _KEY_NAME = "modioName"
 _KEY_PROFILE_URL = "modioProfileUrl"
 _KEY_UPLOADER = "modioUploader"
 _KEY_TAGS = "modioTags"
+# The PublishHandle confirmed (via mod.io error_ref 15024) to not correspond
+# to any real mod.io mod — e.g. a leftover/placeholder value from a pak that
+# was never actually published. Lets callers skip the API call entirely on
+# future checks instead of re-querying (and retrying) a permanently-404 id.
+_KEY_NOT_FOUND_ID = "modioNotFoundId"
 
 
 def _load_sibling(stem: str):
@@ -190,6 +195,10 @@ def resolve_modio_meta(
     try:
         api = modio_api.ModioAPI(api_key)
         files = api.get_mod_files(mod_id)
+    except modio_api.ModioModNotFoundError:
+        # Confirmed permanently absent from mod.io — let the caller cache
+        # this so it isn't re-queried (and retried) on every future check.
+        raise
     except Exception as e:
         _log(f"mod.io: file lookup failed — {e}")
         return None
@@ -330,3 +339,30 @@ def read_modio_meta(meta_ini_path: Path) -> ModioMeta:
     meta.tags = cp.get(_SECTION, _KEY_TAGS, fallback="")
     meta.installed = cp.get(_SECTION, _KEY_INSTALLED, fallback="")
     return meta
+
+
+def mark_not_found(meta_ini_path: Path, mod_id: int) -> None:
+    """Record that *mod_id* is confirmed absent from mod.io (non-destructive)."""
+    cp = configparser.ConfigParser(interpolation=None)
+    if meta_ini_path.is_file():
+        cp.read(str(meta_ini_path), encoding="utf-8")
+    if not cp.has_section(_SECTION):
+        cp.add_section(_SECTION)
+    cp.set(_SECTION, _KEY_NOT_FOUND_ID, str(mod_id))
+    meta_ini_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(meta_ini_path, "w", encoding="utf-8") as f:
+        cp.write(f)
+
+
+def is_marked_not_found(meta_ini_path: Path, mod_id: int) -> bool:
+    """True if *mod_id* was already confirmed absent from mod.io for this pak."""
+    if not meta_ini_path.is_file():
+        return False
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.read(str(meta_ini_path), encoding="utf-8")
+    if not cp.has_section(_SECTION):
+        return False
+    try:
+        return int(cp.get(_SECTION, _KEY_NOT_FOUND_ID, fallback="0") or "0") == mod_id
+    except ValueError:
+        return False

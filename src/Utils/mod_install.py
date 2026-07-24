@@ -2477,7 +2477,17 @@ def _try_resolve_modio(meta_path: Path, dest_root: Path, archive: Path, log_fn: 
         if not api_key:
             return
         modio_meta = _load_bg3_sibling("modio_meta")
-        meta = modio_meta.resolve_modio_meta(archive, dest_root, api_key, log_fn)
+        modio_api = _load_bg3_sibling("modio_api")
+        try:
+            meta = modio_meta.resolve_modio_meta(archive, dest_root, api_key, log_fn)
+        except modio_api.ModioModNotFoundError:
+            # PublishHandle is present but confirmed absent from mod.io (e.g.
+            # a leftover/placeholder value) — mark it so future "Check for
+            # Updates" runs don't keep re-querying an id that'll never exist.
+            mod_id, _name, _pak = modio_meta.read_publish_handle_from_staging(dest_root)
+            if mod_id > 0:
+                modio_meta.mark_not_found(meta_path, mod_id)
+            return
         if meta is not None and meta.mod_id > 0:
             modio_meta.write_modio_meta(meta_path, meta)
     except Exception as exc:

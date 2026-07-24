@@ -103,12 +103,22 @@ def check_for_updates(
             mod_id, _name, _pak = modio_meta.read_publish_handle_from_staging(folder)
             if mod_id <= 0:
                 continue  # not a mod.io pak
+            if modio_meta.is_marked_not_found(meta_path, mod_id):
+                continue  # confirmed absent from mod.io on a previous check
             _log(f"mod.io: resolving '{folder.name}' (mod {mod_id})...")
             try:
                 resolved = modio_meta.resolve_modio_meta(
                     archive_path=(_pak if _pak is not None else folder),
                     staging_dir=folder, api_key=api_key, log_fn=_log,
                 )
+            except modio_api.ModioModNotFoundError:
+                _log(f"mod.io: '{folder.name}' — PublishHandle {mod_id} does not "
+                     f"exist on mod.io, won't recheck.")
+                try:
+                    modio_meta.mark_not_found(meta_path, mod_id)
+                except OSError as e:
+                    app_log(f"mod.io: could not mark '{folder.name}' as not-found: {e}")
+                continue
             except Exception as e:
                 _log(f"mod.io: resolve failed for '{folder.name}' — {e}")
                 continue
