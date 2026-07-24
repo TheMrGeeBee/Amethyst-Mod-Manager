@@ -413,6 +413,46 @@ def _build_mod_menu(view, model, row, entry, sel_mods, multi, act, stub, divider
     act(_mt("Remove mod"), lambda: _remove(view, model, row), enabled=not locked)
 
 
+def _fill_scroll_submenu(root_menu, sub, items, scroll_cap):
+    """Fill *sub* with a single QWidgetAction wrapping a QListWidget showing
+    *items* — visible height capped at *scroll_cap* rows, real scrollbar past
+    that. Clicking a row closes the whole menu and runs its slot."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListWidget, QWidgetAction
+    lst = QListWidget(sub)
+    lst.setFrameShape(QListWidget.Shape.NoFrame)
+    lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    lst.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    lst.setMouseTracking(True)
+    # Menu-like hover highlight (QListWidget only tints on selection by default).
+    lst.setStyleSheet(
+        "QListWidget { background: transparent; outline: none; }"
+        "QListWidget::item { padding: 3px 16px; }"
+        "QListWidget::item:hover, QListWidget::item:selected {"
+        " background: palette(highlight); color: palette(highlighted-text); }")
+    slots = []
+    for text, slot in items:
+        # Item texts are DATA (separator names), not translated.
+        lst.addItem(text)
+        slots.append(slot)
+    row_h = lst.sizeHintForRow(0) or 22
+    lst.setFixedHeight(row_h * scroll_cap + 4)
+    sbar_w = lst.verticalScrollBar().sizeHint().width()
+    lst.setMinimumWidth(lst.sizeHintForColumn(0) + sbar_w + 8)
+
+    def _picked(item):
+        row = lst.row(item)
+        sub.close()
+        root_menu.close()
+        if 0 <= row < len(slots):
+            slots[row]()
+
+    lst.itemClicked.connect(_picked)
+    wa = QWidgetAction(sub)
+    wa.setDefaultWidget(lst)
+    sub.addAction(wa)
+
+
 def _boundary_names():
     from gui_qt.modlist_model import _BOUNDARY_NAMES
     return _BOUNDARY_NAMES

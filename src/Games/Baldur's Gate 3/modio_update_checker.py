@@ -119,6 +119,26 @@ def check_for_updates(
             except OSError as e:
                 app_log(f"mod.io: could not write meta.ini for '{folder.name}': {e}")
             meta = resolved
+        elif not meta.uploader and not meta.tags:
+            # Already identified, but by a version of this code before
+            # uploader/tags were tracked (or a resolve that only got the mod
+            # id) — backfill them without touching the already-known
+            # file_id/version, so a slow/failed match here can't regress a
+            # mod that's already correctly tracked.
+            try:
+                detail = api.get_mod_detail(meta.mod_id)
+            except Exception as e:
+                detail = None
+                _log(f"mod.io: uploader/tags backfill failed for '{folder.name}' — {e}")
+            if detail is not None and (detail.uploader or detail.tags):
+                meta.uploader = detail.uploader
+                meta.tags = ", ".join(detail.tags)
+                if not meta.profile_url:
+                    meta.profile_url = detail.profile_url
+                try:
+                    modio_meta.write_modio_meta(meta_path, meta)
+                except OSError as e:
+                    app_log(f"mod.io: could not backfill '{folder.name}': {e}")
         targets.append((folder, meta_path, meta))
 
     if not targets:

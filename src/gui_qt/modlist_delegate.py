@@ -18,7 +18,7 @@ from gui_qt.theme_qt import active_palette, _c, qc, qc_contrast
 from gui_qt.icons import icon
 from gui_qt.modlist_model import (
     EntryRole, ConflictRole, BsaConflictRole, FlagsRole, HighlightRole,
-    COL_NAME, COL_FLAGS, COL_CONFLICTS,
+    COL_NAME, COL_FLAGS, COL_CONFLICTS, COL_PRIORITY, COL_LOCKED,
 )
 from gui_qt.modlist_data import (
     FLAG_UPDATE, FLAG_ENDORSED, FLAG_ROOT, FLAG_MODIFIED_MF, FLAG_MISSING_REQS,
