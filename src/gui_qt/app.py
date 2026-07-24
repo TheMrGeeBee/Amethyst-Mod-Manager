@@ -4042,6 +4042,8 @@ class MainWindow(QMainWindow):
         # collection install ran (see _run_staged_finish guard) — drain it now.
         if self._staged_finish_queue:
             QTimer.singleShot(0, self._run_staged_finish)
+        # Release any Deploy/Restore deferred behind this collection install.
+        self._drain_pending_after_staged()
         ov = self._col_install_overlay
 
         if kind == "cancelled":
@@ -7411,11 +7413,16 @@ class MainWindow(QMainWindow):
             self._deploy_rerun_pending = True
             self._auto_deploy_in_progress = False
             return
-        # A detached-wizard staging job mutates the shared game (staging root +
-        # active profile) — a deploy started now could resolve the wrong profile
-        # / race the staging tree. Defer until the staged queue drains; re-run
-        # from _on_wizard_finish_done. Coalesce duplicate deferrals per game.
-        if getattr(self, "_staged_finish_running", False) \
+        # A manual install, a collection install, or a detached-wizard staging
+        # job mutates the shared game (staging root + active profile) — a
+        # deploy started now could resolve the wrong profile / race the
+        # staging tree, same hazard _install_paths guards against on the
+        # install side (see its comment for the full explanation). Defer
+        # until all of them drain; released by _drain_pending_after_staged.
+        # Coalesce duplicate deferrals per game.
+        if getattr(self, "_install_running", False) \
+                or getattr(self, "_col_install_running", False) \
+                or getattr(self, "_staged_finish_running", False) \
                 or self._staged_finish_queue:
             self._auto_deploy_in_progress = False
             if not any(getattr(cb, "_kind", None) == "deploy"
@@ -7577,10 +7584,14 @@ class MainWindow(QMainWindow):
         if self._deploy_running:
             self._notify(self.tr("A deploy is in progress — try again shortly."), "warning")
             return
-        # Defer behind a detached-wizard staging job (shared game mutation) — it
-        # re-runs once the staged queue drains (_on_wizard_finish_done). Coalesce
+        # Defer behind a manual install, a collection install, or a
+        # detached-wizard staging job (all mutate the shared game's active
+        # profile — see _install_paths / _start_deploy for the full
+        # explanation). Released by _drain_pending_after_staged. Coalesce
         # duplicate restore requests.
-        if getattr(self, "_staged_finish_running", False) \
+        if getattr(self, "_install_running", False) \
+                or getattr(self, "_col_install_running", False) \
+                or getattr(self, "_staged_finish_running", False) \
                 or self._staged_finish_queue:
             if not any(getattr(cb, "_kind", None) == "restore"
                        for cb in self._pending_after_staged):
@@ -9010,6 +9021,28 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _drain_pending_after_staged(self):
+        """Release Deploy/Restore requests deferred behind an install, a
+        collection install, or a detached-wizard staging job (all three
+        mutate the shared game's active-profile pointer — see
+        _install_paths for the full race explanation). Only safe once ALL
+        of them are confirmed idle; any one still running holds the shared
+        game object, and releasing early would re-open the exact
+        wrong-profile race this queue exists to prevent. Called from every
+        handler that clears one of those flags."""
+        if (getattr(self, "_install_running", False)
+                or getattr(self, "_deploy_running", False)
+                or getattr(self, "_staged_finish_running", False)
+                or self._staged_finish_queue
+                or getattr(self, "_col_install_running", False)):
+            return
+        pending, self._pending_after_staged = self._pending_after_staged, []
+        for cb in pending:
+            try:
+                cb()
+            except Exception as exc:
+                self._append_log(f"[install] deferred action error: {exc}")
+
     def _on_wizard_finish_done(self, name, prepared, prev_name):
         """UI thread: a detached-wizard staging job finished. Report it (toast /
         optional rename prompt / remove-previous), reload, then drain the next
@@ -9031,12 +9064,7 @@ class MainWindow(QMainWindow):
             if not self._staged_finish_running and not self._staged_finish_queue:
                 if self._pending_install_batches:
                     QTimer.singleShot(0, self._drain_pending_installs)
-                pending, self._pending_after_staged = self._pending_after_staged, []
-                for cb in pending:
-                    try:
-                        cb()
-                    except Exception as exc:
-                        self._append_log(f"[install] deferred action error: {exc}")
+                self._drain_pending_after_staged()
 
         def _after_named(final):
             self._reload_modlist()
@@ -9299,6 +9327,10 @@ class MainWindow(QMainWindow):
         # while this pipeline held the shared game — let it run now.
         if self._staged_finish_queue:
             QTimer.singleShot(0, self._run_staged_finish)
+        # Release any Deploy/Restore deferred behind this install (no-op if
+        # a collection install or staged-finish job is still holding the
+        # shared game — see _drain_pending_after_staged).
+        self._drain_pending_after_staged()
         if hasattr(self, "_install_btn"):
             self._install_btn.setEnabled(True)
         if self._progress_popup is not None:
