@@ -15,6 +15,7 @@ Separators do not count toward priority numbering.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,28 @@ from Utils.app_log import app_log
 from Utils.atomic_write import write_atomic_text
 
 _SEPARATOR_SUFFIX = "_separator"
+
+# Guards read-modify-write cycles (prepend_mod, ensure_mod_preserving_position)
+# against concurrent callers — e.g. a background install worker and a
+# GUI-thread modlist save racing on the same file. Each reads the current
+# entries, edits them in memory, then writes the result back; without a lock,
+# two overlapping calls can both read the same pre-edit snapshot and the
+# second write silently discards the first caller's change (reproduced under
+# a concurrency stress test losing most of a batch of concurrent installs).
+# Mirrors Utils/profile_state.py's _lock_for pattern. Keyed by resolved path
+# so independent profiles' modlist.txt files serialize independently.
+_modlist_locks: dict[Path, threading.Lock] = {}
+_modlist_locks_guard = threading.Lock()
+
+
+def _lock_for(modlist_path: Path) -> threading.Lock:
+    resolved = modlist_path.resolve()
+    with _modlist_locks_guard:
+        lock = _modlist_locks.get(resolved)
+        if lock is None:
+            lock = threading.Lock()
+            _modlist_locks[resolved] = lock
+        return lock
 
 
 @dataclass
@@ -130,17 +153,18 @@ def prepend_mod(modlist_path: Path, mod_name: str, enabled: bool = True,
     or updating a disabled mod does not silently re-enable it). ``enabled`` is
     only used for brand-new entries in that case.
     """
-    entries = read_modlist(modlist_path)
-    existing = next((e for e in entries if e.name == mod_name), None)
-    # Remove any existing entry with the same name
-    entries = [e for e in entries if e.name != mod_name]
-    if preserve_existing_state and existing is not None:
-        new_entry = ModEntry(name=mod_name, enabled=existing.enabled,
-                             locked=existing.locked)
-    else:
-        new_entry = ModEntry(name=mod_name, enabled=enabled, locked=False)
-    entries.insert(0, new_entry)
-    write_modlist(modlist_path, entries)
+    with _lock_for(modlist_path):
+        entries = read_modlist(modlist_path)
+        existing = next((e for e in entries if e.name == mod_name), None)
+        # Remove any existing entry with the same name
+        entries = [e for e in entries if e.name != mod_name]
+        if preserve_existing_state and existing is not None:
+            new_entry = ModEntry(name=mod_name, enabled=existing.enabled,
+                                 locked=existing.locked)
+        else:
+            new_entry = ModEntry(name=mod_name, enabled=enabled, locked=False)
+        entries.insert(0, new_entry)
+        write_modlist(modlist_path, entries)
 
 
 def ensure_mod_preserving_position(
@@ -159,17 +183,18 @@ def ensure_mod_preserving_position(
     set to ``enabled``. If no entry exists, the mod is added at the top (highest
     priority), matching prepend_mod's behaviour for new mods.
     """
-    entries = read_modlist(modlist_path)
-    for e in entries:
-        if e.name == mod_name:
-            if not preserve_existing_state:
-                e.enabled = enabled
-            write_modlist(modlist_path, entries)
-            return
+    with _lock_for(modlist_path):
+        entries = read_modlist(modlist_path)
+        for e in entries:
+            if e.name == mod_name:
+                if not preserve_existing_state:
+                    e.enabled = enabled
+                write_modlist(modlist_path, entries)
+                return
 
-    # If not already present, add as a new top-priority entry.
-    entries.insert(0, ModEntry(name=mod_name, enabled=enabled, locked=False))
-    write_modlist(modlist_path, entries)
+        # If not already present, add as a new top-priority entry.
+        entries.insert(0, ModEntry(name=mod_name, enabled=enabled, locked=False))
+        write_modlist(modlist_path, entries)
 
 
 # Profile-root infrastructure folder names. If one of these turns up *inside*

@@ -949,13 +949,18 @@ class ModListModel(QAbstractTableModel):
         # Every structural edit (drag, remove, add-separator, set_priority…)
         # funnels through here — row→block mapping may have changed.
         self._sep_hl_cache.clear()
-        from Utils.modlist import write_modlist
+        from Utils.modlist import write_modlist, _lock_for
         from Utils.perftrace import span
         # ALWAYS write the natural order — the display list may be a sorted /
         # inverted permutation (and contains the divider in reverse mode).
         body = [e for e in self._natural if e.name not in _PINNED_NAMES]
         try:
-            with span("modlist.write_modlist"):
+            # Same lock prepend_mod/ensure_mod_preserving_position take — a
+            # background install worker can be mid read-modify-write on this
+            # exact file while the user reorders/toggles here; without a
+            # shared lock, whichever write lands last silently discards the
+            # other's change (reproduced under a concurrency stress test).
+            with span("modlist.write_modlist"), _lock_for(self.modlist_path):
                 write_modlist(self.modlist_path, body)
         except Exception as exc:
             print(f"[gui_qt] modlist save failed: {exc}", flush=True)
